@@ -103,22 +103,16 @@ func cmdRoute(args []string) {
 // cmdProviders prints which provider API keys are configured and their source.
 func cmdProviders() {
 	creds, _ := loadCredentials()
-	type entry struct{ name, envVar, models string }
-	entries := []entry{
-		{"anthropic", "ANTHROPIC_API_KEY", "haiku, sonnet, opus"},
-		{"openai", "OPENAI_API_KEY", "gpt-4o, gpt-4o-mini"},
-		{"openrouter", "OPENROUTER_API_KEY", "any openrouter model"},
-	}
 	fmt.Printf("%-14s  %-14s  %s\n", "provider", "status", "models")
 	fmt.Printf("%-14s  %-14s  %s\n", "──────────────", "──────────────", "──────────────────────")
-	for _, e := range entries {
+	for _, p := range knownProviders {
 		switch {
-		case os.Getenv(e.envVar) != "":
-			fmt.Printf("%-14s  %-14s  %s\n", e.name, "env var", e.models)
-		case creds[e.envVar] != "":
-			fmt.Printf("%-14s  %-14s  %s\n", e.name, "veto login", e.models)
+		case os.Getenv(p.envKey) != "":
+			fmt.Printf("%-14s  %-14s  %s\n", p.name, "env var", p.models)
+		case creds[p.envKey] != "":
+			fmt.Printf("%-14s  %-14s  %s\n", p.name, "veto login", p.models)
 		default:
-			fmt.Printf("%-14s  %-14s  run 'veto login'\n", e.name, "not set")
+			fmt.Printf("%-14s  %-14s  run 'veto login'\n", p.name, "not set")
 		}
 	}
 }
