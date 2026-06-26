@@ -21,6 +21,8 @@ func main() {
 		cmdRoute(os.Args[2:])
 	case "providers":
 		cmdProviders()
+	case "login":
+		cmdLogin()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
 		printUsage()
@@ -34,6 +36,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "usage: veto <command> [flags]")
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "commands:")
+	fmt.Fprintln(os.Stderr, "  login       save a provider API key interactively")
 	fmt.Fprintln(os.Stderr, "  route       route a task to the best available model")
 	fmt.Fprintln(os.Stderr, "  providers   show configured provider status")
 	fmt.Fprintln(os.Stderr)
@@ -97,21 +100,25 @@ func cmdRoute(args []string) {
 	}
 }
 
-// cmdProviders prints which provider API keys are configured.
+// cmdProviders prints which provider API keys are configured and their source.
 func cmdProviders() {
+	creds, _ := loadCredentials()
 	type entry struct{ name, envVar, models string }
 	entries := []entry{
 		{"anthropic", "ANTHROPIC_API_KEY", "haiku, sonnet, opus"},
 		{"openai", "OPENAI_API_KEY", "gpt-4o, gpt-4o-mini"},
 		{"openrouter", "OPENROUTER_API_KEY", "any openrouter model"},
 	}
-	fmt.Printf("%-14s  %-12s  %s\n", "provider", "status", "models")
-	fmt.Printf("%-14s  %-12s  %s\n", "──────────────", "────────────", "──────────────────────")
+	fmt.Printf("%-14s  %-14s  %s\n", "provider", "status", "models")
+	fmt.Printf("%-14s  %-14s  %s\n", "──────────────", "──────────────", "──────────────────────")
 	for _, e := range entries {
-		if os.Getenv(e.envVar) != "" {
-			fmt.Printf("%-14s  %-12s  %s\n", e.name, "configured", e.models)
-		} else {
-			fmt.Printf("%-14s  %-12s  set %s\n", e.name, "not set", e.envVar)
+		switch {
+		case os.Getenv(e.envVar) != "":
+			fmt.Printf("%-14s  %-14s  %s\n", e.name, "env var", e.models)
+		case creds[e.envVar] != "":
+			fmt.Printf("%-14s  %-14s  %s\n", e.name, "veto login", e.models)
+		default:
+			fmt.Printf("%-14s  %-14s  run 'veto login'\n", e.name, "not set")
 		}
 	}
 }
@@ -128,23 +135,24 @@ func (r *providerRegistry) For(name string) (router.Executor, bool) {
 }
 
 func buildProviderRegistry() (*providerRegistry, error) {
+	creds, _ := loadCredentials() // best-effort; env vars take precedence
 	reg := &providerRegistry{executors: make(map[string]router.Executor)}
 
-	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+	if key := getKey("ANTHROPIC_API_KEY", creds); key != "" {
 		reg.executors["haiku"] = executor.NewAnthropicExecutor(key, "claude-haiku-4-5-20251001")
 		reg.executors["sonnet"] = executor.NewAnthropicExecutor(key, "claude-sonnet-4-6")
 		reg.executors["opus"] = executor.NewAnthropicExecutor(key, "claude-opus-4-8")
 	}
-	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+	if key := getKey("OPENAI_API_KEY", creds); key != "" {
 		reg.executors["gpt-4o"] = executor.NewOpenAIExecutor(key, "gpt-4o")
 		reg.executors["gpt-4o-mini"] = executor.NewOpenAIExecutor(key, "gpt-4o-mini")
 	}
-	if key := os.Getenv("OPENROUTER_API_KEY"); key != "" {
+	if key := getKey("OPENROUTER_API_KEY", creds); key != "" {
 		reg.executors["llama-3.1-405b"] = executor.NewOpenRouterExecutor(key, "meta-llama/llama-3.1-405b")
 	}
 
 	if len(reg.executors) == 0 {
-		return nil, fmt.Errorf("no API keys configured — set ANTHROPIC_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY")
+		return nil, fmt.Errorf("no API keys configured — run 'veto login' or set ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY")
 	}
 	return reg, nil
 }
