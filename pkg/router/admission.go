@@ -11,29 +11,50 @@ import (
 
 //go:generate moq -out mocks/executor.go -pkg mocks -skip-ensure -fmt goimports . Executor
 
-// Executor is the subset of executor.ClaudeExecutor used by the admission gate.
-// defined here (consumer side) so tests can inject a mock without importing pkg/executor.
+// Executor is the interface a model provider must satisfy.
+// Defined at consumer side so tests can inject a mock without importing pkg/executor.
 type Executor interface {
 	Run(ctx context.Context, prompt string) executor.Result
 }
 
-// AdmissionGate asks a candidate model whether it accepts a task.
-// the model must respond with JSON only — any other format is treated as rejection.
-type AdmissionGate struct {
-	exec Executor
+// ExecutorFactory returns the right executor for a given model name.
+// Concrete implementations live in pkg/executor; they satisfy this via duck typing.
+type ExecutorFactory interface {
+	For(modelName string) (Executor, bool)
 }
 
-// NewAdmissionGate creates a gate backed by the given executor.
-func NewAdmissionGate(exec Executor) *AdmissionGate {
-	return &AdmissionGate{exec: exec}
+// AdmissionGate asks a candidate model whether it accepts a task.
+// The model must respond with JSON only — any other format is treated as rejection.
+type AdmissionGate struct {
+	factory ExecutorFactory
 }
+
+// NewAdmissionGate creates a gate using the same executor for all models.
+// ponytail: single-executor path for tests and single-provider setups.
+func NewAdmissionGate(exec Executor) *AdmissionGate {
+	return &AdmissionGate{factory: singleFactory{exec: exec}}
+}
+
+// NewAdmissionGateWithFactory creates a gate that selects executors per model name.
+func NewAdmissionGateWithFactory(factory ExecutorFactory) *AdmissionGate {
+	return &AdmissionGate{factory: factory}
+}
+
+type singleFactory struct{ exec Executor }
+
+func (f singleFactory) For(_ string) (Executor, bool) { return f.exec, true }
 
 // Ask runs an admission check: sends a structured prompt to the model and parses
 // the JSON response into an AdmissionDecision.
 // on any failure (exec error, parse error, no JSON found) the gate rejects — never silently accepts.
 func (g *AdmissionGate) Ask(ctx context.Context, task TaskSpec, model ModelCapabilities) (AdmissionDecision, error) {
+	exec, ok := g.factory.For(model.Name)
+	if !ok {
+		return AdmissionDecision{Accept: false, ReasonCodes: []string{ReasonParseFailure}},
+			fmt.Errorf("no executor registered for model %q", model.Name)
+	}
 	prompt := buildAdmissionPrompt(task, model)
-	result := g.exec.Run(ctx, prompt)
+	result := exec.Run(ctx, prompt)
 	if result.Error != nil {
 		return AdmissionDecision{
 			Accept:      false,
