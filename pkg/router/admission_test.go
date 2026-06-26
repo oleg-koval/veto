@@ -193,3 +193,55 @@ func TestAdmissionGate_PromptIncludesModelInfo(t *testing.T) {
 	assert.Contains(t, capturedPrompt, "plan")
 	assert.Contains(t, capturedPrompt, "design system")
 }
+
+// factoryMock is a minimal ExecutorFactory for testing NewAdmissionGateWithFactory.
+type factoryMock struct {
+	executors map[string]Executor
+}
+
+func (f *factoryMock) For(name string) (Executor, bool) {
+	e, ok := f.executors[name]
+	return e, ok
+}
+
+func TestNewAdmissionGateWithFactory_RoutesPerModel(t *testing.T) {
+	haikuCalled := false
+	sonnetCalled := false
+
+	factory := &factoryMock{executors: map[string]Executor{
+		"haiku": &mocks.ExecutorMock{
+			RunFunc: func(_ context.Context, _ string) executor.Result {
+				haikuCalled = true
+				return executor.Result{Output: `{"accept":true,"confidence":0.9,"reason_codes":[]}`}
+			},
+		},
+		"sonnet": &mocks.ExecutorMock{
+			RunFunc: func(_ context.Context, _ string) executor.Result {
+				sonnetCalled = true
+				return executor.Result{Output: `{"accept":true,"confidence":0.8,"reason_codes":[]}`}
+			},
+		},
+	}}
+
+	gate := NewAdmissionGateWithFactory(factory)
+
+	d, err := gate.Ask(context.Background(), TaskSpec{}, ModelCapabilities{Name: "haiku"})
+	require.NoError(t, err)
+	assert.True(t, d.Accept)
+	assert.True(t, haikuCalled)
+	assert.False(t, sonnetCalled, "sonnet executor must not be called when asking haiku")
+
+	d, err = gate.Ask(context.Background(), TaskSpec{}, ModelCapabilities{Name: "sonnet"})
+	require.NoError(t, err)
+	assert.True(t, d.Accept)
+	assert.True(t, sonnetCalled)
+}
+
+func TestNewAdmissionGateWithFactory_UnknownModel_ReturnsError(t *testing.T) {
+	gate := NewAdmissionGateWithFactory(&factoryMock{executors: map[string]Executor{}})
+
+	d, err := gate.Ask(context.Background(), TaskSpec{}, ModelCapabilities{Name: "gpt-99"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gpt-99")
+	assert.False(t, d.Accept)
+}

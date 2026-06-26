@@ -154,3 +154,127 @@ func TestManager_Route_LogsDecisions(t *testing.T) {
 	sig := store.Signal("sonnet", KindCodeChange)
 	assert.NotZero(t, sig.HistoricalRejectRate+sig.HistoricalSuccessRate)
 }
+
+func TestManager_Route_EmitsFilterEvents(t *testing.T) {
+	exec := &mocks.ExecutorMock{
+		RunFunc: func(_ context.Context, _ string) executor.Result {
+			return executor.Result{Output: acceptJSON()}
+		},
+	}
+	reg := NewRegistry()
+	gate := NewAdmissionGate(exec)
+	mgr := NewManager(reg, gate, NewMemoryStore())
+
+	var filterPass, filterFail []string
+	mgr.OnEvent = func(e ProgressEvent) {
+		switch e.Kind {
+		case EventFilterPass:
+			filterPass = append(filterPass, e.Model)
+		case EventFilterFail:
+			filterFail = append(filterFail, e.Model)
+		}
+	}
+
+	_, _, _ = mgr.Route(context.Background(), TaskSpec{ID: "ev1", Kind: KindCodeChange})
+
+	// at least one model must pass hard filter (the registry has multiple models)
+	assert.NotEmpty(t, filterPass, "expected at least one filter_pass event")
+}
+
+func TestManager_Route_EmitsAskEvents(t *testing.T) {
+	n := 0
+	exec := &mocks.ExecutorMock{
+		RunFunc: func(_ context.Context, _ string) executor.Result {
+			n++
+			if n == 1 {
+				return executor.Result{Output: rejectJSON(ReasonWeakKind)}
+			}
+			return executor.Result{Output: acceptJSON()}
+		},
+	}
+	reg := NewRegistry()
+	gate := NewAdmissionGate(exec)
+	mgr := NewManager(reg, gate, NewMemoryStore())
+
+	var events []EventKind
+	mgr.OnEvent = func(e ProgressEvent) { events = append(events, e.Kind) }
+
+	_, _, err := mgr.Route(context.Background(), TaskSpec{ID: "ev2", Kind: KindCodeChange})
+	require.NoError(t, err)
+
+	assert.Contains(t, events, EventAskStart)
+	assert.Contains(t, events, EventAskReject)
+	assert.Contains(t, events, EventAskAccept)
+}
+
+func TestManager_Route_EmitsErrorEvent(t *testing.T) {
+	exec := &mocks.ExecutorMock{
+		RunFunc: func(_ context.Context, _ string) executor.Result {
+			return executor.Result{Error: errors.New("exec failure")}
+		},
+	}
+	reg := NewRegistry()
+	gate := NewAdmissionGate(exec)
+	mgr := NewManager(reg, gate, NewMemoryStore())
+
+	var gotErrorEvent bool
+	mgr.OnEvent = func(e ProgressEvent) {
+		if e.Kind == EventAskError {
+			gotErrorEvent = true
+		}
+	}
+
+	_, _, _ = mgr.Route(context.Background(), TaskSpec{ID: "ev3", Kind: KindCodeChange})
+	assert.True(t, gotErrorEvent)
+}
+
+func TestManager_Route_OnEventNil_NoPanic(t *testing.T) {
+	exec := &mocks.ExecutorMock{
+		RunFunc: func(_ context.Context, _ string) executor.Result {
+			return executor.Result{Output: acceptJSON()}
+		},
+	}
+	mgr := NewManager(NewRegistry(), NewAdmissionGate(exec), NewMemoryStore())
+	// mgr.OnEvent is nil — must not panic
+	assert.NotPanics(t, func() {
+		_, _, _ = mgr.Route(context.Background(), TaskSpec{ID: "ev4", Kind: KindCodeChange})
+	})
+}
+
+func TestManager_Route_SkipModels(t *testing.T) {
+	callOrder := []string{}
+	exec := &mocks.ExecutorMock{
+		RunFunc: func(_ context.Context, prompt string) executor.Result {
+			return executor.Result{Output: acceptJSON()}
+		},
+	}
+	reg := NewRegistry()
+	gate := NewAdmissionGate(exec)
+	mgr := NewManager(reg, gate, NewMemoryStore())
+
+	var askedModels []string
+	mgr.OnEvent = func(e ProgressEvent) {
+		if e.Kind == EventAskStart {
+			askedModels = append(askedModels, e.Model)
+		}
+	}
+
+	// get the ranked candidates to know which model will be first
+	all := reg.All()
+	ranked := RankCandidates(TaskSpec{Kind: KindCodeChange}, all, reg)
+	require.NotEmpty(t, ranked)
+	topModel := ranked[0].Name
+
+	// skip the top model — it should not be asked
+	_, _, err := mgr.Route(context.Background(), TaskSpec{
+		ID:         "skip1",
+		Kind:       KindCodeChange,
+		SkipModels: []string{topModel},
+	})
+	require.NoError(t, err)
+
+	for _, m := range askedModels {
+		assert.NotEqual(t, topModel, m, "skipped model %q must not be asked", topModel)
+	}
+	_ = callOrder
+}

@@ -104,3 +104,81 @@ func TestEstimatedCost(t *testing.T) {
 	cost2 := estimatedCost(m, TaskSpec{})
 	assert.InDelta(t, 0.011, cost2, 0.0001)
 }
+
+func TestFilterReason(t *testing.T) {
+	allTools := []string{"bash", "read", "write"}
+	base := ModelCapabilities{
+		Name:               "base",
+		MaxContextTokens:   200000,
+		SupportsTools:      allTools,
+		CostPer1kInputUSD:  0.001,
+		CostPer1kOutputUSD: 0.001,
+	}
+
+	tests := []struct {
+		name   string
+		model  ModelCapabilities
+		task   TaskSpec
+		wantReason string
+	}{
+		{
+			name:       "passes — empty reason",
+			model:      base,
+			task:       TaskSpec{Kind: KindCodeChange},
+			wantReason: "",
+		},
+		{
+			name: "missing required tool",
+			model: ModelCapabilities{
+				Name: "notool", MaxContextTokens: 200000,
+				SupportsTools: []string{"read"},
+			},
+			task:       TaskSpec{RequiredTools: []string{"bash"}},
+			wantReason: ReasonMissingTool,
+		},
+		{
+			name: "context too large",
+			model: ModelCapabilities{
+				Name: "small", MaxContextTokens: 4096,
+				SupportsTools: allTools,
+			},
+			task:       TaskSpec{MaxTokens: 10000},
+			wantReason: ReasonContextTooLarge,
+		},
+		{
+			name: "cost ceiling exceeded",
+			model: ModelCapabilities{
+				Name:               "expensive",
+				MaxContextTokens:   200000,
+				SupportsTools:      allTools,
+				CostPer1kInputUSD:  1.0,
+				CostPer1kOutputUSD: 1.0,
+			},
+			task:       TaskSpec{MaxTokens: 1000, MaxCostUSD: 0.001},
+			wantReason: ReasonCostCeiling,
+		},
+		{
+			name: "weak kind",
+			model: ModelCapabilities{
+				Name:             "weak",
+				MaxContextTokens: 200000,
+				SupportsTools:    allTools,
+				Weaknesses:       []TaskKind{KindDebug},
+			},
+			task:       TaskSpec{Kind: KindDebug},
+			wantReason: ReasonWeakKind,
+		},
+		{
+			name:       "missing tool checked before context",
+			model:      ModelCapabilities{Name: "x", MaxContextTokens: 100, SupportsTools: []string{}},
+			task:       TaskSpec{RequiredTools: []string{"bash"}, MaxTokens: 200},
+			wantReason: ReasonMissingTool,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.wantReason, FilterReason(tt.model, tt.task))
+		})
+	}
+}
