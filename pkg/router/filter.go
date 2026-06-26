@@ -51,3 +51,21 @@ func estimatedCost(m ModelCapabilities, task TaskSpec) float64 {
 func isWeakKind(m ModelCapabilities, kind TaskKind) bool {
 	return slices.Contains(m.Weaknesses, kind)
 }
+
+// FilterReason returns the hard-filter rejection reason for m, or "" if it passes.
+// Used by Manager to emit per-model filter events without duplicating HardFilter logic.
+func FilterReason(m ModelCapabilities, task TaskSpec) string {
+	if !hasRequiredTools(m, task.RequiredTools) {
+		return ReasonMissingTool
+	}
+	if task.MaxTokens > 0 && m.MaxContextTokens < task.MaxTokens {
+		return ReasonContextTooLarge
+	}
+	if task.MaxCostUSD > 0 && estimatedCost(m, task) > task.MaxCostUSD {
+		return ReasonCostCeiling
+	}
+	if isWeakKind(m, task.Kind) {
+		return ReasonWeakKind
+	}
+	return ""
+}

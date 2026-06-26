@@ -45,9 +45,10 @@ type TaskSpec struct {
 	RequiredTools   []string
 	SuccessCriteria []string
 	Risk            Risk
-	MaxCostUSD      float64 // 0 = no limit
-	MaxTokens       int     // 0 = no limit
-	Source          string  // "user" | "cron" | "webhook" | "system"
+	MaxCostUSD      float64  // 0 = no limit
+	MaxTokens       int      // 0 = no limit
+	Source          string   // "user" | "cron" | "webhook" | "system"
+	SkipModels      []string // resume: models already decided in a prior interrupted run
 }
 
 // ModelCapabilities describes what a model can and cannot handle.

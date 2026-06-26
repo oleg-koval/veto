@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/oleg-koval/veto/pkg/executor"
@@ -46,21 +49,25 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  OPENROUTER_API_KEY    any model via openrouter.ai")
 }
 
-// cmdRoute routes a task through the admission pipeline and prints the accepted model.
+// cmdRoute routes a task through the admission pipeline with live progress display.
 func cmdRoute(args []string) {
 	fs := flag.NewFlagSet("route", flag.ExitOnError)
-	task := fs.String("task", "", "task objective (required)")
+	taskObj := fs.String("task", "", "task objective (required)")
 	kind := fs.String("kind", "code-change", "task kind: extract|summarize|code-change|debug|plan|review|refactor")
 	risk := fs.String("risk", "medium", "risk level: low|medium|high")
 	maxCost := fs.Float64("max-cost", 0, "max cost in USD (0 = no limit)")
 	timeout := fs.Duration("timeout", 30*time.Second, "per-model admission timeout")
+	quiet := fs.Bool("quiet", false, "suppress routing animation (useful in scripts)")
+	noResume := fs.Bool("no-resume", false, "ignore any saved checkpoint and start fresh")
 	_ = fs.Parse(args)
 
-	if *task == "" {
+	if *taskObj == "" {
 		fmt.Fprintln(os.Stderr, "error: --task is required")
 		fs.Usage()
 		os.Exit(1)
 	}
+
+	setupLogger()
 
 	reg, err := buildProviderRegistry()
 	if err != nil {
@@ -68,35 +75,106 @@ func cmdRoute(args []string) {
 		os.Exit(1)
 	}
 
+	// checkpoint: resume interrupted routing sessions
+	hash := taskHash(*taskObj, *kind, *risk, *maxCost)
+	cp := &Checkpoint{Hash: hash, Objective: *taskObj}
+	if !*noResume {
+		if saved, ok := loadCheckpoint(hash); ok {
+			if !*quiet {
+				fmt.Println()
+				fmt.Printf("  Resuming previous session (%d model(s) already tried).\n", len(saved.Tried))
+				for _, t := range saved.Tried {
+					status := "✗ rejected"
+					if t.Accepted {
+						status = "✓ accepted"
+					}
+					fmt.Printf("    %-16s  %s\n", t.Model, status)
+				}
+			}
+			cp = saved
+		}
+	}
+
+	// signal handling: Ctrl+C saves checkpoint instead of losing progress
+	sigCtx, stopSig := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSig()
+	ctx, cancel := context.WithTimeout(sigCtx, *timeout)
+	defer cancel()
+
 	modelReg := router.NewRegistry()
 	gate := router.NewAdmissionGateWithFactory(reg)
 	store := router.NewMemoryStore()
 	mgr := router.NewManager(modelReg, gate, store)
 
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-	defer cancel()
+	render := NewRenderer(*quiet)
+	render.PrintTaskHeader(*taskObj, *kind, *risk, *maxCost)
+
+	mgr.OnEvent = func(e router.ProgressEvent) {
+		render.OnEvent(e)
+		logEvent(*taskObj, *kind, *risk, e)
+
+		// track admission decisions for checkpoint
+		switch e.Kind {
+		case router.EventAskAccept:
+			cp.add(e.Model, true, nil)
+		case router.EventAskReject, router.EventAskError:
+			cp.add(e.Model, false, e.Reasons)
+		}
+	}
 
 	spec := router.TaskSpec{
-		ID:         "cli",
+		ID:         hash,
 		Kind:       router.TaskKind(*kind),
-		Objective:  *task,
+		Objective:  *taskObj,
 		Risk:       router.Risk(*risk),
 		MaxCostUSD: *maxCost,
+		SkipModels: cp.triedNames(),
 	}
 
 	model, decision, err := mgr.Route(ctx, spec)
+
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		saveCheckpoint(cp)
+		if !*quiet {
+			fmt.Println()
+			fmt.Println("  Routing interrupted. Progress saved.")
+			fmt.Printf("  Run the same command to resume where you left off.\n")
+			fmt.Printf("  Run with --no-resume to start fresh.\n")
+		}
+		os.Exit(130)
+	}
+	if errors.Is(err, router.ErrNoCandidate) {
+		deleteCheckpoint(hash)
+		if !*quiet {
+			fmt.Println()
+			fmt.Println("  No model accepted this task.")
+			fmt.Println("  Try adjusting --max-cost, --risk, or --kind.")
+		} else {
+			fmt.Fprintln(os.Stderr, "no candidate model accepted the task")
+		}
+		os.Exit(1)
+	}
 	if err != nil {
+		deleteCheckpoint(hash)
 		fmt.Fprintf(os.Stderr, "routing failed: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("model:      %s (%s tier)\n", model.Name, model.Tier)
-	fmt.Printf("confidence: %.0f%%\n", decision.Confidence*100)
-	if decision.EstimatedTokens > 0 {
-		fmt.Printf("est tokens: %d\n", decision.EstimatedTokens)
+	deleteCheckpoint(hash)
+	render.PrintResult(model, decision)
+
+	// quiet mode: machine-readable single line
+	if *quiet {
+		fmt.Printf("%s\n", model.Name)
 	}
-	if decision.EstimatedCostUSD > 0 {
-		fmt.Printf("est cost:   $%.4f\n", decision.EstimatedCostUSD)
+
+	if routeLog != nil {
+		routeLog.Info("route_done",
+			"model", model.Name,
+			"tier", model.Tier,
+			"confidence", decision.Confidence,
+			"task", *taskObj,
+		)
 	}
 }
 
