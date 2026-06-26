@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 const (
@@ -55,6 +56,7 @@ type openAIResponse struct {
 }
 
 // Run sends prompt to the OpenAI-compatible API and returns the text response.
+// Retries up to maxRetries times on transient server errors (429, 502, 503, 504).
 func (e *OpenAIExecutor) Run(ctx context.Context, prompt string) Result {
 	body, err := json.Marshal(openAIRequest{
 		Model:     e.model,
@@ -65,35 +67,50 @@ func (e *OpenAIExecutor) Run(ctx context.Context, prompt string) Result {
 		return Result{Error: fmt.Errorf("openai marshal: %w", err)}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.endpoint, bytes.NewReader(body))
-	if err != nil {
-		return Result{Error: fmt.Errorf("openai request: %w", err)}
-	}
-	req.Header.Set("Authorization", "Bearer "+e.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	if e.endpoint == openRouterEndpoint {
-		req.Header.Set("HTTP-Referer", "https://github.com/oleg-koval/veto")
-		req.Header.Set("X-Title", "veto")
-	}
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.endpoint, bytes.NewReader(body))
+		if err != nil {
+			return Result{Error: fmt.Errorf("openai request: %w", err)}
+		}
+		req.Header.Set("Authorization", "Bearer "+e.apiKey)
+		req.Header.Set("Content-Type", "application/json")
+		if e.endpoint == openRouterEndpoint {
+			req.Header.Set("HTTP-Referer", "https://github.com/oleg-koval/veto")
+			req.Header.Set("X-Title", "veto")
+		}
 
-	resp, err := e.client.Do(req)
-	if err != nil {
-		return Result{Error: fmt.Errorf("openai http: %w", err)}
-	}
-	defer resp.Body.Close()
+		resp, err := e.client.Do(req)
+		if err != nil {
+			return Result{Error: fmt.Errorf("openai http: %w", err)}
+		}
 
-	var ar openAIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&ar); err != nil {
-		return Result{Error: fmt.Errorf("openai decode: %w", err)}
+		if retryableStatus(resp.StatusCode) && attempt < maxRetries {
+			delay := retryAfter(resp, retryDelay(attempt))
+			resp.Body.Close()
+			select {
+			case <-ctx.Done():
+				return Result{Error: fmt.Errorf("openai: %w", ctx.Err())}
+			case <-time.After(delay):
+				continue
+			}
+		}
+
+		var ar openAIResponse
+		decErr := json.NewDecoder(resp.Body).Decode(&ar)
+		resp.Body.Close()
+		if decErr != nil {
+			return Result{Error: fmt.Errorf("openai decode: %w", decErr)}
+		}
+		if ar.Error != nil {
+			return Result{Error: fmt.Errorf("openai api: %s", ar.Error.Message)}
+		}
+		if resp.StatusCode != http.StatusOK {
+			return Result{Error: fmt.Errorf("openai status %d", resp.StatusCode)}
+		}
+		if len(ar.Choices) == 0 {
+			return Result{Error: fmt.Errorf("openai: empty response")}
+		}
+		return Result{Output: ar.Choices[0].Message.Content}
 	}
-	if ar.Error != nil {
-		return Result{Error: fmt.Errorf("openai api: %s", ar.Error.Message)}
-	}
-	if resp.StatusCode != http.StatusOK {
-		return Result{Error: fmt.Errorf("openai status %d", resp.StatusCode)}
-	}
-	if len(ar.Choices) == 0 {
-		return Result{Error: fmt.Errorf("openai: empty response")}
-	}
-	return Result{Output: ar.Choices[0].Message.Content}
+	return Result{Error: fmt.Errorf("openai: max retries exceeded")}
 }

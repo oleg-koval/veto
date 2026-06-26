@@ -145,17 +145,18 @@ type spinner struct {
 func startSpinner(model string) *spinner {
 	frames := []byte{'|', '/', '-', '\\'}
 	s := &spinner{done: make(chan struct{})}
-	// print initial frame immediately
 	fmt.Printf("    %-16s  %c asking...", model, frames[0])
+	tick := time.NewTicker(100 * time.Millisecond)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
+		defer tick.Stop()
 		i := 1
 		for {
 			select {
 			case <-s.done:
 				return
-			case <-time.After(100 * time.Millisecond):
+			case <-tick.C:
 				fmt.Printf("\r    %-16s  %c asking...", model, frames[i%len(frames)])
 				i++
 			}
