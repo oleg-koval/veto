@@ -10,7 +10,33 @@ import (
 func TestNewRegistry(t *testing.T) {
 	reg := NewRegistry()
 	models := reg.All()
-	assert.Len(t, models, 3, "default registry should have 3 tiers")
+	// full catalog spans Anthropic + OpenAI + OpenRouter
+	assert.GreaterOrEqual(t, len(models), 6)
+	for _, want := range []string{"haiku", "sonnet", "opus", "gpt-4o", "gpt-4o-mini"} {
+		_, ok := reg.ByName(want)
+		assert.True(t, ok, "catalog should include %s", want)
+	}
+}
+
+func TestNewRegistryFor_FiltersToNamed(t *testing.T) {
+	reg := NewRegistryFor([]string{"gpt-4o", "gpt-4o-mini"})
+	models := reg.All()
+	assert.Len(t, models, 2)
+	_, ok := reg.ByName("gpt-4o")
+	assert.True(t, ok)
+	_, ok = reg.ByName("opus")
+	assert.False(t, ok, "opus is not configured, must be excluded")
+}
+
+func TestNewRegistryFor_IgnoresUnknownNames(t *testing.T) {
+	reg := NewRegistryFor([]string{"gpt-4o", "no-such-model"})
+	assert.Len(t, reg.All(), 1)
+}
+
+func TestNewRegistryFor_EmptyYieldsFullCatalog(t *testing.T) {
+	full := NewRegistry().All()
+	got := NewRegistryFor(nil).All()
+	assert.Len(t, got, len(full))
 }
 
 func TestRegistry_All_ReturnsCopy(t *testing.T) {

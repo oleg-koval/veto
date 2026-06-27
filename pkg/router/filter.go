@@ -52,6 +52,12 @@ func isWeakKind(m ModelCapabilities, kind TaskKind) bool {
 	return slices.Contains(m.Weaknesses, kind)
 }
 
+// EstimatedCost exposes the internal cost estimate for callers that want to
+// compare models (e.g. "saved $X vs always-opus").
+func EstimatedCost(m ModelCapabilities, task TaskSpec) float64 {
+	return estimatedCost(m, task)
+}
+
 // FilterReason returns the hard-filter rejection reason for m, or "" if it passes.
 // Used by Manager to emit per-model filter events without duplicating HardFilter logic.
 func FilterReason(m ModelCapabilities, task TaskSpec) string {

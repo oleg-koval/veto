@@ -32,7 +32,7 @@ func TestManager_Route_FirstAccepted(t *testing.T) {
 	mgr := NewManager(reg, gate, NewMemoryStore())
 
 	task := TaskSpec{ID: "t1", Kind: KindCodeChange}
-	model, decision, err := mgr.Route(context.Background(), task)
+	model, decision, err := mgr.Route(t.Context(), task)
 	require.NoError(t, err)
 	assert.True(t, decision.Accept)
 	assert.NotEmpty(t, model.Name)
@@ -55,7 +55,7 @@ func TestManager_Route_SkipRejectTakeSecond(t *testing.T) {
 	store := NewMemoryStore()
 	mgr := NewManager(reg, gate, store)
 
-	model, decision, err := mgr.Route(context.Background(), TaskSpec{ID: "t2", Kind: KindCodeChange})
+	model, decision, err := mgr.Route(t.Context(), TaskSpec{ID: "t2", Kind: KindCodeChange})
 	require.NoError(t, err)
 	assert.True(t, decision.Accept)
 	assert.Equal(t, 2, n)
@@ -72,7 +72,7 @@ func TestManager_Route_NoCandidateError(t *testing.T) {
 	gate := NewAdmissionGate(exec)
 	mgr := NewManager(reg, gate, NewMemoryStore())
 
-	_, _, err := mgr.Route(context.Background(), TaskSpec{ID: "t3", Kind: KindCodeChange})
+	_, _, err := mgr.Route(t.Context(), TaskSpec{ID: "t3", Kind: KindCodeChange})
 	assert.ErrorIs(t, err, ErrNoCandidate)
 }
 
@@ -91,7 +91,7 @@ func TestManager_Route_ExecErrorIsSkipped(t *testing.T) {
 	gate := NewAdmissionGate(exec)
 	mgr := NewManager(reg, gate, NewMemoryStore())
 
-	_, decision, err := mgr.Route(context.Background(), TaskSpec{ID: "t4", Kind: KindCodeChange})
+	_, decision, err := mgr.Route(t.Context(), TaskSpec{ID: "t4", Kind: KindCodeChange})
 	require.NoError(t, err)
 	assert.True(t, decision.Accept)
 	assert.Equal(t, 2, n)
@@ -104,7 +104,7 @@ func TestManager_Route_NoModelsAfterHardFilter(t *testing.T) {
 	mgr := NewManager(reg, gate, NewMemoryStore())
 
 	// no model supports "quantum-tool"
-	_, _, err := mgr.Route(context.Background(), TaskSpec{
+	_, _, err := mgr.Route(t.Context(), TaskSpec{
 		ID:            "t5",
 		Kind:          KindCodeChange,
 		RequiredTools: []string{"quantum-tool"},
@@ -123,7 +123,7 @@ func TestManager_Route_ContextCancellation_ReturnsCtxErr(t *testing.T) {
 	gate := NewAdmissionGate(exec)
 	mgr := NewManager(reg, gate, NewMemoryStore())
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // cancel immediately
 
 	_, _, err := mgr.Route(ctx, TaskSpec{ID: "t-ctx", Kind: KindCodeChange})
@@ -148,7 +148,7 @@ func TestManager_Route_LogsDecisions(t *testing.T) {
 	store := NewMemoryStore()
 	mgr := NewManager(reg, gate, store)
 
-	_, _, _ = mgr.Route(context.Background(), TaskSpec{ID: "t6", Kind: KindCodeChange})
+	_, _, _ = mgr.Route(t.Context(), TaskSpec{ID: "t6", Kind: KindCodeChange})
 	// verifying store received decisions via Signal (indirect)
 	// if store is working, signal is non-zero
 	sig := store.Signal("sonnet", KindCodeChange)
@@ -175,7 +175,7 @@ func TestManager_Route_EmitsFilterEvents(t *testing.T) {
 		}
 	}
 
-	_, _, _ = mgr.Route(context.Background(), TaskSpec{ID: "ev1", Kind: KindCodeChange})
+	_, _, _ = mgr.Route(t.Context(), TaskSpec{ID: "ev1", Kind: KindCodeChange})
 
 	// at least one model must pass hard filter (the registry has multiple models)
 	assert.NotEmpty(t, filterPass, "expected at least one filter_pass event")
@@ -199,7 +199,7 @@ func TestManager_Route_EmitsAskEvents(t *testing.T) {
 	var events []EventKind
 	mgr.OnEvent = func(e ProgressEvent) { events = append(events, e.Kind) }
 
-	_, _, err := mgr.Route(context.Background(), TaskSpec{ID: "ev2", Kind: KindCodeChange})
+	_, _, err := mgr.Route(t.Context(), TaskSpec{ID: "ev2", Kind: KindCodeChange})
 	require.NoError(t, err)
 
 	assert.Contains(t, events, EventAskStart)
@@ -224,7 +224,7 @@ func TestManager_Route_EmitsErrorEvent(t *testing.T) {
 		}
 	}
 
-	_, _, _ = mgr.Route(context.Background(), TaskSpec{ID: "ev3", Kind: KindCodeChange})
+	_, _, _ = mgr.Route(t.Context(), TaskSpec{ID: "ev3", Kind: KindCodeChange})
 	assert.True(t, gotErrorEvent)
 }
 
@@ -237,7 +237,7 @@ func TestManager_Route_OnEventNil_NoPanic(t *testing.T) {
 	mgr := NewManager(NewRegistry(), NewAdmissionGate(exec), NewMemoryStore())
 	// mgr.OnEvent is nil — must not panic
 	assert.NotPanics(t, func() {
-		_, _, _ = mgr.Route(context.Background(), TaskSpec{ID: "ev4", Kind: KindCodeChange})
+		_, _, _ = mgr.Route(t.Context(), TaskSpec{ID: "ev4", Kind: KindCodeChange})
 	})
 }
 
@@ -266,7 +266,7 @@ func TestManager_Route_SkipModels(t *testing.T) {
 	topModel := ranked[0].Name
 
 	// skip the top model — it should not be asked
-	_, _, err := mgr.Route(context.Background(), TaskSpec{
+	_, _, err := mgr.Route(t.Context(), TaskSpec{
 		ID:         "skip1",
 		Kind:       KindCodeChange,
 		SkipModels: []string{topModel},

@@ -23,7 +23,7 @@ func TestAdmissionGate_Accept(t *testing.T) {
 	task := TaskSpec{Kind: KindCodeChange, Objective: "add tests"}
 	model := ModelCapabilities{Name: "sonnet", Tier: "mid", MaxContextTokens: 200000}
 
-	decision, err := gate.Ask(context.Background(), task, model)
+	decision, err := gate.Ask(t.Context(), task, model)
 	require.NoError(t, err)
 	assert.True(t, decision.Accept)
 	assert.InDelta(t, 0.9, decision.Confidence, 0.001)
@@ -39,7 +39,7 @@ func TestAdmissionGate_Reject(t *testing.T) {
 		},
 	}
 	gate := NewAdmissionGate(exec)
-	decision, err := gate.Ask(context.Background(), TaskSpec{}, ModelCapabilities{})
+	decision, err := gate.Ask(t.Context(), TaskSpec{}, ModelCapabilities{})
 	require.NoError(t, err)
 	assert.False(t, decision.Accept)
 	assert.Equal(t, []string{ReasonContextTooLarge}, decision.ReasonCodes)
@@ -52,7 +52,7 @@ func TestAdmissionGate_ParseFailure_SoftReject(t *testing.T) {
 		},
 	}
 	gate := NewAdmissionGate(exec)
-	decision, err := gate.Ask(context.Background(), TaskSpec{}, ModelCapabilities{})
+	decision, err := gate.Ask(t.Context(), TaskSpec{}, ModelCapabilities{})
 	// parse failure is a soft reject — no error returned
 	require.NoError(t, err)
 	assert.False(t, decision.Accept)
@@ -66,7 +66,7 @@ func TestAdmissionGate_ExecError_HardReject(t *testing.T) {
 		},
 	}
 	gate := NewAdmissionGate(exec)
-	decision, err := gate.Ask(context.Background(), TaskSpec{}, ModelCapabilities{})
+	decision, err := gate.Ask(t.Context(), TaskSpec{}, ModelCapabilities{})
 	require.Error(t, err)
 	assert.False(t, decision.Accept)
 	assert.Equal(t, []string{ReasonParseFailure}, decision.ReasonCodes)
@@ -82,7 +82,7 @@ func TestAdmissionGate_JSONWithLeadingText(t *testing.T) {
 		},
 	}
 	gate := NewAdmissionGate(exec)
-	decision, err := gate.Ask(context.Background(), TaskSpec{}, ModelCapabilities{})
+	decision, err := gate.Ask(t.Context(), TaskSpec{}, ModelCapabilities{})
 	require.NoError(t, err)
 	assert.True(t, decision.Accept)
 }
@@ -170,7 +170,7 @@ func TestAdmissionGate_LowConfidenceAccept_Rejected(t *testing.T) {
 		},
 	}
 	gate := NewAdmissionGate(exec)
-	decision, err := gate.Ask(context.Background(), TaskSpec{}, ModelCapabilities{})
+	decision, err := gate.Ask(t.Context(), TaskSpec{}, ModelCapabilities{})
 	require.NoError(t, err)
 	assert.False(t, decision.Accept, "accept:true with confidence<0.7 must be treated as rejection")
 	assert.Equal(t, []string{ReasonLowConfidence}, decision.ReasonCodes)
@@ -188,7 +188,7 @@ func TestAdmissionGate_PromptIncludesModelInfo(t *testing.T) {
 	task := TaskSpec{Kind: KindPlan, Objective: "design system"}
 	model := ModelCapabilities{Name: "opus", Tier: "large", MaxContextTokens: 100000}
 
-	_, _ = gate.Ask(context.Background(), task, model)
+	_, _ = gate.Ask(t.Context(), task, model)
 	assert.Contains(t, capturedPrompt, "opus")
 	assert.Contains(t, capturedPrompt, "plan")
 	assert.Contains(t, capturedPrompt, "design system")
@@ -225,13 +225,13 @@ func TestNewAdmissionGateWithFactory_RoutesPerModel(t *testing.T) {
 
 	gate := NewAdmissionGateWithFactory(factory)
 
-	d, err := gate.Ask(context.Background(), TaskSpec{}, ModelCapabilities{Name: "haiku"})
+	d, err := gate.Ask(t.Context(), TaskSpec{}, ModelCapabilities{Name: "haiku"})
 	require.NoError(t, err)
 	assert.True(t, d.Accept)
 	assert.True(t, haikuCalled)
 	assert.False(t, sonnetCalled, "sonnet executor must not be called when asking haiku")
 
-	d, err = gate.Ask(context.Background(), TaskSpec{}, ModelCapabilities{Name: "sonnet"})
+	d, err = gate.Ask(t.Context(), TaskSpec{}, ModelCapabilities{Name: "sonnet"})
 	require.NoError(t, err)
 	assert.True(t, d.Accept)
 	assert.True(t, sonnetCalled)
@@ -240,7 +240,7 @@ func TestNewAdmissionGateWithFactory_RoutesPerModel(t *testing.T) {
 func TestNewAdmissionGateWithFactory_UnknownModel_ReturnsError(t *testing.T) {
 	gate := NewAdmissionGateWithFactory(&factoryMock{executors: map[string]Executor{}})
 
-	d, err := gate.Ask(context.Background(), TaskSpec{}, ModelCapabilities{Name: "gpt-99"})
+	d, err := gate.Ask(t.Context(), TaskSpec{}, ModelCapabilities{Name: "gpt-99"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "gpt-99")
 	assert.False(t, d.Accept)

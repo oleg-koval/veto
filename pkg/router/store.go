@@ -1,6 +1,11 @@
 package router
 
-import "sync"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"sync"
+)
 
 // Store records routing outcomes so the router can improve over time.
 type Store interface {
@@ -114,4 +119,74 @@ func (s *MemoryStore) Signal(modelName string, _ TaskKind) RoutingSignal {
 		HistoricalRejectRate:  rejectRate,
 		AvgEvalScore:          avgScore,
 	}
+}
+
+// persistedEvent is the JSON-serializable form of routingEvent.
+// routingEvent has unexported fields; this DTO carries them across save/load.
+type persistedEvent struct {
+	Kind      string  `json:"kind"`
+	TaskID    string  `json:"task_id"`
+	ModelName string  `json:"model"`
+	Accepted  bool    `json:"accepted"`
+	Score     float64 `json:"score,omitempty"`
+	Status    string  `json:"status,omitempty"`
+}
+
+// FileStore is a MemoryStore that loads from and saves to a JSON file.
+// This is what makes routing history compound across runs: each session's
+// accept/reject decisions persist and feed the next run's ranking.
+type FileStore struct {
+	*MemoryStore
+	path string
+}
+
+// NewFileStore returns a store backed by path, loading any existing history.
+// A missing or corrupt file yields an empty store — history is best-effort,
+// never a reason to fail a route.
+func NewFileStore(path string) *FileStore {
+	fs := &FileStore{MemoryStore: NewMemoryStore(), path: path}
+	fs.load()
+	return fs
+}
+
+func (s *FileStore) load() {
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		return
+	}
+	var persisted []persistedEvent
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = make([]routingEvent, len(persisted))
+	for i, p := range persisted {
+		s.events[i] = routingEvent{
+			kind: p.Kind, taskID: p.TaskID, modelName: p.ModelName,
+			accepted: p.Accepted, score: p.Score, status: p.Status,
+		}
+	}
+}
+
+// Save writes the accumulated history to disk. Call after a route completes.
+func (s *FileStore) Save() error {
+	s.mu.RLock()
+	persisted := make([]persistedEvent, len(s.events))
+	for i, e := range s.events {
+		persisted[i] = persistedEvent{
+			Kind: e.kind, TaskID: e.taskID, ModelName: e.modelName,
+			Accepted: e.accepted, Score: e.score, Status: e.status,
+		}
+	}
+	s.mu.RUnlock()
+
+	if err := os.MkdirAll(filepath.Dir(s.path), 0700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(persisted, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.path, data, 0600)
 }

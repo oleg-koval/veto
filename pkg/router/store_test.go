@@ -1,9 +1,12 @@
 package router
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMemoryStore_NeutralBaseline(t *testing.T) {
@@ -61,4 +64,43 @@ func TestMemoryStore_Concurrent(t *testing.T) {
 	for range 50 {
 		<-done
 	}
+}
+
+func TestFileStore_RoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+
+	s := NewFileStore(path)
+	s.LogDecision("task-1", "haiku", AdmissionDecision{Accept: false})
+	s.LogDecision("task-2", "haiku", AdmissionDecision{Accept: false})
+	s.LogResult("task-3", "sonnet", 0.9, "success")
+	require.NoError(t, s.Save())
+
+	// a fresh store loaded from the same path must see the prior history
+	reloaded := NewFileStore(path)
+	sig := reloaded.Signal("haiku", KindExtract)
+	assert.InDelta(t, 1.0, sig.HistoricalRejectRate, 0.001, "both haiku decisions were rejects")
+
+	sonnetSig := reloaded.Signal("sonnet", KindReview)
+	assert.InDelta(t, 0.9, sonnetSig.AvgEvalScore, 0.001)
+}
+
+func TestFileStore_MissingFile_EmptyBaseline(t *testing.T) {
+	s := NewFileStore(filepath.Join(t.TempDir(), "does-not-exist.json"))
+	sig := s.Signal("opus", KindPlan)
+	// no data → neutral baseline
+	assert.InDelta(t, 0.1, sig.HistoricalRejectRate, 0.001)
+}
+
+func TestFileStore_CorruptFile_EmptyBaseline(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	require.NoError(t, os.WriteFile(path, []byte("{not valid json"), 0600))
+
+	s := NewFileStore(path)
+	sig := s.Signal("opus", KindPlan)
+	assert.InDelta(t, 0.1, sig.HistoricalRejectRate, 0.001, "corrupt history must fall back to baseline, not crash")
+}
+
+func TestFileStore_SatisfiesSignalSource(t *testing.T) {
+	// compile-time check that FileStore can drive RankCandidates
+	var _ SignalSource = NewFileStore(filepath.Join(t.TempDir(), "h.json"))
 }

@@ -1,8 +1,8 @@
 package router
 
 import (
+	"cmp"
 	"slices"
-	"sort"
 )
 
 // scoring weights — must sum to 1.0.
@@ -29,9 +29,16 @@ func Score(task TaskSpec, model ModelCapabilities, signal RoutingSignal) float64
 		signal.AvgEvalScore*weightEvalScore
 }
 
+// SignalSource supplies historical routing signal for ranking.
+// Both *Registry (neutral baseline) and the stores satisfy it, so ranking can
+// be driven by real accumulated history instead of a static stub.
+type SignalSource interface {
+	Signal(modelName string, kind TaskKind) RoutingSignal
+}
+
 // RankCandidates hard-filters models, scores the survivors, and returns them
 // sorted from highest to lowest score.
-func RankCandidates(task TaskSpec, models []ModelCapabilities, reg *Registry) []ModelCapabilities {
+func RankCandidates(task TaskSpec, models []ModelCapabilities, signals SignalSource) []ModelCapabilities {
 	candidates := HardFilter(task, models)
 	if len(candidates) == 0 {
 		return nil
@@ -43,12 +50,12 @@ func RankCandidates(task TaskSpec, models []ModelCapabilities, reg *Registry) []
 	}
 	ranked := make([]scored, len(candidates))
 	for i, m := range candidates {
-		sig := reg.Signal(m.Name, task.Kind)
+		sig := signals.Signal(m.Name, task.Kind)
 		ranked[i] = scored{model: m, score: Score(task, m, sig)}
 	}
 
-	sort.Slice(ranked, func(i, j int) bool {
-		return ranked[i].score > ranked[j].score
+	slices.SortFunc(ranked, func(a, b scored) int {
+		return cmp.Compare(b.score, a.score)
 	})
 
 	out := make([]ModelCapabilities, len(ranked))

@@ -21,4 +21,5 @@ type ProgressEvent struct {
 	Confidence float64
 	EstTokens  int
 	EstCost    float64
+	Detail     string // human-readable detail, e.g. the underlying error on EventAskError
 }
