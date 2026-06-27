@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,6 +28,8 @@ func main() {
 		cmdProviders()
 	case "login":
 		cmdLogin()
+	case "install-git-hook":
+		cmdInstallGitHook(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
 		printUsage()
@@ -39,9 +43,10 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "usage: veto <command> [flags]")
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "commands:")
-	fmt.Fprintln(os.Stderr, "  login       save a provider API key interactively")
-	fmt.Fprintln(os.Stderr, "  route       route a task to the best available model")
-	fmt.Fprintln(os.Stderr, "  providers   show configured provider status")
+	fmt.Fprintln(os.Stderr, "  login              save a provider API key interactively")
+	fmt.Fprintln(os.Stderr, "  route              route a task to the best available model")
+	fmt.Fprintln(os.Stderr, "  providers          show configured provider status")
+	fmt.Fprintln(os.Stderr, "  install-git-hook   suggest a model on every commit")
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "auth (env vars):")
 	fmt.Fprintln(os.Stderr, "  ANTHROPIC_API_KEY     claude-haiku / sonnet / opus")
@@ -52,19 +57,31 @@ func printUsage() {
 // cmdRoute routes a task through the admission pipeline with live progress display.
 func cmdRoute(args []string) {
 	fs := flag.NewFlagSet("route", flag.ExitOnError)
-	taskObj := fs.String("task", "", "task objective (required)")
-	kind := fs.String("kind", "code-change", "task kind: extract|summarize|code-change|debug|plan|review|refactor")
+	taskObj := fs.String("task", "", "task objective (or pass as a positional argument)")
+	kindFlag := fs.String("kind", "", "task kind (auto-detected from objective if omitted): extract|summarize|code-change|debug|plan|review|refactor")
 	risk := fs.String("risk", "medium", "risk level: low|medium|high")
 	maxCost := fs.Float64("max-cost", 0, "max cost in USD (0 = no limit)")
 	timeout := fs.Duration("timeout", 30*time.Second, "per-model admission timeout")
 	quiet := fs.Bool("quiet", false, "suppress routing animation (useful in scripts)")
 	noResume := fs.Bool("no-resume", false, "ignore any saved checkpoint and start fresh")
+	dashFlag := fs.Bool("dashboard", false, "watch routing live in a local web page")
 	_ = fs.Parse(args)
 
-	if *taskObj == "" {
-		fmt.Fprintln(os.Stderr, "error: --task is required")
+	// objective: --task wins, else the positional args joined
+	objective := *taskObj
+	if objective == "" {
+		objective = strings.TrimSpace(strings.Join(fs.Args(), " "))
+	}
+	if objective == "" {
+		fmt.Fprintln(os.Stderr, "error: provide a task objective via --task or as an argument")
 		fs.Usage()
 		os.Exit(1)
+	}
+
+	// kind: explicit --kind wins, else inferred from the objective text
+	kind := *kindFlag
+	if kind == "" {
+		kind = inferKind(objective)
 	}
 
 	setupLogger()
@@ -76,8 +93,8 @@ func cmdRoute(args []string) {
 	}
 
 	// checkpoint: resume interrupted routing sessions
-	hash := taskHash(*taskObj, *kind, *risk, *maxCost)
-	cp := &Checkpoint{Hash: hash, Objective: *taskObj}
+	hash := taskHash(objective, kind, *risk, *maxCost)
+	cp := &Checkpoint{Hash: hash, Objective: objective}
 	if !*noResume {
 		if saved, ok := loadCheckpoint(hash); ok {
 			if !*quiet {
@@ -101,17 +118,38 @@ func cmdRoute(args []string) {
 	ctx, cancel := context.WithTimeout(sigCtx, *timeout)
 	defer cancel()
 
-	modelReg := router.NewRegistry()
+	// only route across models whose provider is configured
+	modelReg := router.NewRegistryFor(reg.modelNames())
 	gate := router.NewAdmissionGateWithFactory(reg)
-	store := router.NewMemoryStore()
+	// FileStore persists accept/reject history so it compounds across runs and
+	// feeds future ranking — see NewManager wiring below.
+	store := router.NewFileStore(historyPath())
 	mgr := router.NewManager(modelReg, gate, store)
 
 	render := NewRenderer(*quiet)
-	render.PrintTaskHeader(*taskObj, *kind, *risk, *maxCost)
+	render.PrintTaskHeader(objective, kind, *risk, *maxCost)
+
+	// optional live web dashboard
+	var dash *dashboard
+	var dashURL string
+	if *dashFlag {
+		dash = newDashboard()
+		if url, derr := dash.start(objective, kind, *risk); derr == nil {
+			dashURL = url
+			fmt.Printf("\n  Dashboard: %s\n", dashURL)
+			openBrowser(dashURL)
+		} else {
+			fmt.Fprintln(os.Stderr, "  (dashboard failed to start:", derr, ")")
+			dash = nil
+		}
+	}
 
 	mgr.OnEvent = func(e router.ProgressEvent) {
 		render.OnEvent(e)
-		logEvent(*taskObj, *kind, *risk, e)
+		logEvent(objective, kind, *risk, e)
+		if dash != nil {
+			dash.OnEvent(e)
+		}
 
 		// track admission decisions for checkpoint
 		switch e.Kind {
@@ -124,14 +162,16 @@ func cmdRoute(args []string) {
 
 	spec := router.TaskSpec{
 		ID:         hash,
-		Kind:       router.TaskKind(*kind),
-		Objective:  *taskObj,
+		Kind:       router.TaskKind(kind),
+		Objective:  objective,
 		Risk:       router.Risk(*risk),
 		MaxCostUSD: *maxCost,
 		SkipModels: cp.triedNames(),
 	}
 
 	model, decision, err := mgr.Route(ctx, spec)
+	// persist history regardless of outcome — os.Exit below skips defers
+	_ = store.Save()
 
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		saveCheckpoint(cp)
@@ -152,6 +192,10 @@ func cmdRoute(args []string) {
 		} else {
 			fmt.Fprintln(os.Stderr, "no candidate model accepted the task")
 		}
+		if dash != nil {
+			dash.sendResult("", "", 0, false)
+			keepDashboardAlive(dashURL)
+		}
 		os.Exit(1)
 	}
 	if err != nil {
@@ -161,7 +205,13 @@ func cmdRoute(args []string) {
 	}
 
 	deleteCheckpoint(hash)
-	render.PrintResult(model, decision)
+
+	// reward: show what routing to this model saved vs always reaching for opus
+	saved := 0.0
+	if opus, ok := modelReg.ByName("opus"); ok && model.Name != opus.Name {
+		saved = router.EstimatedCost(opus, spec) - router.EstimatedCost(model, spec)
+	}
+	render.PrintResult(model, decision, saved)
 
 	// quiet mode: machine-readable single line
 	if *quiet {
@@ -173,9 +223,97 @@ func cmdRoute(args []string) {
 			"model", model.Name,
 			"tier", model.Tier,
 			"confidence", decision.Confidence,
-			"task", *taskObj,
+			"task", objective,
 		)
 	}
+
+	if dash != nil {
+		dash.sendResult(model.Name, model.Tier, saved, true)
+		keepDashboardAlive(dashURL)
+	}
+}
+
+// keepDashboardAlive blocks until the user interrupts, so the served page stays
+// reachable after a fast route completes.
+func keepDashboardAlive(url string) {
+	fmt.Printf("\n  Dashboard live at %s — press Ctrl+C to stop.\n", url)
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	<-c
+}
+
+// inferKind guesses the task kind from the objective text so users don't have
+// to pass --kind. ponytail: keyword heuristic; --kind always overrides it.
+func inferKind(objective string) string {
+	s := strings.ToLower(objective)
+	switch {
+	case containsAny(s, "fix", "bug", "debug", "error", "crash", "broken", "failing"):
+		return "debug"
+	case containsAny(s, "refactor", "clean up", "restructure", "rename", "extract method"):
+		return "refactor"
+	case containsAny(s, "summarize", "summary", "tl;dr", "recap"):
+		return "summarize"
+	case containsAny(s, "extract", "parse", "pull out", "scrape"):
+		return "extract"
+	case containsAny(s, "review", "audit", "critique", "check"):
+		return "review"
+	case containsAny(s, "plan", "design", "architect", "propose"):
+		return "plan"
+	default:
+		return "code-change"
+	}
+}
+
+func containsAny(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+// historyPath is where routing decisions persist across runs.
+func historyPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".veto", "history.json")
+}
+
+// hookMarker identifies a prepare-commit-msg hook that veto installed, so we
+// can safely overwrite our own hook but never someone else's.
+const hookMarker = "installed by veto install-git-hook"
+
+// cmdInstallGitHook writes a prepare-commit-msg hook that runs veto route before each commit.
+func cmdInstallGitHook(args []string) {
+	fs := flag.NewFlagSet("install-git-hook", flag.ExitOnError)
+	force := fs.Bool("force", false, "overwrite an existing prepare-commit-msg hook")
+	_ = fs.Parse(args)
+
+	hookPath := filepath.Join(".git", "hooks", "prepare-commit-msg")
+	if _, err := os.Stat(".git"); os.IsNotExist(err) {
+		fmt.Fprintln(os.Stderr, "error: not inside a git repository")
+		os.Exit(1)
+	}
+
+	// don't clobber a hook we didn't write — that could destroy the user's own hook
+	if existing, err := os.ReadFile(hookPath); err == nil && !*force {
+		if !strings.Contains(string(existing), hookMarker) {
+			fmt.Fprintf(os.Stderr, "error: %s already exists and was not installed by veto\n", hookPath)
+			fmt.Fprintln(os.Stderr, "re-run with --force to overwrite it")
+			os.Exit(1)
+		}
+	}
+
+	// objective comes from the staged stat; --kind is omitted so veto infers it
+	script := "#!/bin/sh\n# " + hookMarker + "\n" +
+		"MODEL=$(veto route --quiet --task \"$(git diff --cached --stat)\" 2>/dev/null)\n" +
+		"if [ -n \"$MODEL\" ]; then\n  printf '\\n# veto suggested model: %s\\n' \"$MODEL\" >> \"$1\"\nfi\n"
+	if err := os.WriteFile(hookPath, []byte(script), 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "error writing hook: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("  Installed: %s\n", hookPath)
+	fmt.Println("  veto will suggest a model in each commit message going forward.")
 }
 
 // cmdProviders prints which provider API keys are configured and their source.
@@ -204,6 +342,16 @@ type providerRegistry struct {
 func (r *providerRegistry) For(name string) (router.Executor, bool) {
 	e, ok := r.executors[name]
 	return e, ok
+}
+
+// modelNames lists the models that have a configured executor, so routing only
+// considers providers the user actually has keys for.
+func (r *providerRegistry) modelNames() []string {
+	names := make([]string, 0, len(r.executors))
+	for name := range r.executors {
+		names = append(names, name)
+	}
+	return names
 }
 
 func buildProviderRegistry() (*providerRegistry, error) {

@@ -64,6 +64,7 @@ func (r *Renderer) OnEvent(e router.ProgressEvent) {
 			r.askHeader = true
 		}
 		if r.isTTY {
+			r.stopSpin()
 			r.spin = startSpinner(e.Model)
 		} else {
 			fmt.Printf("    %-16s  asking...\n", e.Model)
@@ -87,8 +88,26 @@ func (r *Renderer) OnEvent(e router.ProgressEvent) {
 
 	case router.EventAskError:
 		r.stopSpin()
-		fmt.Printf("\r    %-16s  ! error (parse failure)%-10s\n", e.Model, "")
+		detail := e.Detail
+		if detail == "" {
+			detail = "parse failure"
+		}
+		fmt.Printf("\r    %-16s  ! %s%-10s\n", e.Model, compactError(detail), "")
 	}
+}
+
+// compactError trims a wrapped error to a short, single-line hint for the CLI.
+// It drops the internal wrapper prefix so the provider's message leads, e.g.
+// "admission gate executor: openai api: You exceeded your quota…" → "openai api: You exceeded…".
+func compactError(s string) string {
+	s = strings.TrimPrefix(s, "admission gate executor: ")
+	if i := strings.Index(s, ". "); i >= 0 {
+		s = s[:i] // keep just the first sentence
+	}
+	if len(s) > 70 {
+		s = s[:67] + "..."
+	}
+	return s
 }
 
 // PrintTaskHeader shows the task summary before routing starts.
@@ -110,7 +129,8 @@ func (r *Renderer) PrintTaskHeader(objective, kind, risk string, maxCost float64
 }
 
 // PrintResult shows the final selected model after routing completes.
-func (r *Renderer) PrintResult(model router.ModelCapabilities, decision router.AdmissionDecision) {
+// savedUSD is how much cheaper this model is vs always routing to opus (0 = no saving to show).
+func (r *Renderer) PrintResult(model router.ModelCapabilities, decision router.AdmissionDecision, savedUSD float64) {
 	if r.quiet {
 		return
 	}
@@ -123,6 +143,9 @@ func (r *Renderer) PrintResult(model router.ModelCapabilities, decision router.A
 		}
 		if decision.EstimatedCostUSD > 0 {
 			parts = append(parts, fmt.Sprintf("~$%.4f", decision.EstimatedCostUSD))
+		}
+		if savedUSD > 0 {
+			parts = append(parts, fmt.Sprintf("saved ~$%.4f vs opus", savedUSD))
 		}
 		fmt.Printf("    Estimated: %s\n", strings.Join(parts, " · "))
 	}
@@ -147,9 +170,7 @@ func startSpinner(model string) *spinner {
 	s := &spinner{done: make(chan struct{})}
 	fmt.Printf("    %-16s  %c asking...", model, frames[0])
 	tick := time.NewTicker(100 * time.Millisecond)
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	s.wg.Go(func() {
 		defer tick.Stop()
 		i := 1
 		for {
@@ -161,7 +182,7 @@ func startSpinner(model string) *spinner {
 				i++
 			}
 		}
-	}()
+	})
 	return s
 }
 
