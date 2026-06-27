@@ -38,20 +38,40 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Fprintln(os.Stderr, "veto — model router with self-admitting receivers")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "usage: veto <command> [flags]")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "commands:")
-	fmt.Fprintln(os.Stderr, "  login              save a provider API key interactively")
-	fmt.Fprintln(os.Stderr, "  route              route a task to the best available model")
-	fmt.Fprintln(os.Stderr, "  providers          show configured provider status")
-	fmt.Fprintln(os.Stderr, "  install-git-hook   suggest a model on every commit")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "auth (env vars):")
-	fmt.Fprintln(os.Stderr, "  ANTHROPIC_API_KEY     claude-haiku / sonnet / opus")
-	fmt.Fprintln(os.Stderr, "  OPENAI_API_KEY        gpt-4o / gpt-4o-mini")
-	fmt.Fprintln(os.Stderr, "  OPENROUTER_API_KEY    any model via openrouter.ai")
+	o := os.Stderr
+	fmt.Fprintln(o, "veto — route tasks to the right AI model, automatically")
+	fmt.Fprintln(o)
+	fmt.Fprintln(o, "  Each candidate model is asked whether it accepts the task.")
+	fmt.Fprintln(o, "  The first to accept — with ≥70% confidence — is selected.")
+	fmt.Fprintln(o)
+	fmt.Fprintln(o, "USAGE")
+	fmt.Fprintln(o, "  veto <command> [flags]")
+	fmt.Fprintln(o)
+	fmt.Fprintln(o, "COMMANDS")
+	fmt.Fprintln(o, "  login              connect a provider (opens browser, masked key input)")
+	fmt.Fprintln(o, "  route              route a task to the best available model")
+	fmt.Fprintln(o, "  providers          show which providers are configured")
+	fmt.Fprintln(o, "  install-git-hook   add veto to your git workflow")
+	fmt.Fprintln(o)
+	fmt.Fprintln(o, "QUICK START")
+	fmt.Fprintln(o, "  veto login")
+	fmt.Fprintln(o, `  veto route "refactor the auth middleware to use JWT"`)
+	fmt.Fprintln(o, `  veto route --kind debug --risk high "fix the race condition in sync.go"`)
+	fmt.Fprintln(o)
+	fmt.Fprintln(o, "ROUTE FLAGS")
+	fmt.Fprintln(o, "  --kind      extract|summarize|code-change|debug|plan|review|refactor")
+	fmt.Fprintln(o, "              (auto-detected from the task text if omitted)")
+	fmt.Fprintln(o, "  --risk      low|medium|high  (default: medium)")
+	fmt.Fprintln(o, "  --max-cost  max spend in USD, e.g. --max-cost 0.01  (default: no limit)")
+	fmt.Fprintln(o, "  --quiet     print only the selected model name — useful in scripts")
+	fmt.Fprintln(o, "  --no-resume ignore a saved checkpoint and start fresh")
+	fmt.Fprintln(o, "  --dashboard open a live routing view in your browser")
+	fmt.Fprintln(o)
+	fmt.Fprintln(o, "PROVIDERS")
+	fmt.Fprintln(o, "  ANTHROPIC_API_KEY     Claude Haiku · Sonnet · Opus")
+	fmt.Fprintln(o, "  OPENAI_API_KEY        GPT-4o · GPT-4o mini")
+	fmt.Fprintln(o, "  OPENROUTER_API_KEY    Llama, Mistral, Gemini, and 100+ more")
+	fmt.Fprintln(o, "  (or run 'veto login' — veto stores keys in ~/.veto/credentials.json)")
 }
 
 // cmdRoute routes a task through the admission pipeline with live progress display.
@@ -319,16 +339,30 @@ func cmdInstallGitHook(args []string) {
 // cmdProviders prints which provider API keys are configured and their source.
 func cmdProviders() {
 	creds, _ := loadCredentials()
-	fmt.Printf("%-14s  %-14s  %s\n", "provider", "status", "models")
-	fmt.Printf("%-14s  %-14s  %s\n", "──────────────", "──────────────", "──────────────────────")
+	fmt.Printf("%-14s  %-18s  %s\n", "provider", "status", "models")
+	fmt.Printf("%-14s  %-18s  %s\n", "──────────────", "──────────────────", "──────────────────────")
 	for _, p := range knownProviders {
+		// Anthropic: check subscription mode before API key
+		if p.envKey == "ANTHROPIC_API_KEY" {
+			switch {
+			case os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true":
+				fmt.Printf("%-14s  %-18s  %s\n", p.name, "subscription (cli)", "Claude Haiku, Sonnet, Opus")
+			case os.Getenv(p.envKey) != "":
+				fmt.Printf("%-14s  %-18s  %s\n", p.name, "env var", p.models)
+			case creds[p.envKey] != "":
+				fmt.Printf("%-14s  %-18s  %s\n", p.name, "veto login", p.models)
+			default:
+				fmt.Printf("%-14s  %-18s  run 'veto login'\n", p.name, "not set")
+			}
+			continue
+		}
 		switch {
 		case os.Getenv(p.envKey) != "":
-			fmt.Printf("%-14s  %-14s  %s\n", p.name, "env var", p.models)
+			fmt.Printf("%-14s  %-18s  %s\n", p.name, "env var", p.models)
 		case creds[p.envKey] != "":
-			fmt.Printf("%-14s  %-14s  %s\n", p.name, "veto login", p.models)
+			fmt.Printf("%-14s  %-18s  %s\n", p.name, "veto login", p.models)
 		default:
-			fmt.Printf("%-14s  %-14s  run 'veto login'\n", p.name, "not set")
+			fmt.Printf("%-14s  %-18s  run 'veto login'\n", p.name, "not set")
 		}
 	}
 }
@@ -358,7 +392,13 @@ func buildProviderRegistry() (*providerRegistry, error) {
 	creds, _ := loadCredentials() // best-effort; env vars take precedence
 	reg := &providerRegistry{executors: make(map[string]router.Executor)}
 
-	if key := getKey("ANTHROPIC_API_KEY", creds); key != "" {
+	// Subscription mode: use claude CLI (flat-fee, $0 marginal) instead of API key.
+	// Subscription takes precedence over API key when both are present.
+	if creds["CLAUDE_SUBSCRIPTION"] == "true" || os.Getenv("CLAUDE_SUBSCRIPTION") == "true" {
+		reg.executors["haiku"] = executor.NewClaudeCLIExecutor("claude-haiku-4-5-20251001")
+		reg.executors["sonnet"] = executor.NewClaudeCLIExecutor("claude-sonnet-4-6")
+		reg.executors["opus"] = executor.NewClaudeCLIExecutor("claude-opus-4-8")
+	} else if key := getKey("ANTHROPIC_API_KEY", creds); key != "" {
 		reg.executors["haiku"] = executor.NewAnthropicExecutor(key, "claude-haiku-4-5-20251001")
 		reg.executors["sonnet"] = executor.NewAnthropicExecutor(key, "claude-sonnet-4-6")
 		reg.executors["opus"] = executor.NewAnthropicExecutor(key, "claude-opus-4-8")
@@ -372,7 +412,7 @@ func buildProviderRegistry() (*providerRegistry, error) {
 	}
 
 	if len(reg.executors) == 0 {
-		return nil, fmt.Errorf("no API keys configured — run 'veto login' or set ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY")
+		return nil, fmt.Errorf("no providers configured — run 'veto login' or set ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY")
 	}
 	return reg, nil
 }

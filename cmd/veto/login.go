@@ -46,13 +46,12 @@ var knownProviders = []providerInfo{
 func cmdLogin() {
 	fmt.Println()
 	fmt.Println("  Let's connect a model provider.")
-	fmt.Println("  veto will open the API keys page for you — just copy your key and paste it here.")
 	fmt.Println()
-	fmt.Println("  Which provider would you like to connect?")
+	fmt.Println("  Which provider?")
 	fmt.Println()
-	for i, p := range knownProviders {
-		fmt.Printf("  %d  %-12s  %s\n", i+1, p.name, p.models)
-	}
+	fmt.Println("  1  Anthropic (Claude)  — API key or subscription (Claude Max / claude CLI)")
+	fmt.Println("  2  OpenAI              — API key")
+	fmt.Println("  3  OpenRouter          — API key (100+ models)")
 	fmt.Println()
 	fmt.Print("  Provider [1-3]: ")
 
@@ -63,6 +62,61 @@ func cmdLogin() {
 	}
 	p := knownProviders[choice-1]
 
+	// Anthropic supports subscription mode via the claude CLI.
+	if choice == 1 {
+		fmt.Println()
+		fmt.Println("  How do you use Claude?")
+		fmt.Println()
+		fmt.Println("  1  Subscription  — Claude Max / Pro (uses claude CLI, $0 per route)")
+		fmt.Println("  2  API key       — pay per token via Anthropic API")
+		fmt.Println()
+		fmt.Print("  Mode [1-2]: ")
+
+		var mode int
+		if _, err := fmt.Scan(&mode); err != nil || mode < 1 || mode > 2 {
+			fmt.Fprintln(os.Stderr, "\n  That doesn't look right. Please enter 1 or 2.")
+			os.Exit(1)
+		}
+
+		if mode == 1 {
+			loginClaudeSubscription()
+			return
+		}
+	}
+
+	loginAPIKey(p)
+}
+
+// loginClaudeSubscription verifies the claude CLI is present and saves a subscription marker.
+func loginClaudeSubscription() {
+	fmt.Println()
+	fmt.Println("  Verifying claude CLI is installed and logged in...")
+
+	out, err := exec.Command("claude", "--version").Output()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "\n  The claude CLI is not installed or not in PATH.")
+		fmt.Fprintln(os.Stderr, "  Install it from: https://claude.ai/code")
+		os.Exit(1)
+	}
+	version := strings.TrimSpace(string(out))
+
+	if err := saveCredential("CLAUDE_SUBSCRIPTION", "true"); err != nil {
+		fmt.Fprintf(os.Stderr, "\n  Couldn't save subscription setting: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println()
+	fmt.Printf("  Claude subscription connected! (%s)\n", version)
+	fmt.Println("  veto will use claude -p for all Claude routing — no API tokens consumed.")
+	fmt.Println()
+	fmt.Println("  What's next:")
+	fmt.Println("    veto providers              — confirm Claude is connected")
+	fmt.Println(`    veto route "fix the auth bug"`)
+	fmt.Println()
+}
+
+// loginAPIKey handles the standard API-key flow for any provider.
+func loginAPIKey(p providerInfo) {
 	fmt.Println()
 	fmt.Printf("  Opening the %s API keys page in your browser...\n", p.name)
 	openBrowser(p.keyURL)
@@ -87,7 +141,7 @@ func cmdLogin() {
 	key = strings.TrimSpace(key)
 
 	if p.keyHint != "" && !strings.HasPrefix(key, p.keyHint) {
-		fmt.Printf("\n  Heads up: %s keys usually start with %q — double-check it if something doesn't work.\n", p.name, p.keyHint)
+		fmt.Printf("\n  Heads up: %s keys usually start with %q — double-check if something doesn't work.\n", p.name, p.keyHint)
 	}
 
 	if err := saveCredential(p.envKey, key); err != nil {
