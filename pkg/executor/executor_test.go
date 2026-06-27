@@ -359,3 +359,35 @@ func TestRetryableStatus(t *testing.T) {
 	}
 }
 
+// --- Benchmarks ---
+
+// BenchmarkAnthropicExecutor_Marshal measures the JSON marshal + bytes.Reader
+// setup that happens before every HTTP attempt. These are the allocations we
+// optimised: one marshal, one reader (reused across retries via Seek).
+func BenchmarkAnthropicExecutor_Marshal(b *testing.B) {
+	exec := NewAnthropicExecutor("sk-bench", "claude-haiku")
+	_ = exec // ensure constructor path is exercised
+	prompt := "You are evaluating a task. Return JSON only: {\"accept\":true,\"confidence\":0.9,\"reason_codes\":[]}"
+	b.ReportAllocs()
+	for b.Loop() {
+		// exercise only the marshal path, not the network
+		_, _ = json.Marshal(anthropicRequest{
+			Model:     "claude-haiku",
+			MaxTokens: admissionMaxTokens,
+			Messages:  []anthropicMessage{{Role: "user", Content: prompt}},
+		})
+	}
+}
+
+// BenchmarkOpenAIExecutor_Marshal is the equivalent for the OpenAI executor.
+func BenchmarkOpenAIExecutor_Marshal(b *testing.B) {
+	prompt := "You are evaluating a task. Return JSON only: {\"accept\":true,\"confidence\":0.9,\"reason_codes\":[]}"
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = json.Marshal(openAIRequest{
+			Model:     "gpt-4o",
+			Messages:  []openAIMessage{{Role: "user", Content: prompt}},
+			MaxTokens: admissionMaxTokens,
+		})
+	}
+}

@@ -29,15 +29,58 @@ type routingEvent struct {
 	status    string
 }
 
+// modelStats holds incrementally-updated aggregates per model so Signal() is O(1)
+// instead of scanning the full event log on every routing call.
+type modelStats struct {
+	decisionTotal float64
+	accepted      float64
+	resultTotal   float64
+	completed     float64
+	scoreSum      float64
+}
+
 // MemoryStore is an in-process, non-persistent Store used for MVP and tests.
 type MemoryStore struct {
 	mu     sync.RWMutex
 	events []routingEvent
+	stats  map[string]*modelStats // incremental aggregates; keyed by model name
 }
 
 // NewMemoryStore returns an empty in-memory store.
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{}
+	return &MemoryStore{stats: make(map[string]*modelStats)}
+}
+
+// statFor returns the stats entry for modelName, creating it if absent.
+// Must be called with mu held for writing.
+func (s *MemoryStore) statFor(model string) *modelStats {
+	st := s.stats[model]
+	if st == nil {
+		st = &modelStats{}
+		s.stats[model] = st
+	}
+	return st
+}
+
+// rebuildStats reconstructs s.stats from s.events in a single pass.
+// Must be called with mu held for writing.
+func (s *MemoryStore) rebuildStats() {
+	s.stats = make(map[string]*modelStats, len(s.events)/3+1)
+	for _, e := range s.events {
+		st := s.statFor(e.modelName)
+		if e.kind == "decision" {
+			st.decisionTotal++
+			if e.accepted {
+				st.accepted++
+			}
+		} else {
+			st.resultTotal++
+			if e.status == "success" {
+				st.completed++
+				st.scoreSum += e.score
+			}
+		}
+	}
 }
 
 // LogDecision records accept/reject for a task-model pair.
@@ -50,6 +93,11 @@ func (s *MemoryStore) LogDecision(taskID, modelName string, d AdmissionDecision)
 		modelName: modelName,
 		accepted:  d.Accept,
 	})
+	st := s.statFor(modelName)
+	st.decisionTotal++
+	if d.Accept {
+		st.accepted++
+	}
 }
 
 // LogResult records the execution outcome.
@@ -63,37 +111,22 @@ func (s *MemoryStore) LogResult(taskID, modelName string, score float64, status 
 		score:     score,
 		status:    status,
 	})
+	st := s.statFor(modelName)
+	st.resultTotal++
+	if status == "success" {
+		st.completed++
+		st.scoreSum += score
+	}
 }
 
-// Signal returns aggregated stats for a model across all task kinds.
-// MVP: ignores kind, aggregates all events for the model.
-// decision events drive rejectRate; result events drive successRate and avgScore.
+// Signal returns aggregated stats for a model — O(1) map lookup.
+// Aggregates are maintained incrementally by LogDecision and LogResult.
 func (s *MemoryStore) Signal(modelName string, _ TaskKind) RoutingSignal {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	st := s.stats[modelName]
+	s.mu.RUnlock()
 
-	var decisionTotal, accepted float64
-	var resultTotal, completed, scoreSum float64
-	for _, e := range s.events {
-		if e.modelName != modelName {
-			continue
-		}
-		if e.kind == "decision" {
-			decisionTotal++
-			if e.accepted {
-				accepted++
-			}
-		} else {
-			resultTotal++
-			if e.status == "success" {
-				completed++
-				scoreSum += e.score
-			}
-		}
-	}
-
-	if decisionTotal+resultTotal == 0 {
-		// no data yet — return neutral baseline.
+	if st == nil || st.decisionTotal+st.resultTotal == 0 {
 		return RoutingSignal{
 			HistoricalSuccessRate: 0.5,
 			HistoricalRejectRate:  0.1,
@@ -102,16 +135,16 @@ func (s *MemoryStore) Signal(modelName string, _ TaskKind) RoutingSignal {
 	}
 
 	rejectRate := 0.0
-	if decisionTotal > 0 {
-		rejectRate = (decisionTotal - accepted) / decisionTotal
+	if st.decisionTotal > 0 {
+		rejectRate = (st.decisionTotal - st.accepted) / st.decisionTotal
 	}
 	successRate := 0.0
-	if resultTotal > 0 {
-		successRate = completed / resultTotal
+	if st.resultTotal > 0 {
+		successRate = st.completed / st.resultTotal
 	}
 	avgScore := 0.0
-	if completed > 0 {
-		avgScore = scoreSum / completed
+	if st.completed > 0 {
+		avgScore = st.scoreSum / st.completed
 	}
 
 	return RoutingSignal{
@@ -167,6 +200,7 @@ func (s *FileStore) load() {
 			accepted: p.Accepted, score: p.Score, status: p.Status,
 		}
 	}
+	s.rebuildStats()
 }
 
 // Save writes the accumulated history to disk. Call after a route completes.
