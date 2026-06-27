@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -67,8 +68,10 @@ func (e *OpenAIExecutor) Run(ctx context.Context, prompt string) Result {
 		return Result{Error: fmt.Errorf("openai marshal: %w", err)}
 	}
 
+	bodyReader := bytes.NewReader(body)
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.endpoint, bytes.NewReader(body))
+		bodyReader.Seek(0, io.SeekStart) //nolint:errcheck // bytes.Reader.Seek never fails for SeekStart
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.endpoint, bodyReader)
 		if err != nil {
 			return Result{Error: fmt.Errorf("openai request: %w", err)}
 		}
@@ -87,18 +90,23 @@ func (e *OpenAIExecutor) Run(ctx context.Context, prompt string) Result {
 		if retryableStatus(resp.StatusCode) && attempt < maxRetries {
 			delay := retryAfter(resp, retryDelay(attempt))
 			resp.Body.Close()
+			t := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
+				t.Stop()
 				return Result{Error: fmt.Errorf("openai: %w", ctx.Err())}
-			case <-time.After(delay):
+			case <-t.C:
 				continue
 			}
 		}
 
-		var ar openAIResponse
-		decErr := json.NewDecoder(resp.Body).Decode(&ar)
+		data, readErr := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if decErr != nil {
+		if readErr != nil {
+			return Result{Error: fmt.Errorf("openai read: %w", readErr)}
+		}
+		var ar openAIResponse
+		if decErr := json.Unmarshal(data, &ar); decErr != nil {
 			return Result{Error: fmt.Errorf("openai decode: %w", decErr)}
 		}
 		if ar.Error != nil {

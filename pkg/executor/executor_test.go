@@ -60,7 +60,7 @@ func TestAnthropicExecutor_Success(t *testing.T) {
 	defer srv.Close()
 
 	exec := &AnthropicExecutor{apiKey: "sk-test", model: "claude-haiku", endpoint: srv.URL, client: srv.Client()}
-	res := exec.Run(context.Background(), "test prompt")
+	res := exec.Run(t.Context(), "test prompt")
 	require.NoError(t, res.Error)
 	assert.Equal(t, "hello", res.Output)
 }
@@ -82,7 +82,7 @@ func TestAnthropicExecutor_MultipleContentBlocks(t *testing.T) {
 	defer srv.Close()
 
 	exec := &AnthropicExecutor{apiKey: "k", model: "m", endpoint: srv.URL, client: srv.Client()}
-	res := exec.Run(context.Background(), "prompt")
+	res := exec.Run(t.Context(), "prompt")
 	require.NoError(t, res.Error)
 	assert.Equal(t, "part onepart two", res.Output)
 }
@@ -100,27 +100,29 @@ func TestAnthropicExecutor_APIError(t *testing.T) {
 	defer srv.Close()
 
 	exec := &AnthropicExecutor{apiKey: "bad", model: "m", endpoint: srv.URL, client: srv.Client()}
-	res := exec.Run(context.Background(), "prompt")
+	res := exec.Run(t.Context(), "prompt")
 	require.Error(t, res.Error)
 	assert.Contains(t, res.Error.Error(), "invalid api key")
 }
 
 func TestAnthropicExecutor_NonOKNoErrorField(t *testing.T) {
+	// 500 is not in the retryable set, so this exercises the non-OK path directly
+	// without incurring retry backoff.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
+		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(anthropicResponse{})
 	}))
 	defer srv.Close()
 
 	exec := &AnthropicExecutor{apiKey: "k", model: "m", endpoint: srv.URL, client: srv.Client()}
-	res := exec.Run(context.Background(), "prompt")
+	res := exec.Run(t.Context(), "prompt")
 	require.Error(t, res.Error)
-	assert.Contains(t, res.Error.Error(), "503")
+	assert.Contains(t, res.Error.Error(), "500")
 }
 
 func TestAnthropicExecutor_ContextCanceled(t *testing.T) {
 	exec := &AnthropicExecutor{apiKey: "k", model: "m", endpoint: "http://127.0.0.1:0", client: &http.Client{}}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	res := exec.Run(ctx, "prompt")
 	require.Error(t, res.Error)
@@ -149,27 +151,28 @@ func TestOpenAIExecutor_Success(t *testing.T) {
 	defer srv.Close()
 
 	exec := &OpenAIExecutor{apiKey: "sk-openai", model: "gpt-4o", endpoint: srv.URL, client: srv.Client()}
-	res := exec.Run(context.Background(), "hello")
+	res := exec.Run(t.Context(), "hello")
 	require.NoError(t, res.Error)
 	assert.Equal(t, "gpt says hi", res.Output)
 }
 
 func TestOpenAIExecutor_APIError(t *testing.T) {
+	// 400 is not retryable — tests error-message extraction without retry backoff
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusTooManyRequests)
+		w.WriteHeader(http.StatusBadRequest)
 		resp := openAIResponse{
 			Error: &struct {
 				Message string `json:"message"`
-			}{Message: "rate limit exceeded"},
+			}{Message: "invalid request payload"},
 		}
 		json.NewEncoder(w).Encode(resp)
 	}))
 	defer srv.Close()
 
 	exec := &OpenAIExecutor{apiKey: "k", model: "gpt-4o", endpoint: srv.URL, client: srv.Client()}
-	res := exec.Run(context.Background(), "prompt")
+	res := exec.Run(t.Context(), "prompt")
 	require.Error(t, res.Error)
-	assert.Contains(t, res.Error.Error(), "rate limit exceeded")
+	assert.Contains(t, res.Error.Error(), "invalid request payload")
 }
 
 func TestOpenAIExecutor_EmptyChoices(t *testing.T) {
@@ -179,7 +182,7 @@ func TestOpenAIExecutor_EmptyChoices(t *testing.T) {
 	defer srv.Close()
 
 	exec := &OpenAIExecutor{apiKey: "k", model: "m", endpoint: srv.URL, client: srv.Client()}
-	res := exec.Run(context.Background(), "prompt")
+	res := exec.Run(t.Context(), "prompt")
 	require.Error(t, res.Error)
 	assert.Contains(t, res.Error.Error(), "empty response")
 }
@@ -213,7 +216,7 @@ func TestOpenRouterExecutor_SetsRefererHeaders(t *testing.T) {
 	exec := NewOpenRouterExecutor("sk-or-test", "llama-3")
 	exec.client = &http.Client{Transport: transport}
 
-	res := exec.Run(context.Background(), "prompt")
+	res := exec.Run(t.Context(), "prompt")
 	require.NoError(t, res.Error)
 	assert.Equal(t, "https://github.com/oleg-koval/veto", capturedReferer)
 	assert.Equal(t, "veto", capturedTitle)
@@ -235,7 +238,7 @@ func TestOpenAIExecutor_NoRefererHeaders(t *testing.T) {
 	exec := NewOpenAIExecutor("sk-openai", "gpt-4o")
 	exec.client = &http.Client{Transport: transport}
 
-	res := exec.Run(context.Background(), "prompt")
+	res := exec.Run(t.Context(), "prompt")
 	require.NoError(t, res.Error)
 	assert.Empty(t, capturedReferer)
 }
@@ -248,7 +251,7 @@ func TestOpenAIExecutor_BadJSON(t *testing.T) {
 	defer srv.Close()
 
 	exec := &OpenAIExecutor{apiKey: "k", model: "m", endpoint: srv.URL, client: srv.Client()}
-	res := exec.Run(context.Background(), "prompt")
+	res := exec.Run(t.Context(), "prompt")
 	require.Error(t, res.Error)
 }
 
@@ -272,7 +275,7 @@ func TestAnthropicExecutor_RetryOn503ThenSucceeds(t *testing.T) {
 	})
 
 	exec := &AnthropicExecutor{apiKey: "k", model: "m", endpoint: anthropicEndpoint, client: &http.Client{Transport: transport}}
-	res := exec.Run(context.Background(), "prompt")
+	res := exec.Run(t.Context(), "prompt")
 	require.NoError(t, res.Error)
 	assert.Equal(t, "retried", res.Output)
 	assert.Equal(t, 2, attempt)
@@ -289,7 +292,7 @@ func TestAnthropicExecutor_ExhaustsRetries(t *testing.T) {
 	})
 
 	exec := &AnthropicExecutor{apiKey: "k", model: "m", endpoint: anthropicEndpoint, client: &http.Client{Transport: transport}}
-	res := exec.Run(context.Background(), "prompt")
+	res := exec.Run(t.Context(), "prompt")
 	require.Error(t, res.Error)
 	assert.Equal(t, maxRetries, attempt)
 }
@@ -302,7 +305,7 @@ func TestAnthropicExecutor_RetryRespectsContextCancel(t *testing.T) {
 		return rec.Result(), nil
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // already cancelled
 
 	exec := &AnthropicExecutor{apiKey: "k", model: "m", endpoint: anthropicEndpoint, client: &http.Client{Transport: transport}}
@@ -328,7 +331,7 @@ func TestOpenAIExecutor_RetryOn429ThenSucceeds(t *testing.T) {
 	})
 
 	exec := &OpenAIExecutor{apiKey: "k", model: "m", endpoint: openAIEndpoint, client: &http.Client{Transport: transport}}
-	res := exec.Run(context.Background(), "prompt")
+	res := exec.Run(t.Context(), "prompt")
 	require.NoError(t, res.Error)
 	assert.Equal(t, "ok after retry", res.Output)
 	assert.Equal(t, 2, attempt)
