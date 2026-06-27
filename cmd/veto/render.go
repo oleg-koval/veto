@@ -11,15 +11,24 @@ import (
 	"golang.org/x/term"
 )
 
+type filterEntry struct {
+	model  string
+	pass   bool
+	reason string
+}
+
 // Renderer displays the routing pipeline in the terminal.
 // Set quiet=true or pipe stdout to suppress animation.
 type Renderer struct {
-	quiet        bool
-	isTTY        bool
-	filterHeader bool // printed once before first filter event
-	askHeader    bool // printed once before first ask event
-	mu           sync.Mutex
-	spin         *spinner
+	quiet         bool
+	isTTY         bool
+	filterBuf     []filterEntry // buffered until ask phase, then flushed once
+	filterFlushed bool
+	askHeader     bool // printed once before first ask event
+	mu            sync.Mutex
+	spin          *spinner
+	spinModel     string // model name currently showing in spinner
+	askCount      int    // in-flight ask goroutines (fan-out)
 }
 
 // NewRenderer creates a renderer. Animation is disabled when stdout is not a TTY or quiet=true.
@@ -28,6 +37,14 @@ func NewRenderer(quiet bool) *Renderer {
 		quiet: quiet,
 		isTTY: term.IsTerminal(int(os.Stdout.Fd())),
 	}
+}
+
+// color wraps s in ANSI escape codes when stdout is a TTY.
+func (r *Renderer) color(code, s string) string {
+	if !r.isTTY {
+		return s
+	}
+	return "\033[" + code + "m" + s + "\033[0m"
 }
 
 // OnEvent is the event handler — wire it to Manager.OnEvent.
@@ -39,70 +56,130 @@ func (r *Renderer) OnEvent(e router.ProgressEvent) {
 	defer r.mu.Unlock()
 
 	switch e.Kind {
-	case router.EventFilterPass, router.EventFilterFail:
-		if !r.filterHeader {
-			fmt.Println()
-			fmt.Println("  ── Filtering candidates " + strings.Repeat("─", 30))
-			fmt.Println()
-			r.filterHeader = true
+	case router.EventFilterPass:
+		r.filterBuf = append(r.filterBuf, filterEntry{model: e.Model, pass: true})
+
+	case router.EventFilterFail:
+		reason := ""
+		if len(e.Reasons) > 0 {
+			reason = e.Reasons[0]
 		}
-		if e.Kind == router.EventFilterPass {
-			fmt.Printf("    %-16s  pass\n", e.Model)
-		} else {
-			reason := ""
-			if len(e.Reasons) > 0 {
-				reason = e.Reasons[0]
-			}
-			fmt.Printf("    %-16s  skip  %s\n", e.Model, reason)
-		}
+		r.filterBuf = append(r.filterBuf, filterEntry{model: e.Model, pass: false, reason: reason})
 
 	case router.EventAskStart:
+		r.flushFilters()
 		if !r.askHeader {
 			fmt.Println()
 			fmt.Println("  ── Asking models " + strings.Repeat("─", 37))
 			fmt.Println()
 			r.askHeader = true
 		}
-		if r.isTTY {
-			r.stopSpin()
+		r.askCount++
+		if r.isTTY && r.askCount == 1 {
+			// First (or only) ask: animate a spinner.
+			r.spinModel = e.Model
 			r.spin = startSpinner(e.Model)
 		} else {
+			// Concurrent fan-out: a second ask arrived before the first finished.
+			// Switch to static mode — print the spinner model as a plain line,
+			// then this model too, so all candidates are visible at once.
+			if r.spin != nil {
+				r.stopSpin()
+				fmt.Printf("    %-16s  asking...\n", r.spinModel)
+			}
 			fmt.Printf("    %-16s  asking...\n", e.Model)
 		}
 
 	case router.EventAskAccept:
+		r.askCount--
+		hadSpin := r.spin != nil
 		r.stopSpin()
-		line := fmt.Sprintf("    %-16s  ✓ accepted  %.0f%% confident", e.Model, e.Confidence*100)
+		line := fmt.Sprintf("    %-16s  %s  %.0f%% confident",
+			e.Model, r.color("32", "✓ accepted"), e.Confidence*100)
 		if e.EstCost > 0 {
 			line += fmt.Sprintf(" · ~$%.4f", e.EstCost)
 		}
 		if e.EstTokens > 0 {
 			line += fmt.Sprintf(" · ~%d tokens", e.EstTokens)
 		}
-		fmt.Printf("\r%-70s\n", line)
+		if hadSpin {
+			fmt.Printf("\r%-70s\n", line)
+		} else {
+			fmt.Println(line)
+		}
 
 	case router.EventAskReject:
+		r.askCount--
+		hadSpin := r.spin != nil
 		r.stopSpin()
 		reason := strings.Join(e.Reasons, ", ")
-		fmt.Printf("\r    %-16s  ✗ %s%-20s\n", e.Model, reason, "")
+		line := fmt.Sprintf("    %-16s  %s %s%-20s",
+			e.Model, r.color("31", "✗"), reason, "")
+		if hadSpin {
+			fmt.Printf("\r%-70s\n", line)
+		} else {
+			fmt.Println(line)
+		}
 
 	case router.EventAskError:
+		r.askCount--
+		hadSpin := r.spin != nil
 		r.stopSpin()
 		detail := e.Detail
 		if detail == "" {
 			detail = "parse failure"
 		}
-		fmt.Printf("\r    %-16s  ! %s%-10s\n", e.Model, compactError(detail), "")
+		line := fmt.Sprintf("    %-16s  %s %s%-10s",
+			e.Model, r.color("33", "!"), compactError(detail), "")
+		if hadSpin {
+			fmt.Printf("\r%-70s\n", line)
+		} else {
+			fmt.Println(line)
+		}
+	}
+}
+
+// flushFilters prints the buffered filter events the first time it is called.
+// When all candidates passed, prints a single summary line instead of a table —
+// the filter phase only has signal when something is pruned.
+func (r *Renderer) flushFilters() {
+	if r.filterFlushed || len(r.filterBuf) == 0 {
+		return
+	}
+	r.filterFlushed = true
+
+	var fails []filterEntry
+	var passes []string
+	for _, f := range r.filterBuf {
+		if f.pass {
+			passes = append(passes, f.model)
+		} else {
+			fails = append(fails, f)
+		}
+	}
+
+	fmt.Println()
+	if len(fails) == 0 {
+		// happy path: no pruning happened — one compact line, not a full table
+		fmt.Printf("  %d model(s) qualified: %s\n", len(passes), strings.Join(passes, ", "))
+		return
+	}
+
+	fmt.Println("  ── Filtering candidates " + strings.Repeat("─", 30))
+	fmt.Println()
+	for _, f := range fails {
+		fmt.Printf("    %-16s  skip  %s\n", f.model, r.color("2", f.reason))
+	}
+	if len(passes) > 0 {
+		fmt.Printf("    %d model(s) qualified\n", len(passes))
 	}
 }
 
 // compactError trims a wrapped error to a short, single-line hint for the CLI.
-// It drops the internal wrapper prefix so the provider's message leads, e.g.
-// "admission gate executor: openai api: You exceeded your quota…" → "openai api: You exceeded…".
 func compactError(s string) string {
 	s = strings.TrimPrefix(s, "admission gate executor: ")
 	if i := strings.Index(s, ". "); i >= 0 {
-		s = s[:i] // keep just the first sentence
+		s = s[:i]
 	}
 	if len(s) > 70 {
 		s = s[:67] + "..."
@@ -111,7 +188,8 @@ func compactError(s string) string {
 }
 
 // PrintTaskHeader shows the task summary before routing starts.
-func (r *Renderer) PrintTaskHeader(objective, kind, risk string, maxCost float64) {
+// kindInferred flags that --kind was not supplied and was auto-detected.
+func (r *Renderer) PrintTaskHeader(objective, kind, risk string, maxCost float64, kindInferred bool) {
 	if r.quiet {
 		return
 	}
@@ -121,7 +199,11 @@ func (r *Renderer) PrintTaskHeader(objective, kind, risk string, maxCost float64
 		obj = obj[:57] + "..."
 	}
 	fmt.Printf("  Routing: %q\n", obj)
-	line := fmt.Sprintf("  kind: %s  ·  risk: %s", kind, risk)
+	kindStr := kind
+	if kindInferred {
+		kindStr += r.color("2", " (inferred)")
+	}
+	line := fmt.Sprintf("  kind: %s  ·  risk: %s", kindStr, risk)
 	if maxCost > 0 {
 		line += fmt.Sprintf("  ·  max cost: $%.2f", maxCost)
 	}
@@ -135,8 +217,9 @@ func (r *Renderer) PrintResult(model router.ModelCapabilities, decision router.A
 		return
 	}
 	fmt.Println()
-	fmt.Printf("  → Selected: %s (%s tier)\n", model.Name, model.Tier)
-	if decision.EstimatedTokens > 0 || decision.EstimatedCostUSD > 0 {
+	fmt.Printf("  → %s (%s tier)\n",
+		r.color("32", "Selected: "+model.Name), model.Tier)
+	if decision.EstimatedTokens > 0 || decision.EstimatedCostUSD > 0 || savedUSD > 0 {
 		parts := []string{}
 		if decision.EstimatedTokens > 0 {
 			parts = append(parts, fmt.Sprintf("~%d tokens", decision.EstimatedTokens))
@@ -145,9 +228,9 @@ func (r *Renderer) PrintResult(model router.ModelCapabilities, decision router.A
 			parts = append(parts, fmt.Sprintf("~$%.4f", decision.EstimatedCostUSD))
 		}
 		if savedUSD > 0 {
-			parts = append(parts, fmt.Sprintf("saved ~$%.4f vs opus", savedUSD))
+			parts = append(parts, r.color("34", fmt.Sprintf("saved ~$%.4f vs opus", savedUSD)))
 		}
-		fmt.Printf("    Estimated: %s\n", strings.Join(parts, " · "))
+		fmt.Printf("    %s\n", strings.Join(parts, " · "))
 	}
 	fmt.Println()
 }

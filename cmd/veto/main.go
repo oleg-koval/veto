@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -18,12 +19,14 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		printUsage()
-		os.Exit(1)
+		printUsage(os.Stdout)
+		os.Exit(0)
 	}
 	switch os.Args[1] {
 	case "route":
 		cmdRoute(os.Args[2:])
+	case "run":
+		cmdRun(os.Args[2:])
 	case "providers":
 		cmdProviders()
 	case "login":
@@ -32,13 +35,13 @@ func main() {
 		cmdInstallGitHook(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
-		printUsage()
+		printUsage(os.Stderr)
 		os.Exit(1)
 	}
 }
 
-func printUsage() {
-	o := os.Stderr
+func printUsage(w io.Writer) {
+	o := w
 	fmt.Fprintln(o, "veto — route tasks to the right AI model, automatically")
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "  Each candidate model is asked whether it accepts the task.")
@@ -49,14 +52,16 @@ func printUsage() {
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "COMMANDS")
 	fmt.Fprintln(o, "  login              connect a provider (opens browser, masked key input)")
-	fmt.Fprintln(o, "  route              route a task to the best available model")
+	fmt.Fprintln(o, "  run                route a task and execute it — prints the model's response")
+	fmt.Fprintln(o, "  route              route a task to the best available model (no execution)")
 	fmt.Fprintln(o, "  providers          show which providers are configured")
 	fmt.Fprintln(o, "  install-git-hook   add veto to your git workflow")
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "QUICK START")
 	fmt.Fprintln(o, "  veto login")
-	fmt.Fprintln(o, `  veto route "refactor the auth middleware to use JWT"`)
-	fmt.Fprintln(o, `  veto route --kind debug --risk high "fix the race condition in sync.go"`)
+	fmt.Fprintln(o, `  veto run "refactor the auth middleware to use JWT"`)
+	fmt.Fprintln(o, `  veto run --kind debug --risk high "explain the race condition in sync.go"`)
+	fmt.Fprintln(o, `  veto route "refactor the auth middleware to use JWT"   # pick model only`)
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "ROUTE FLAGS")
 	fmt.Fprintln(o, "  --kind      extract|summarize|code-change|debug|plan|review|refactor")
@@ -100,7 +105,8 @@ func cmdRoute(args []string) {
 
 	// kind: explicit --kind wins, else inferred from the objective text
 	kind := *kindFlag
-	if kind == "" {
+	kindInferred := kind == ""
+	if kindInferred {
 		kind = inferKind(objective)
 	}
 
@@ -147,7 +153,7 @@ func cmdRoute(args []string) {
 	mgr := router.NewManager(modelReg, gate, store)
 
 	render := NewRenderer(*quiet)
-	render.PrintTaskHeader(objective, kind, *risk, *maxCost)
+	render.PrintTaskHeader(objective, kind, *risk, *maxCost, kindInferred)
 
 	// optional live web dashboard
 	var dash *dashboard
@@ -341,16 +347,20 @@ func cmdProviders() {
 	creds, _ := loadCredentials()
 	fmt.Printf("%-14s  %-18s  %s\n", "provider", "status", "models")
 	fmt.Printf("%-14s  %-18s  %s\n", "──────────────", "──────────────────", "──────────────────────")
+	configured := 0
 	for _, p := range knownProviders {
 		// Anthropic: check subscription mode before API key
 		if p.envKey == "ANTHROPIC_API_KEY" {
 			switch {
 			case os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true":
 				fmt.Printf("%-14s  %-18s  %s\n", p.name, "subscription (cli)", "Claude Haiku, Sonnet, Opus")
+				configured++
 			case os.Getenv(p.envKey) != "":
 				fmt.Printf("%-14s  %-18s  %s\n", p.name, "env var", p.models)
+				configured++
 			case creds[p.envKey] != "":
 				fmt.Printf("%-14s  %-18s  %s\n", p.name, "veto login", p.models)
+				configured++
 			default:
 				fmt.Printf("%-14s  %-18s  run 'veto login'\n", p.name, "not set")
 			}
@@ -359,10 +369,22 @@ func cmdProviders() {
 		switch {
 		case os.Getenv(p.envKey) != "":
 			fmt.Printf("%-14s  %-18s  %s\n", p.name, "env var", p.models)
+			configured++
 		case creds[p.envKey] != "":
 			fmt.Printf("%-14s  %-18s  %s\n", p.name, "veto login", p.models)
+			configured++
 		default:
 			fmt.Printf("%-14s  %-18s  run 'veto login'\n", p.name, "not set")
+		}
+	}
+	fmt.Println()
+	if configured == 0 {
+		fmt.Println("  No providers configured — run 'veto login' to get started.")
+	} else {
+		// build an accurate model count from the registry
+		reg, err := buildProviderRegistry()
+		if err == nil {
+			fmt.Printf("  %d model(s) available for routing\n", len(reg.modelNames()))
 		}
 	}
 }

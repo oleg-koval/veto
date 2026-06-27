@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -45,4 +47,14 @@ func (e *CLIExecutor) Run(ctx context.Context, prompt string) Result {
 		return Result{Error: fmt.Errorf("claude cli: empty response")}
 	}
 	return Result{Output: out}
+}
+
+// Stream invokes the CLI and pipes tokens directly to w as they arrive.
+// Returns an error if the process fails; output is already written to w on success.
+func (e *CLIExecutor) Stream(ctx context.Context, prompt string, w io.Writer) error {
+	args := append(e.args, prompt) //nolint:gocritic // intentional: append to copy
+	cmd := exec.CommandContext(ctx, e.binary, args...)
+	cmd.Stdout = w
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
