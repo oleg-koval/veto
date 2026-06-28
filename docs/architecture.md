@@ -55,7 +55,7 @@ Ranks the survivors by a weighted score (range 0.0–1.0):
 | Reject rate | 15% | How rarely does this model reject tasks it's given? |
 | Eval score | 10% | Average quality score on past tasks |
 
-Historical signals come from `Registry.Signal()` — currently a stub returning neutral values. Phase 2 will replace this with a real store backed by routing history.
+Historical signals come from `Registry.Signal()` via the model registry. The registry accumulates accept/reject decisions as `RoutingSignal` values during the session; the scorer reads these to rank candidates. Persistent history is written by `FileStore` but the scorer reads from the registry, not the store.
 
 ## Stage 3: Admission Gate (`pkg/router/admission.go`)
 
@@ -83,9 +83,19 @@ The model must respond with JSON only:
 
 Orchestrates the three stages. Emits `ProgressEvent` at each step so callers can render or log without being coupled to the pipeline internals.
 
-On exec failure (network error, API timeout) for a single model: logs the error and continues to the next candidate. On context cancellation (Ctrl+C, deadline): saves checkpoint and propagates the error.
+**Sequential rank-order execution:** after filtering and ranking, the manager asks each candidate one at a time, in descending score order, passing the caller's `context.Context` straight through to `gate.Ask` — no child context or goroutines involved. As soon as a candidate accepts, the manager logs the decision, emits `EventAskAccept`, and returns immediately; no lower-ranked candidate is ever asked. This matches ADR-001: "ask each candidate in rank order, take the first that accepts with ≥70% confidence."
 
-Cap: at most 3 admission attempts on a fresh run. When resuming from a checkpoint, all remaining untried candidates are attempted.
+```
+candidates [A, B, C]  (A highest-ranked)
+    │
+    ├─ gate.Ask(ctx, A) ──→ reject → emit EventAskReject, continue
+    ├─ gate.Ask(ctx, B) ──→ accept → emit EventAskAccept, return B
+    └─ C is never asked
+```
+
+On exec failure (network error, API timeout) for a candidate: logs `PARSE_FAILURE`, emits `EventAskError`, and continues to the next candidate — unless the failure was caused by the outer context being cancelled/timed out, in which case the error propagates immediately via `fmt.Errorf("routing: %w", ctx.Err())`. The loop also checks `ctx.Err()` before each ask, so cancellation between asks is caught promptly without waiting on a model call.
+
+Cap: at most 3 candidates on a fresh run (prevents unnecessary calls when one model is almost certainly the right pick). When resuming from a checkpoint, all remaining untried candidates are attempted, still strictly in rank order.
 
 ## Checkpoint/Resume (`cmd/veto/checkpoint.go`)
 
@@ -95,15 +105,32 @@ On the next run with the same task spec, veto loads the checkpoint, skips alread
 
 ## Provider model (`cmd/veto/main.go`, `pkg/executor/`)
 
-Each provider (Anthropic, OpenAI, OpenRouter) has a concrete `Executor` in `pkg/executor/`. The `ExecutorFactory` interface (defined in `pkg/router/`) maps model names to executors — this keeps the router package free of provider-specific imports.
+Each provider has a concrete `Executor` in `pkg/executor/`. The `ExecutorFactory` interface (defined in `pkg/router/`) maps model names to executors — this keeps the router package free of provider-specific imports.
 
 ```
 pkg/router/admission.go   ExecutorFactory (interface)
                               ↑
 cmd/veto/main.go          providerRegistry (concrete factory)
                               ↓
-pkg/executor/             AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor
+pkg/executor/             AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor, CLIExecutor,
+                          OpenAICompatibleExecutor (local/self-hosted)
 ```
+
+`providerRegistry` exposes two views of the model set: `For(name)` (executor lookup, used by admission gate and run) and `modelCaps()` (capability slice, used to build the `router.Registry`). This allows local models added via `veto login` to participate in scoring and filtering alongside built-ins without any special-casing in the router layer.
+
+### Executors
+
+| Executor | Transport | When used |
+|----------|-----------|-----------|
+| `AnthropicExecutor` | Anthropic API (HTTP) | `ANTHROPIC_API_KEY` set, no subscription |
+| `OpenAIExecutor` | OpenAI API (HTTP) | `OPENAI_API_KEY` set |
+| `OpenRouterExecutor` | OpenRouter API (HTTP) | `OPENROUTER_API_KEY` set |
+| `CLIExecutor` | `claude -p` subprocess | `CLAUDE_SUBSCRIPTION=true` |
+| `OpenAICompatibleExecutor` | any OpenAI-compatible endpoint (HTTP) | local model configured via `veto login` |
+
+**Subscription mode** (`CLIExecutor`) shells out to the `claude` CLI with `-p` (print mode) and `--output-format text`. This bypasses the Anthropic API entirely — cost is $0 per route because it runs under the user's flat Claude Max / Pro subscription. Subscription takes precedence over API key when both are configured.
+
+**Local / self-hosted models** (`OpenAICompatibleExecutor`) target any server that speaks the OpenAI chat-completions API: Ollama, LM Studio, vLLM, llama.cpp. They are configured via `veto login` → option 4 and stored in `~/.veto/models.json` as `LocalModel` entries. At build time, `buildProviderRegistry` loads these and calls `lm.capabilities()` which converts them to `router.ModelCapabilities` with defaults (tier `small`, 8192-token context, tools `[bash, read, write, edit]`, `CostPer1k*USD = 0`). The resulting capability list, including both built-ins and locals, is passed to `router.NewRegistryFromModels` so the scorer and filter treat local models identically to cloud models.
 
 ## Event bus
 
@@ -120,9 +147,72 @@ pkg/executor/             AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor
 
 The CLI renderer (`cmd/veto/render.go`) uses these events to drive the animated terminal display. The logger (`cmd/veto/logger.go`) uses the same events to write JSON lines to disk. Neither is coupled to the other.
 
+## `veto exec` — multi-step plan execution (`cmd/veto/exec.go`, `cmd/veto/plan.go`)
+
+`veto exec <plan.md>` runs a sequenced plan file, routing each step independently.
+
+**Plan format** — a Markdown file with YAML frontmatter:
+
+```markdown
+---
+title: Refactor auth middleware
+version: 1
+steps:
+  - task: "Read current auth middleware and list what each function does"
+    kind: extract
+    risk: low
+  - task: "Rewrite the token validation using the standard library JWT package"
+    kind: code-change
+    risk: medium
+    depends_on: [1]
+    success_criteria: "Tests pass, no third-party JWT dep"
+---
+```
+
+Each step has `task` (objective), `kind`, `risk`, optional `depends_on` (forward references are rejected at validation), and optional `success_criteria` (printed after a step completes).
+
+**Plan loading and conversion** — `loadOrConvertPlan` first tries `ParsePlan` + `ValidatePlan`. If either fails (no frontmatter, unknown kind, invalid risk), it:
+1. Prints the violations to stderr.
+2. If stdout is a TTY and `--quiet` is not set: prompts the user to convert.
+3. On yes: calls `convertPlan`, which routes the raw plan text to the best available model using `conversionPromptTemplate`, strips code fences from the output, re-parses and re-validates. The result is saved to `~/.veto/plans/<timestamp>-<slug>-converted.md`.
+
+**Step execution** — steps run sequentially. Each step gets its own `context.WithTimeout` (default 60s) and its own `Renderer`. `routeAndCapture` (see below) handles routing + execution. On step failure, behavior is controlled by `--on-failure`:
+
+| Mode | Behavior |
+|------|----------|
+| `abort-ask` (default) | Prompt: "Continue with remaining steps? [y/N]" |
+| `abort` | Exit immediately |
+| `continue` | Keep going; report failed step numbers at the end |
+
+`--on-failure` defaults from `--on-failure` flag > `~/.veto/config.json` `on_failure` key > `"abort-ask"`.
+
+`--dry-run` prints the step list (number, kind, risk, task) without executing anything.
+
+## `veto run` — route + execute (`cmd/veto/run.go`)
+
+`veto run` is a thin wrapper around the routing pipeline that adds an execution step. After `Manager.Route` returns a winner, `cmdRun` looks up the executor for that model via the provider registry and calls it directly with the objective as the prompt.
+
+**Streaming:** `cmdRun` checks whether the executor implements an optional `streamer` interface:
+
+```go
+type streamer interface {
+    Stream(ctx context.Context, prompt string, w io.Writer) error
+}
+```
+
+If it does (currently `CLIExecutor` via subscription mode), tokens are piped directly to `os.Stdout` as they arrive. If not, `exec.Run` is used and the full response is printed at once. This keeps the fast path simple while allowing subscription users to see output incrementally.
+
+`--quiet` on `veto run` suppresses the routing animation entirely and prints only the model's output — making `veto run --quiet "..." > file` scriptable.
+
+The timeout on `veto run` (default 60s) covers both routing and execution, unlike `veto route` which only times out the admission phase.
+
+**Shared helper: `routeAndCapture`** — both `cmdRun` and `cmdExec` (for plan steps) share `routeAndCapture(ctx, reg, mgr, render, spec)` in `run.go`. It wires `mgr.OnEvent`, calls `mgr.Route`, looks up the executor, calls `exec.Run`, and returns `(modelName, output, error)`. This keeps each command's routing setup in one place (`prepareRouting`) and execution logic in one function.
+
 ## Credential storage
 
 `veto login` stores API keys in `~/.veto/credentials.json` (mode 0600, JSON object of `ENV_KEY → value`). At runtime, environment variables take precedence — the credentials file is only consulted when the env var is absent.
+
+Local model definitions are stored separately in `~/.veto/models.json` (mode 0600, JSON array of `LocalModel`). `saveLocalModel` replaces by name if the name already exists. `veto logout` removes entries from either file: API keys via `removeCredential`, local models via `removeLocalModel`. Both interactive (menu) and non-interactive (`veto logout <name>`) modes are supported.
 
 ## Logging
 

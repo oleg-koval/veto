@@ -64,3 +64,5 @@ Rejected: requires a vector store, embedding model, and historical data to be us
 - The 70% confidence threshold is a judgment call with no empirical backing yet; it may need tuning
 
 **Ceiling to watch:** if models start optimizing for acceptance (gaming the protocol), confidence scores become less reliable. The historical success rate signal in the scorer partially mitigates this — models with high accept-but-fail rates will be ranked lower over time.
+
+**Implementation note:** an early version used parallel fan-out (first goroutine to accept wins). Reverted to the documented sequential rank-order selection — parallel fan-out discarded the computed rank and made selection non-deterministic.

@@ -180,8 +180,6 @@ const dashboardHTML = `<!doctype html>
   .accept{ background:#1a3326; color:#3fb950; }
   .reject{ background:#3d1d1d; color:#f85149; }
   .err{ background:#3d2d12; color:#d29922; }
-  .spin::after { content:'⠋'; animation:spin .8s steps(10) infinite; }
-  @keyframes spin { to { content:'⠿'; } }
   #result { margin-top:1.5rem; font-size:1rem; }
   .ok { color:#3fb950; } .fail { color:#f85149; }
   .saved { color:#58a6ff; }
@@ -214,7 +212,8 @@ const dashboardHTML = `<!doctype html>
 const filter = document.getElementById('filter');
 const ask = document.getElementById('ask');
 const result = document.getElementById('result');
-const asking = {};
+const spinFrames = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+const spinTimers = {};
 
 function row(parent, model, html) {
   let el = document.getElementById('m-' + parent + '-' + model);
@@ -228,16 +227,44 @@ function row(parent, model, html) {
   return el;
 }
 
+function stopSpin(model) {
+  if (spinTimers[model]) {
+    clearInterval(spinTimers[model]);
+    delete spinTimers[model];
+  }
+}
+
 const es = new EventSource('/events');
 es.addEventListener('event', e => {
   const d = JSON.parse(e.data);
   switch (d.kind) {
-    case 'filter_pass': row('f', d.model, '<span class="pass">pass</span>'); break;
-    case 'filter_fail': row('f', d.model, '<span class="skip">skip · ' + (d.reasons||[]).join(', ') + '</span>'); break;
-    case 'ask_start':   row('a', d.model, '<span class="spin"></span> <span class="muted">asking…</span>'); break;
-    case 'ask_accept':  row('a', d.model, '<span class="badge accept">✓ accepted ' + Math.round(d.confidence*100) + '%</span>'); break;
-    case 'ask_reject':  row('a', d.model, '<span class="badge reject">✗ ' + (d.reasons||[]).join(', ') + '</span>'); break;
-    case 'ask_error':   row('a', d.model, '<span class="badge err">! ' + (d.detail||'error') + '</span>'); break;
+    case 'filter_pass':
+      row('f', d.model, '<span class="pass">pass</span>');
+      break;
+    case 'filter_fail':
+      row('f', d.model, '<span class="skip">skip · ' + (d.reasons||[]).join(', ') + '</span>');
+      break;
+    case 'ask_start': {
+      let i = 0;
+      const el = row('a', d.model, '<span class="spin-char">' + spinFrames[0] + '</span> <span class="muted">asking…</span>');
+      spinTimers[d.model] = setInterval(() => {
+        const ch = el.querySelector('.spin-char');
+        if (ch) ch.textContent = spinFrames[++i % spinFrames.length];
+      }, 80);
+      break;
+    }
+    case 'ask_accept':
+      stopSpin(d.model);
+      row('a', d.model, '<span class="badge accept">✓ accepted ' + Math.round(d.confidence*100) + '%</span>');
+      break;
+    case 'ask_reject':
+      stopSpin(d.model);
+      row('a', d.model, '<span class="badge reject">✗ ' + (d.reasons||[]).join(', ') + '</span>');
+      break;
+    case 'ask_error':
+      stopSpin(d.model);
+      row('a', d.model, '<span class="badge err">! ' + (d.detail||'error') + '</span>');
+      break;
   }
 });
 es.addEventListener('result', e => {
@@ -253,14 +280,22 @@ es.addEventListener('result', e => {
 });
 
 function loadHistory() {
+  const tb = document.querySelector('#history tbody');
+  tb.innerHTML = '<tr><td colspan="3" class="muted">loading…</td></tr>';
   fetch('/history').then(r => r.json()).then(h => {
-    const tb = document.querySelector('#history tbody');
     tb.innerHTML = '';
-    Object.keys(h).sort().forEach(m => {
+    const models = Object.keys(h).sort();
+    if (models.length === 0) {
+      tb.innerHTML = '<tr><td colspan="3" class="muted">no history yet</td></tr>';
+      return;
+    }
+    models.forEach(m => {
       const tr = document.createElement('tr');
       tr.innerHTML = '<td>' + m + '</td><td>' + (h[m].accepted||0) + '</td><td>' + (h[m].rejected||0) + '</td>';
       tb.appendChild(tr);
     });
+  }).catch(() => {
+    tb.innerHTML = '<tr><td colspan="3" class="muted">could not load history</td></tr>';
   });
 }
 loadHistory();

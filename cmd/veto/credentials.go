@@ -43,6 +43,23 @@ func saveCredential(envKey, value string) error {
 	return os.WriteFile(path, data, 0600)
 }
 
+func removeCredential(envKey string) error {
+	c, err := loadCredentials()
+	if err != nil {
+		return err
+	}
+	delete(c, envKey)
+	path := credentialsPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0600)
+}
+
 // getKey returns the API key for envKey — env var wins, then credentials file.
 func getKey(envKey string, creds credentials) string {
 	if v := os.Getenv(envKey); v != "" {

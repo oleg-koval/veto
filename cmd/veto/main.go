@@ -31,6 +31,12 @@ func main() {
 		cmdProviders()
 	case "login":
 		cmdLogin()
+	case "logout":
+		if len(os.Args) > 2 {
+			cmdLogout(os.Args[2:])
+		} else {
+			cmdLogout(nil)
+		}
 	case "install-git-hook":
 		cmdInstallGitHook(os.Args[2:])
 	default:
@@ -52,6 +58,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "COMMANDS")
 	fmt.Fprintln(o, "  login              connect a provider (opens browser, masked key input)")
+	fmt.Fprintln(o, "  logout             remove a configured provider or local model")
 	fmt.Fprintln(o, "  run                route a task and execute it — prints the model's response")
 	fmt.Fprintln(o, "  route              route a task to the best available model (no execution)")
 	fmt.Fprintln(o, "  providers          show which providers are configured")
@@ -145,7 +152,7 @@ func cmdRoute(args []string) {
 	defer cancel()
 
 	// only route across models whose provider is configured
-	modelReg := router.NewRegistryFor(reg.modelNames())
+	modelReg := router.NewRegistryFromModels(reg.modelCaps())
 	gate := router.NewAdmissionGateWithFactory(reg)
 	// FileStore persists accept/reject history so it compounds across runs and
 	// feeds future ranking — see NewManager wiring below.
@@ -377,6 +384,17 @@ func cmdProviders() {
 			fmt.Printf("%-14s  %-18s  run 'veto login'\n", p.name, "not set")
 		}
 	}
+	locals, _ := loadLocalModels()
+	if len(locals) > 0 {
+		fmt.Println()
+		fmt.Printf("%-14s  %-18s  %s\n", "local model", "endpoint", "model id")
+		fmt.Printf("%-14s  %-18s  %s\n", "─────────────", "──────────────────", "─────────────────")
+		for _, lm := range locals {
+			fmt.Printf("%-14s  %-18s  %s\n", lm.Name, lm.Endpoint, lm.Model)
+		}
+		configured += len(locals)
+	}
+
 	fmt.Println()
 	if configured == 0 {
 		fmt.Println("  No providers configured — run 'veto login' to get started.")
@@ -384,15 +402,16 @@ func cmdProviders() {
 		// build an accurate model count from the registry
 		reg, err := buildProviderRegistry()
 		if err == nil {
-			fmt.Printf("  %d model(s) available for routing\n", len(reg.modelNames()))
+			fmt.Printf("  %d model(s) available for routing\n", len(reg.modelCaps()))
 		}
 	}
 }
 
-// providerRegistry maps model names to their executors.
+// providerRegistry maps model names to their executors and capabilities.
 // Lives here so cmd imports both pkg/executor and pkg/router without circular deps.
 type providerRegistry struct {
 	executors map[string]router.Executor
+	caps      map[string]router.ModelCapabilities
 }
 
 func (r *providerRegistry) For(name string) (router.Executor, bool) {
@@ -400,37 +419,54 @@ func (r *providerRegistry) For(name string) (router.Executor, bool) {
 	return e, ok
 }
 
-// modelNames lists the models that have a configured executor, so routing only
-// considers providers the user actually has keys for.
-func (r *providerRegistry) modelNames() []string {
-	names := make([]string, 0, len(r.executors))
-	for name := range r.executors {
-		names = append(names, name)
+// modelCaps returns the capability list for all configured models (built-ins + locals).
+func (r *providerRegistry) modelCaps() []router.ModelCapabilities {
+	caps := make([]router.ModelCapabilities, 0, len(r.caps))
+	for _, c := range r.caps {
+		caps = append(caps, c)
 	}
-	return names
+	return caps
 }
 
 func buildProviderRegistry() (*providerRegistry, error) {
 	creds, _ := loadCredentials() // best-effort; env vars take precedence
-	reg := &providerRegistry{executors: make(map[string]router.Executor)}
+	catalog := router.NewRegistry()
+	reg := &providerRegistry{
+		executors: make(map[string]router.Executor),
+		caps:      make(map[string]router.ModelCapabilities),
+	}
+
+	addBuiltin := func(name string, exec router.Executor) {
+		reg.executors[name] = exec
+		if m, ok := catalog.ByName(name); ok {
+			reg.caps[name] = m
+		}
+	}
 
 	// Subscription mode: use claude CLI (flat-fee, $0 marginal) instead of API key.
 	// Subscription takes precedence over API key when both are present.
 	if creds["CLAUDE_SUBSCRIPTION"] == "true" || os.Getenv("CLAUDE_SUBSCRIPTION") == "true" {
-		reg.executors["haiku"] = executor.NewClaudeCLIExecutor("claude-haiku-4-5-20251001")
-		reg.executors["sonnet"] = executor.NewClaudeCLIExecutor("claude-sonnet-4-6")
-		reg.executors["opus"] = executor.NewClaudeCLIExecutor("claude-opus-4-8")
+		addBuiltin("haiku", executor.NewClaudeCLIExecutor("claude-haiku-4-5-20251001"))
+		addBuiltin("sonnet", executor.NewClaudeCLIExecutor("claude-sonnet-4-6"))
+		addBuiltin("opus", executor.NewClaudeCLIExecutor("claude-opus-4-8"))
 	} else if key := getKey("ANTHROPIC_API_KEY", creds); key != "" {
-		reg.executors["haiku"] = executor.NewAnthropicExecutor(key, "claude-haiku-4-5-20251001")
-		reg.executors["sonnet"] = executor.NewAnthropicExecutor(key, "claude-sonnet-4-6")
-		reg.executors["opus"] = executor.NewAnthropicExecutor(key, "claude-opus-4-8")
+		addBuiltin("haiku", executor.NewAnthropicExecutor(key, "claude-haiku-4-5-20251001"))
+		addBuiltin("sonnet", executor.NewAnthropicExecutor(key, "claude-sonnet-4-6"))
+		addBuiltin("opus", executor.NewAnthropicExecutor(key, "claude-opus-4-8"))
 	}
 	if key := getKey("OPENAI_API_KEY", creds); key != "" {
-		reg.executors["gpt-4o"] = executor.NewOpenAIExecutor(key, "gpt-4o")
-		reg.executors["gpt-4o-mini"] = executor.NewOpenAIExecutor(key, "gpt-4o-mini")
+		addBuiltin("gpt-4o", executor.NewOpenAIExecutor(key, "gpt-4o"))
+		addBuiltin("gpt-4o-mini", executor.NewOpenAIExecutor(key, "gpt-4o-mini"))
 	}
 	if key := getKey("OPENROUTER_API_KEY", creds); key != "" {
-		reg.executors["llama-3.1-405b"] = executor.NewOpenRouterExecutor(key, "meta-llama/llama-3.1-405b")
+		addBuiltin("llama-3.1-405b", executor.NewOpenRouterExecutor(key, "meta-llama/llama-3.1-405b"))
+	}
+
+	// Local / self-hosted models (OpenAI-compatible endpoints).
+	locals, _ := loadLocalModels()
+	for _, lm := range locals {
+		reg.executors[lm.Name] = executor.NewOpenAICompatibleExecutor(lm.APIKey, lm.Model, lm.Endpoint)
+		reg.caps[lm.Name] = lm.capabilities()
 	}
 
 	if len(reg.executors) == 0 {

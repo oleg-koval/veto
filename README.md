@@ -54,14 +54,27 @@ go build ./cmd/veto
 veto login
 ```
 
-veto opens the API keys page in your browser, then prompts for the key (masked input). Keys are stored at `~/.veto/credentials.json` (mode 0600).
+For Anthropic, veto asks whether you use a **subscription** (Claude Max / Pro) or an **API key**:
+
+- **Subscription mode** — if you have Claude Code installed and logged in, veto shells out to `claude -p` instead of hitting the API. Cost is $0 per route — your flat subscription covers it.
+- **API key mode** — standard pay-per-token via the Anthropic API.
+
+For subscription mode, veto verifies the `claude` CLI is present and saves a `CLAUDE_SUBSCRIPTION=true` marker. For API key mode, it opens the keys page in your browser and stores the key (masked input) at `~/.veto/credentials.json` (mode 0600).
+
+For local / self-hosted models (Ollama, LM Studio, vLLM, llama.cpp), choose option 4 and enter a name, endpoint URL, and model id. The model is stored in `~/.veto/models.json` and participates in all routing calls at $0 cost.
+
+To remove a provider or local model: `veto logout` (interactive) or `veto logout <name>` (non-interactive).
 
 You can also set environment variables directly:
 
 ```bash
+# API key mode
 export ANTHROPIC_API_KEY=sk-ant-...
 export OPENAI_API_KEY=sk-...
 export OPENROUTER_API_KEY=sk-or-...
+
+# Subscription mode (Claude Max / Pro — requires claude CLI logged in)
+export CLAUDE_SUBSCRIPTION=true
 ```
 
 **2. Check what's connected:**
@@ -78,10 +91,14 @@ OpenAI          not set         run 'veto login'
 OpenRouter      not set         run 'veto login'
 ```
 
-**3. Route a task:**
+**3. Run a task:**
 
 ```bash
-veto route --task "extract all TODO comments from the codebase" --kind extract
+# route and execute — prints the model's response
+veto run "extract all TODO comments from the codebase"
+
+# route only — prints the selected model name
+veto route "extract all TODO comments from the codebase" --kind extract
 ```
 
 ## Commands
@@ -89,20 +106,92 @@ veto route --task "extract all TODO comments from the codebase" --kind extract
 | Command | What it does |
 |---------|-------------|
 | `veto login` | Connect a provider interactively (browser + masked key) |
+| `veto logout` | Remove a configured provider or local model |
+| `veto run "..."` | Route a task and execute it — prints the model's response |
+| `veto exec <plan.md>` | Execute a multi-step plan file, routing each step |
+| `veto route "..."` | Route only — prints the selected model name, no execution |
 | `veto providers` | Show which providers are configured and how |
-| `veto route --task "..." [flags]` | Route a task to the best available model |
+| `veto install-git-hook` | Add veto to your git workflow |
 
-### `veto route` flags
+### `veto run` flags
+
+Route and execute in one step. The winning model's response is printed to stdout. Streaming output is used automatically when the executor supports it (e.g. subscription mode via `claude -p`).
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--task` | *(required)* | What the model should do |
-| `--kind` | `code-change` | Task type (see below) |
+| `--kind` | *(auto-detected)* | Task type (see below) |
+| `--risk` | `medium` | Impact level: `low`, `medium`, `high` |
+| `--max-cost` | `0` (no limit) | Maximum spend in USD |
+| `--timeout` | `60s` | Total timeout (routing + execution) |
+| `--quiet` | `false` | Suppress routing animation — print model output only |
+
+```bash
+# route and execute, full pipeline visible
+veto run "summarize the last 10 git commits"
+
+# scriptable: just the output, no routing UI
+veto run --quiet "extract all TODO comments" > todos.txt
+```
+
+### `veto exec` flags
+
+Execute a multi-step plan file. Each step is routed independently to the best model and executed. Steps run sequentially.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dry-run` | `false` | Print steps without executing |
+| `--quiet` | `false` | Suppress routing animation — print model output only |
+| `--timeout` | `60s` | Per-step timeout (routing + execution) |
+| `--on-failure` | `abort-ask` | What to do when a step fails: `abort-ask` (prompt), `abort`, or `continue` |
+
+```bash
+# preview what will run
+veto exec my-plan.md --dry-run
+
+# run the plan
+veto exec my-plan.md
+
+# run silently, keep going even if a step fails
+veto exec my-plan.md --quiet --on-failure continue
+```
+
+**Plan file format** — a Markdown file with YAML frontmatter:
+
+```markdown
+---
+title: Refactor auth middleware
+version: 1
+steps:
+  - task: "Read current auth middleware and list what each function does"
+    kind: extract
+    risk: low
+  - task: "Rewrite the token validation using the standard library JWT package"
+    kind: code-change
+    risk: medium
+    depends_on: [1]
+    success_criteria: "Tests pass, no third-party JWT dep"
+  - task: "Write unit tests for the new token validation"
+    kind: code-change
+    risk: low
+    depends_on: [2]
+---
+```
+
+If the file has no frontmatter or fails validation, `veto exec` offers to convert it automatically by routing the raw text through the best available model. The converted plan is saved to `~/.veto/plans/`.
+
+### `veto route` flags
+
+Route only — select the best model without executing the task. Useful when you want to call the model yourself or verify routing logic.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--kind` | *(auto-detected)* | Task type (see below) |
 | `--risk` | `medium` | Impact level: `low`, `medium`, `high` |
 | `--max-cost` | `0` (no limit) | Maximum spend in USD |
 | `--timeout` | `30s` | Per-model admission timeout |
-| `--quiet` | `false` | Machine-readable output (prints selected model name only) |
+| `--quiet` | `false` | Print selected model name only (machine-readable) |
 | `--no-resume` | `false` | Ignore saved checkpoint and start fresh |
+| `--dashboard` | `false` | Open a live routing view in your browser |
 
 ### Task kinds
 
@@ -122,10 +211,18 @@ veto route --task "extract all TODO comments from the codebase" --kind extract
 
 **Checkpoint resume** — if routing is interrupted (Ctrl+C, timeout, network blip), veto saves which models already responded. Re-run the same command to pick up where you left off. Use `--no-resume` to start fresh.
 
-**Quiet mode for scripts** — `--quiet` suppresses all UI and prints only the selected model name on stdout. Pipe it anywhere:
+**End-to-end execution** — `veto run` routes and then calls the winning model with your task, printing the response to stdout. Streaming output is used automatically when the executor supports it (subscription mode via `claude -p` streams tokens as they arrive).
+
+**Multi-step plan execution** — `veto exec plan.md` runs a sequenced plan where each step is routed to the best model. If a step fails, you're asked whether to continue. Plans are just Markdown files with YAML frontmatter — write them by hand, or let veto convert any existing task list automatically. Use `--dry-run` to preview what will run before committing.
+
+**Quiet mode for scripts** — `--quiet` on `veto run` suppresses the routing pipeline and prints only model output, making it composable:
 
 ```bash
-MODEL=$(veto route --task "summarize this PR" --kind summarize --quiet)
+# capture model output directly
+veto run --quiet "summarize this PR" > summary.txt
+
+# use the selected model name in a shell pipeline
+MODEL=$(veto route --quiet "summarize this PR")
 echo "Using: $MODEL"
 ```
 
@@ -141,17 +238,24 @@ echo "Using: $MODEL"
 
 | Provider | Models | Set up with |
 |----------|--------|-------------|
-| Anthropic | `haiku` (fast/cheap), `sonnet` (balanced), `opus` (most capable) | `ANTHROPIC_API_KEY` |
+| Anthropic (subscription) | `haiku`, `sonnet`, `opus` | `CLAUDE_SUBSCRIPTION=true` + `claude` CLI logged in |
+| Anthropic (API key) | `haiku`, `sonnet`, `opus` | `ANTHROPIC_API_KEY` |
 | OpenAI | `gpt-4o`, `gpt-4o-mini` | `OPENAI_API_KEY` |
 | OpenRouter | `llama-3.1-405b` (and 100+ more via API) | `OPENROUTER_API_KEY` |
+| Local / self-hosted | any name you choose | `veto login` → option 4 |
+
+Subscription mode takes precedence over API key when both are configured. Local models use `NewOpenAICompatibleExecutor` — any server that speaks the OpenAI chat-completions API works (Ollama, LM Studio, vLLM, llama.cpp). Cost is $0 — local inference has no per-token billing. `veto providers` shows which mode is active and lists all local models.
 
 ## File layout
 
 ```
 ~/.veto/
-  credentials.json          # stored API keys (0600)
-  checkpoints/<hash>.json   # resume state for interrupted routing
-  logs/veto-YYYY-MM-DD.log  # JSON-line routing history (7-day rolling)
+  credentials.json                      # stored API keys and subscription marker (0600)
+  models.json                           # local / self-hosted model definitions (0600)
+  config.json                           # on_failure default and other settings
+  checkpoints/<hash>.json               # resume state for interrupted routing
+  plans/<timestamp>-<slug>-converted.md # auto-converted plan files
+  logs/veto-YYYY-MM-DD.log              # JSON-line routing history (7-day rolling)
 ```
 
 ## Development

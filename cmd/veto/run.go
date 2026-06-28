@@ -54,7 +54,7 @@ func cmdRun(args []string) {
 	ctx, cancel := context.WithTimeout(sigCtx, *timeout)
 	defer cancel()
 
-	modelReg := router.NewRegistryFor(reg.modelNames())
+	modelReg := router.NewRegistryFromModels(reg.modelCaps())
 	gate := router.NewAdmissionGateWithFactory(reg)
 	store := router.NewFileStore(historyPath())
 	mgr := router.NewManager(modelReg, gate, store)
@@ -119,4 +119,45 @@ func cmdRun(args []string) {
 		}
 		fmt.Println(result.Output)
 	}
+}
+
+var validKinds = map[string]bool{
+	"code-change": true,
+	"debug":       true,
+	"refactor":    true,
+	"summarize":   true,
+	"extract":     true,
+	"review":      true,
+	"plan":        true,
+}
+
+var validKindList = "code-change|debug|refactor|summarize|extract|review|plan"
+
+func prepareRouting() (*providerRegistry, *router.Manager, *router.FileStore, error) {
+	reg, err := buildProviderRegistry()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	modelReg := router.NewRegistryFromModels(reg.modelCaps())
+	gate := router.NewAdmissionGateWithFactory(reg)
+	store := router.NewFileStore(historyPath())
+	mgr := router.NewManager(modelReg, gate, store)
+	return reg, mgr, store, nil
+}
+
+func routeAndCapture(ctx context.Context, reg *providerRegistry, mgr *router.Manager, render *Renderer, spec router.TaskSpec) (string, string, error) {
+	mgr.OnEvent = func(e router.ProgressEvent) { render.OnEvent(e) }
+	model, _, err := mgr.Route(ctx, spec)
+	if err != nil {
+		return "", "", err
+	}
+	exec, ok := reg.For(model.Name)
+	if !ok {
+		return "", "", fmt.Errorf("no executor for model %q", model.Name)
+	}
+	result := exec.Run(ctx, spec.Objective)
+	if result.Error != nil {
+		return model.Name, "", result.Error
+	}
+	return model.Name, result.Output, nil
 }

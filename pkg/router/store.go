@@ -123,9 +123,9 @@ func (s *MemoryStore) LogResult(taskID, modelName string, score float64, status 
 // Aggregates are maintained incrementally by LogDecision and LogResult.
 func (s *MemoryStore) Signal(modelName string, _ TaskKind) RoutingSignal {
 	s.mu.RLock()
-	st := s.stats[modelName]
-	s.mu.RUnlock()
+	defer s.mu.RUnlock()
 
+	st := s.stats[modelName]
 	if st == nil || st.decisionTotal+st.resultTotal == 0 {
 		return RoutingSignal{
 			HistoricalSuccessRate: 0.5,

@@ -109,6 +109,13 @@ func NewRegistryFor(names []string) *Registry {
 	return &Registry{models: models}
 }
 
+// NewRegistryFromModels builds a registry from an explicit capability list.
+// Use this when the caller assembles the model list from both built-ins and
+// user-defined local models, rather than filtering the catalog by name.
+func NewRegistryFromModels(models []ModelCapabilities) *Registry {
+	return &Registry{models: models}
+}
+
 // All returns all registered models as a copy.
 func (r *Registry) All() []ModelCapabilities {
 	out := make([]ModelCapabilities, len(r.models))

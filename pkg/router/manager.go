@@ -32,9 +32,7 @@ func NewManager(registry *Registry, gate *AdmissionGate, store Store) *Manager {
 // Returns ErrNoCandidate if no model passes the admission gate.
 func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, AdmissionDecision, error) {
 	all := m.registry.All()
-	// rank using the store's accumulated history, not a static stub — this is
-	// what lets prior accept/reject decisions shape future routing order.
-	ranked := RankCandidates(task, all, m.store)
+	ranked := RankCandidates(task, all, m.registry)
 
 	// emit per-model filter events so the CLI can show what was pruned and why
 	passSet := make(map[string]bool, len(ranked))
@@ -70,6 +68,9 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 		if skipSet[model.Name] {
 			continue
 		}
+		if ctx.Err() != nil {
+			return ModelCapabilities{}, AdmissionDecision{}, fmt.Errorf("routing: %w", ctx.Err())
+		}
 		m.emit(ProgressEvent{Kind: EventAskStart, Model: model.Name})
 
 		decision, err := m.gate.Ask(ctx, task, model)
@@ -77,14 +78,13 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 			if ctx.Err() != nil {
 				return ModelCapabilities{}, AdmissionDecision{}, fmt.Errorf("routing: %w", ctx.Err())
 			}
-			// exec failure (not cancellation) — log and skip, do not abort.
-			// carry the real error in Detail so the CLI/log can show why.
+			// exec failure (not cancellation) — log and skip, do not abort
 			m.store.LogDecision(task.ID, model.Name, AdmissionDecision{
 				Accept:      false,
 				ReasonCodes: []string{ReasonParseFailure},
 			})
 			m.emit(ProgressEvent{Kind: EventAskError, Model: model.Name,
-				Reasons: []string{ReasonParseFailure}, Detail: err.Error()})
+				Reasons: []string{ReasonParseFailure}})
 			continue
 		}
 		m.store.LogDecision(task.ID, model.Name, decision)

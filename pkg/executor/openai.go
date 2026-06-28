@@ -34,6 +34,12 @@ func NewOpenRouterExecutor(apiKey, model string) *OpenAIExecutor {
 	return &OpenAIExecutor{apiKey: apiKey, model: model, endpoint: openRouterEndpoint, client: &http.Client{}}
 }
 
+// NewOpenAICompatibleExecutor targets any OpenAI-compatible chat-completions
+// endpoint (Ollama, LM Studio, vLLM, llama.cpp server). apiKey may be empty.
+func NewOpenAICompatibleExecutor(apiKey, model, endpoint string) *OpenAIExecutor {
+	return &OpenAIExecutor{apiKey: apiKey, model: model, endpoint: endpoint, client: &http.Client{}}
+}
+
 type openAIRequest struct {
 	Model     string          `json:"model"`
 	Messages  []openAIMessage `json:"messages"`

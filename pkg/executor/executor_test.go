@@ -379,6 +379,54 @@ func BenchmarkAnthropicExecutor_Marshal(b *testing.B) {
 	}
 }
 
+func TestNewOpenAICompatibleExecutor_HitsCustomEndpoint(t *testing.T) {
+	var gotURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotURL = r.URL.Path
+		resp := openAIResponse{
+			Choices: []struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			}{{Message: struct {
+				Content string `json:"content"`
+			}{Content: `{"accept":true,"confidence":0.9,"reason_codes":[]}`}}},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	exec := NewOpenAICompatibleExecutor("", "my-model", srv.URL+"/v1/chat/completions")
+	result := exec.Run(context.Background(), "test prompt")
+
+	require.NoError(t, result.Error)
+	assert.Contains(t, result.Output, `"accept":true`)
+	assert.Equal(t, "/v1/chat/completions", gotURL)
+}
+
+func TestNewOpenAICompatibleExecutor_EmptyAPIKey(t *testing.T) {
+	// local servers typically ignore the Authorization header; ensure we don't error on empty key
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := openAIResponse{
+			Choices: []struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			}{{Message: struct {
+				Content string `json:"content"`
+			}{Content: "ok"}}},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	exec := NewOpenAICompatibleExecutor("", "my-model", srv.URL+"/v1/chat/completions")
+	result := exec.Run(context.Background(), "prompt")
+	require.NoError(t, result.Error)
+	assert.Equal(t, "ok", result.Output)
+}
+
 // BenchmarkOpenAIExecutor_Marshal is the equivalent for the OpenAI executor.
 func BenchmarkOpenAIExecutor_Marshal(b *testing.B) {
 	prompt := "You are evaluating a task. Return JSON only: {\"accept\":true,\"confidence\":0.9,\"reason_codes\":[]}"

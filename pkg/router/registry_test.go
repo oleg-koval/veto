@@ -89,3 +89,25 @@ func TestRegistry_ModelTiers(t *testing.T) {
 	require.True(t, ok)
 	assert.Greater(t, opus.CostPer1kInputUSD, haiku.CostPer1kInputUSD, "opus must cost more than haiku")
 }
+
+func TestNewRegistryFromModels(t *testing.T) {
+	models := []ModelCapabilities{
+		{Name: "local-a", Tier: "small", MaxContextTokens: 8192},
+		{Name: "local-b", Tier: "mid", MaxContextTokens: 32768},
+	}
+	reg := NewRegistryFromModels(models)
+
+	all := reg.All()
+	require.Len(t, all, 2)
+
+	m, ok := reg.ByName("local-a")
+	require.True(t, ok)
+	assert.Equal(t, "small", m.Tier)
+
+	m, ok = reg.ByName("local-b")
+	require.True(t, ok)
+	assert.Equal(t, "mid", m.Tier)
+
+	_, ok = reg.ByName("nonexistent")
+	assert.False(t, ok)
+}

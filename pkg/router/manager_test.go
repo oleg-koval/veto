@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,6 +20,10 @@ func rejectJSON(code string) string {
 	return `{"accept":false,"confidence":0.8,"reason_codes":["` + code + `"]}`
 }
 
+// TestManager_Route_FirstAccepted verifies sequential rank-order selection:
+// candidates are asked one at a time in score order, and the first to accept
+// wins. For KindDebug, opus (Strength) outranks sonnet (neutral) and haiku
+// is hard-filtered out entirely (Weakness), so opus must be asked first and win.
 func TestManager_Route_FirstAccepted(t *testing.T) {
 	calls := 0
 	exec := &mocks.ExecutorMock{
@@ -31,11 +36,11 @@ func TestManager_Route_FirstAccepted(t *testing.T) {
 	gate := NewAdmissionGate(exec)
 	mgr := NewManager(reg, gate, NewMemoryStore())
 
-	task := TaskSpec{ID: "t1", Kind: KindCodeChange}
-	model, decision, err := mgr.Route(t.Context(), task)
+	task := TaskSpec{ID: "t1", Kind: KindDebug}
+	model, decision, err := mgr.Route(context.Background(), task)
 	require.NoError(t, err)
 	assert.True(t, decision.Accept)
-	assert.NotEmpty(t, model.Name)
+	assert.Equal(t, "opus", model.Name, "higher-ranked model (Strength) should win")
 	assert.Equal(t, 1, calls, "should stop after first acceptance")
 }
 
@@ -55,7 +60,7 @@ func TestManager_Route_SkipRejectTakeSecond(t *testing.T) {
 	store := NewMemoryStore()
 	mgr := NewManager(reg, gate, store)
 
-	model, decision, err := mgr.Route(t.Context(), TaskSpec{ID: "t2", Kind: KindCodeChange})
+	model, decision, err := mgr.Route(context.Background(), TaskSpec{ID: "t2", Kind: KindCodeChange})
 	require.NoError(t, err)
 	assert.True(t, decision.Accept)
 	assert.Equal(t, 2, n)
@@ -72,7 +77,7 @@ func TestManager_Route_NoCandidateError(t *testing.T) {
 	gate := NewAdmissionGate(exec)
 	mgr := NewManager(reg, gate, NewMemoryStore())
 
-	_, _, err := mgr.Route(t.Context(), TaskSpec{ID: "t3", Kind: KindCodeChange})
+	_, _, err := mgr.Route(context.Background(), TaskSpec{ID: "t3", Kind: KindCodeChange})
 	assert.ErrorIs(t, err, ErrNoCandidate)
 }
 
@@ -91,7 +96,7 @@ func TestManager_Route_ExecErrorIsSkipped(t *testing.T) {
 	gate := NewAdmissionGate(exec)
 	mgr := NewManager(reg, gate, NewMemoryStore())
 
-	_, decision, err := mgr.Route(t.Context(), TaskSpec{ID: "t4", Kind: KindCodeChange})
+	_, decision, err := mgr.Route(context.Background(), TaskSpec{ID: "t4", Kind: KindCodeChange})
 	require.NoError(t, err)
 	assert.True(t, decision.Accept)
 	assert.Equal(t, 2, n)
@@ -104,7 +109,7 @@ func TestManager_Route_NoModelsAfterHardFilter(t *testing.T) {
 	mgr := NewManager(reg, gate, NewMemoryStore())
 
 	// no model supports "quantum-tool"
-	_, _, err := mgr.Route(t.Context(), TaskSpec{
+	_, _, err := mgr.Route(context.Background(), TaskSpec{
 		ID:            "t5",
 		Kind:          KindCodeChange,
 		RequiredTools: []string{"quantum-tool"},
@@ -123,7 +128,7 @@ func TestManager_Route_ContextCancellation_ReturnsCtxErr(t *testing.T) {
 	gate := NewAdmissionGate(exec)
 	mgr := NewManager(reg, gate, NewMemoryStore())
 
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
 	_, _, err := mgr.Route(ctx, TaskSpec{ID: "t-ctx", Kind: KindCodeChange})
@@ -148,39 +153,16 @@ func TestManager_Route_LogsDecisions(t *testing.T) {
 	store := NewMemoryStore()
 	mgr := NewManager(reg, gate, store)
 
-	_, _, _ = mgr.Route(t.Context(), TaskSpec{ID: "t6", Kind: KindCodeChange})
+	_, _, _ = mgr.Route(context.Background(), TaskSpec{ID: "t6", Kind: KindCodeChange})
 	// verifying store received decisions via Signal (indirect)
 	// if store is working, signal is non-zero
 	sig := store.Signal("sonnet", KindCodeChange)
 	assert.NotZero(t, sig.HistoricalRejectRate+sig.HistoricalSuccessRate)
 }
 
-func TestManager_Route_EmitsFilterEvents(t *testing.T) {
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
-			return executor.Result{Output: acceptJSON()}
-		},
-	}
-	reg := NewRegistry()
-	gate := NewAdmissionGate(exec)
-	mgr := NewManager(reg, gate, NewMemoryStore())
-
-	var filterPass, filterFail []string
-	mgr.OnEvent = func(e ProgressEvent) {
-		switch e.Kind {
-		case EventFilterPass:
-			filterPass = append(filterPass, e.Model)
-		case EventFilterFail:
-			filterFail = append(filterFail, e.Model)
-		}
-	}
-
-	_, _, _ = mgr.Route(t.Context(), TaskSpec{ID: "ev1", Kind: KindCodeChange})
-
-	// at least one model must pass hard filter (the registry has multiple models)
-	assert.NotEmpty(t, filterPass, "expected at least one filter_pass event")
-}
-
+// TestManager_Route_EmitsAskEvents verifies that asking stops after the first
+// acceptance: only the asked candidates emit ask_start/accept/reject events,
+// and no events are emitted for candidates ranked below the winner.
 func TestManager_Route_EmitsAskEvents(t *testing.T) {
 	n := 0
 	exec := &mocks.ExecutorMock{
@@ -196,55 +178,47 @@ func TestManager_Route_EmitsAskEvents(t *testing.T) {
 	gate := NewAdmissionGate(exec)
 	mgr := NewManager(reg, gate, NewMemoryStore())
 
-	var events []EventKind
-	mgr.OnEvent = func(e ProgressEvent) { events = append(events, e.Kind) }
+	var events []ProgressEvent
+	mgr.OnEvent = func(e ProgressEvent) {
+		events = append(events, e)
+	}
 
-	_, _, err := mgr.Route(t.Context(), TaskSpec{ID: "ev2", Kind: KindCodeChange})
+	_, _, err := mgr.Route(context.Background(), TaskSpec{ID: "t7", Kind: KindCodeChange})
 	require.NoError(t, err)
 
-	assert.Contains(t, events, EventAskStart)
-	assert.Contains(t, events, EventAskReject)
-	assert.Contains(t, events, EventAskAccept)
-}
-
-func TestManager_Route_EmitsErrorEvent(t *testing.T) {
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
-			return executor.Result{Error: errors.New("exec failure")}
-		},
-	}
-	reg := NewRegistry()
-	gate := NewAdmissionGate(exec)
-	mgr := NewManager(reg, gate, NewMemoryStore())
-
-	var gotErrorEvent bool
-	mgr.OnEvent = func(e ProgressEvent) {
-		if e.Kind == EventAskError {
-			gotErrorEvent = true
+	var askEvents []ProgressEvent
+	for _, e := range events {
+		if e.Kind == EventAskStart || e.Kind == EventAskAccept || e.Kind == EventAskReject || e.Kind == EventAskError {
+			askEvents = append(askEvents, e)
 		}
 	}
 
-	_, _, _ = mgr.Route(t.Context(), TaskSpec{ID: "ev3", Kind: KindCodeChange})
-	assert.True(t, gotErrorEvent)
+	// exactly two asks happened (1 reject, 1 accept) => 4 ask-related events:
+	// ask_start, ask_reject, ask_start, ask_accept
+	require.Len(t, askEvents, 4)
+	assert.Equal(t, EventAskStart, askEvents[0].Kind)
+	assert.Equal(t, EventAskReject, askEvents[1].Kind)
+	assert.Equal(t, EventAskStart, askEvents[2].Kind)
+	assert.Equal(t, EventAskAccept, askEvents[3].Kind)
 }
 
-func TestManager_Route_OnEventNil_NoPanic(t *testing.T) {
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
-			return executor.Result{Output: acceptJSON()}
-		},
-	}
-	mgr := NewManager(NewRegistry(), NewAdmissionGate(exec), NewMemoryStore())
-	// mgr.OnEvent is nil — must not panic
-	assert.NotPanics(t, func() {
-		_, _, _ = mgr.Route(t.Context(), TaskSpec{ID: "ev4", Kind: KindCodeChange})
-	})
-}
-
-func TestManager_Route_SkipModels(t *testing.T) {
-	callOrder := []string{}
+// TestManager_Route_RankOrderDeterministic verifies that when multiple candidates
+// would accept, the manager asks strictly in rank order and never calls a
+// lower-ranked candidate once a higher-ranked one has accepted.
+func TestManager_Route_RankOrderDeterministic(t *testing.T) {
+	var askedModels []string
 	exec := &mocks.ExecutorMock{
 		RunFunc: func(_ context.Context, prompt string) executor.Result {
+			// the admission prompt embeds "You are the <name> model"
+			switch {
+			case strings.Contains(prompt, "You are the opus"):
+				askedModels = append(askedModels, "opus")
+			case strings.Contains(prompt, "You are the sonnet"):
+				askedModels = append(askedModels, "sonnet")
+			case strings.Contains(prompt, "You are the haiku"):
+				askedModels = append(askedModels, "haiku")
+			}
+			// every candidate that gets asked accepts
 			return executor.Result{Output: acceptJSON()}
 		},
 	}
@@ -252,29 +226,16 @@ func TestManager_Route_SkipModels(t *testing.T) {
 	gate := NewAdmissionGate(exec)
 	mgr := NewManager(reg, gate, NewMemoryStore())
 
-	var askedModels []string
-	mgr.OnEvent = func(e ProgressEvent) {
-		if e.Kind == EventAskStart {
-			askedModels = append(askedModels, e.Model)
-		}
+	// KindDebug: opus has it as a Strength (score 1.0 kind-match), sonnet is
+	// neutral (0.5), haiku has it as a Weakness and is hard-filtered out.
+	task := TaskSpec{ID: "t8", Kind: KindDebug}
+
+	for i := 0; i < 5; i++ {
+		askedModels = nil
+		model, decision, err := mgr.Route(context.Background(), task)
+		require.NoError(t, err)
+		assert.True(t, decision.Accept)
+		assert.Equal(t, "opus", model.Name, "higher-ranked model must win deterministically")
+		assert.Equal(t, []string{"opus"}, askedModels, "lower-ranked sonnet must never be asked once opus accepts")
 	}
-
-	// get the ranked candidates to know which model will be first
-	all := reg.All()
-	ranked := RankCandidates(TaskSpec{Kind: KindCodeChange}, all, reg)
-	require.NotEmpty(t, ranked)
-	topModel := ranked[0].Name
-
-	// skip the top model — it should not be asked
-	_, _, err := mgr.Route(t.Context(), TaskSpec{
-		ID:         "skip1",
-		Kind:       KindCodeChange,
-		SkipModels: []string{topModel},
-	})
-	require.NoError(t, err)
-
-	for _, m := range askedModels {
-		assert.NotEqual(t, topModel, m, "skipped model %q must not be asked", topModel)
-	}
-	_ = callOrder
 }

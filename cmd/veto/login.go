@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/oleg-koval/veto/pkg/router"
 	"golang.org/x/term"
 )
 
@@ -52,14 +53,21 @@ func cmdLogin() {
 	fmt.Println("  1  Anthropic (Claude)  — API key or subscription (Claude Max / claude CLI)")
 	fmt.Println("  2  OpenAI              — API key")
 	fmt.Println("  3  OpenRouter          — API key (100+ models)")
+	fmt.Println("  4  Local / self-hosted — Ollama, LM Studio, vLLM, llama.cpp")
 	fmt.Println()
-	fmt.Print("  Provider [1-3]: ")
+	fmt.Print("  Provider [1-4]: ")
 
 	var choice int
-	if _, err := fmt.Scan(&choice); err != nil || choice < 1 || choice > len(knownProviders) {
-		fmt.Fprintln(os.Stderr, "\n  That doesn't look right. Please enter 1, 2, or 3.")
+	if _, err := fmt.Scan(&choice); err != nil || choice < 1 || choice > len(knownProviders)+1 {
+		fmt.Fprintln(os.Stderr, "\n  That doesn't look right. Please enter 1, 2, 3, or 4.")
 		os.Exit(1)
 	}
+
+	if choice == len(knownProviders)+1 {
+		loginLocalModel()
+		return
+	}
+
 	p := knownProviders[choice-1]
 
 	// Anthropic supports subscription mode via the claude CLI.
@@ -85,6 +93,65 @@ func cmdLogin() {
 	}
 
 	loginAPIKey(p)
+}
+
+// loginLocalModel interactively adds a local / self-hosted model.
+func loginLocalModel() {
+	scanner := bufio.NewScanner(os.Stdin)
+
+	fmt.Println()
+	fmt.Println("  Adding a local / self-hosted model.")
+	fmt.Println()
+
+	fmt.Print("  Name (routing id, e.g. ollama-qwen): ")
+	scanner.Scan()
+	name := strings.TrimSpace(scanner.Text())
+
+	fmt.Println()
+	fmt.Println("  Endpoint (full chat-completions URL):")
+	fmt.Println("    Ollama:    http://localhost:11434/v1/chat/completions")
+	fmt.Println("    LM Studio: http://localhost:1234/v1/chat/completions")
+	fmt.Print("  Endpoint: ")
+	scanner.Scan()
+	endpoint := strings.TrimSpace(scanner.Text())
+
+	fmt.Print("  Model id (as the server knows it, e.g. qwen2.5-coder:7b): ")
+	scanner.Scan()
+	modelID := strings.TrimSpace(scanner.Text())
+
+	fmt.Print("  API key (leave blank if not required): ")
+	scanner.Scan()
+	apiKey := strings.TrimSpace(scanner.Text())
+
+	lm := LocalModel{
+		Name:     name,
+		Endpoint: endpoint,
+		Model:    modelID,
+		APIKey:   apiKey,
+	}
+
+	builtins := make(map[string]bool)
+	for _, m := range router.NewRegistry().All() {
+		builtins[m.Name] = true
+	}
+
+	if err := validateLocalModel(lm, builtins); err != nil {
+		fmt.Fprintf(os.Stderr, "\n  Invalid model: %v\n", err)
+		os.Exit(1)
+	}
+	if err := saveLocalModel(lm); err != nil {
+		fmt.Fprintf(os.Stderr, "\n  Couldn't save model: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println()
+	fmt.Printf("  Local model %q added!\n", name)
+	fmt.Println("  It will appear in 'veto providers' and be considered in all routing calls.")
+	fmt.Println()
+	fmt.Println("  What's next:")
+	fmt.Println("    veto providers                       — confirm the model is listed")
+	fmt.Printf("    veto route --task \"...\" --kind summarize\n")
+	fmt.Println()
 }
 
 // loginClaudeSubscription verifies the claude CLI is present and saves a subscription marker.

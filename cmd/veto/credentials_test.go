@@ -93,3 +93,34 @@ func TestSaveCredential_FilePermissions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
 }
+
+func TestRemoveCredential(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	require.NoError(t, saveCredential("OPENAI_API_KEY", "sk-openai"))
+	require.NoError(t, saveCredential("ANTHROPIC_API_KEY", "sk-ant"))
+
+	require.NoError(t, removeCredential("OPENAI_API_KEY"))
+
+	creds, err := loadCredentials()
+	require.NoError(t, err)
+	assert.Empty(t, creds["OPENAI_API_KEY"], "removed key must be absent")
+	assert.Equal(t, "sk-ant", creds["ANTHROPIC_API_KEY"], "other key must be preserved")
+}
+
+func TestRemoveCredential_Subscription(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	require.NoError(t, saveCredential("CLAUDE_SUBSCRIPTION", "true"))
+	require.NoError(t, removeCredential("CLAUDE_SUBSCRIPTION"))
+
+	creds, err := loadCredentials()
+	require.NoError(t, err)
+	assert.Empty(t, creds["CLAUDE_SUBSCRIPTION"])
+}
+
+func TestRemoveCredential_MissingKey_NoError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	// key never existed — should succeed silently
+	require.NoError(t, removeCredential("NONEXISTENT_KEY"))
+}
