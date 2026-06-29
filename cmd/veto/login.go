@@ -138,34 +138,43 @@ var localServerOptions = []localModelOption{
 }
 
 // loginLocalModel is the guided local model setup flow.
-// It offers to install Ollama automatically, or falls back to manual entry.
+// Loops so the user can add as many local models as they want.
 func loginLocalModel() {
-	fmt.Println()
-	fmt.Println("  Local / self-hosted model setup")
-	fmt.Println()
-	fmt.Println("  Which server?")
-	fmt.Println()
-	for i, opt := range localServerOptions {
-		fmt.Printf("  %d  %s\n", i+1, opt.label)
-	}
-	fmt.Println()
-	fmt.Printf("  Choice [1-%d]: ", len(localServerOptions))
+	for {
+		fmt.Println()
+		fmt.Println("  Local / self-hosted model setup")
+		fmt.Println()
+		fmt.Println("  Which server?")
+		fmt.Println()
+		for i, opt := range localServerOptions {
+			fmt.Printf("  %d  %s\n", i+1, opt.label)
+		}
+		fmt.Println()
+		fmt.Printf("  Choice [1-%d]: ", len(localServerOptions))
 
-	var choice int
-	if _, err := fmt.Scan(&choice); err != nil || choice < 1 || choice > len(localServerOptions) {
-		fmt.Fprintf(os.Stderr, "\n  Please enter a number between 1 and %d.\n", len(localServerOptions))
-		os.Exit(1)
-	}
+		var choice int
+		if _, err := fmt.Scan(&choice); err != nil || choice < 1 || choice > len(localServerOptions) {
+			fmt.Fprintf(os.Stderr, "\n  Please enter a number between 1 and %d.\n", len(localServerOptions))
+			os.Exit(1)
+		}
 
-	opt := localServerOptions[choice-1]
+		opt := localServerOptions[choice-1]
 
-	switch choice {
-	case 1: // Ollama — guided install
-		loginOllama(opt)
-	case 2: // LM Studio — semi-guided
-		loginLMStudio(opt)
-	default: // manual
-		loginLocalModelManual()
+		switch choice {
+		case 1:
+			loginOllama(opt)
+		case 2:
+			loginLMStudio(opt)
+		default:
+			loginLocalModelManual()
+		}
+
+		fmt.Print("  Add another local model? [y/N]: ")
+		var ans string
+		fmt.Scanln(&ans) //nolint:errcheck
+		if strings.ToLower(strings.TrimSpace(ans)) != "y" {
+			break
+		}
 	}
 }
 
