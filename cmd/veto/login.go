@@ -95,48 +95,175 @@ func cmdLogin() {
 	loginAPIKey(p)
 }
 
-// loginLocalModel interactively adds a local / self-hosted model.
+// localModelOption describes a popular local model server veto can install for the user.
+type localModelOption struct {
+	label     string // display name
+	serverCmd string // binary to check with `which`
+	installOS map[string]string // GOOS -> install command (empty = manual)
+	endpoint  string
+	models    []ollamaModelChoice
+}
+
+type ollamaModelChoice struct {
+	id   string // ollama model id
+	name string // display name
+	size string // approx disk size
+	desc string // one-line description
+}
+
+var localServerOptions = []localModelOption{
+	{
+		label:     "Ollama  — easiest, free, works on Mac/Linux/Windows",
+		serverCmd: "ollama",
+		installOS: map[string]string{
+			"darwin": "brew install ollama",
+			"linux":  "curl -fsSL https://ollama.com/install.sh | sh",
+		},
+		endpoint: "http://localhost:11434/v1/chat/completions",
+		models: []ollamaModelChoice{
+			{"qwen2.5-coder:7b", "Qwen 2.5 Coder 7B", "4.7 GB", "best for code — outperforms many larger models on coding tasks"},
+			{"llama3.2:3b", "Llama 3.2 3B", "2.0 GB", "smallest & fastest — great for quick tasks and low-RAM machines"},
+			{"mistral:7b", "Mistral 7B", "4.1 GB", "strong general-purpose model — good balance of speed and quality"},
+		},
+	},
+	{
+		label:     "LM Studio — GUI app (download manually at lmstudio.ai)",
+		serverCmd: "", // can't auto-detect; user must start it themselves
+		endpoint:  "http://localhost:1234/v1/chat/completions",
+	},
+	{
+		label:     "I already have a server running — enter endpoint manually",
+		serverCmd: "",
+	},
+}
+
+// loginLocalModel is the guided local model setup flow.
+// It offers to install Ollama automatically, or falls back to manual entry.
 func loginLocalModel() {
-	scanner := bufio.NewScanner(os.Stdin)
-
 	fmt.Println()
-	fmt.Println("  Adding a local / self-hosted model.")
+	fmt.Println("  Local / self-hosted model setup")
 	fmt.Println()
-
-	fmt.Print("  Name (routing id, e.g. ollama-qwen): ")
-	scanner.Scan()
-	name := strings.TrimSpace(scanner.Text())
-
+	fmt.Println("  Which server?")
 	fmt.Println()
-	fmt.Println("  Endpoint (full chat-completions URL):")
-	fmt.Println("    Ollama:    http://localhost:11434/v1/chat/completions")
-	fmt.Println("    LM Studio: http://localhost:1234/v1/chat/completions")
-	fmt.Print("  Endpoint: ")
-	scanner.Scan()
-	endpoint := strings.TrimSpace(scanner.Text())
+	for i, opt := range localServerOptions {
+		fmt.Printf("  %d  %s\n", i+1, opt.label)
+	}
+	fmt.Println()
+	fmt.Printf("  Choice [1-%d]: ", len(localServerOptions))
 
-	fmt.Print("  Model id (as the server knows it, e.g. qwen2.5-coder:7b): ")
-	scanner.Scan()
-	modelID := strings.TrimSpace(scanner.Text())
-
-	fmt.Print("  API key (leave blank if not required): ")
-	scanner.Scan()
-	apiKey := strings.TrimSpace(scanner.Text())
-
-	lm := LocalModel{
-		Name:     name,
-		Endpoint: endpoint,
-		Model:    modelID,
-		APIKey:   apiKey,
+	var choice int
+	if _, err := fmt.Scan(&choice); err != nil || choice < 1 || choice > len(localServerOptions) {
+		fmt.Fprintf(os.Stderr, "\n  Please enter a number between 1 and %d.\n", len(localServerOptions))
+		os.Exit(1)
 	}
 
+	opt := localServerOptions[choice-1]
+
+	switch choice {
+	case 1: // Ollama — guided install
+		loginOllama(opt)
+	case 2: // LM Studio — semi-guided
+		loginLMStudio(opt)
+	default: // manual
+		loginLocalModelManual()
+	}
+}
+
+// loginOllama installs Ollama if needed, lets the user pick a model, pulls it, starts the server.
+func loginOllama(opt localModelOption) {
+	scanner := bufio.NewScanner(os.Stdin)
+
+	// Step 1: install if missing
+	if _, err := exec.LookPath("ollama"); err != nil {
+		installCmd, ok := opt.installOS[runtime.GOOS]
+		if !ok {
+			fmt.Println()
+			fmt.Println("  Ollama isn't installed. Download it from: https://ollama.com/download")
+			fmt.Println("  Install it, then run 'veto login' again.")
+			os.Exit(1)
+		}
+		fmt.Println()
+		fmt.Printf("  Ollama not found. Installing via: %s\n", installCmd)
+		fmt.Print("  Proceed? [Y/n]: ")
+		scanner.Scan()
+		ans := strings.TrimSpace(scanner.Text())
+		if ans != "" && strings.ToLower(ans) != "y" {
+			fmt.Println("  Skipped. Install Ollama manually at https://ollama.com/download")
+			os.Exit(0)
+		}
+		fmt.Println()
+		if err := runVisible(installCmd); err != nil {
+			fmt.Fprintf(os.Stderr, "\n  Install failed: %v\n", err)
+			fmt.Fprintln(os.Stderr, "  Try manually: https://ollama.com/download")
+			os.Exit(1)
+		}
+		fmt.Println()
+		fmt.Println("  Ollama installed!")
+	} else {
+		fmt.Println()
+		fmt.Println("  Ollama is already installed.")
+	}
+
+	// Step 2: pick a model
+	fmt.Println()
+	fmt.Println("  Which model do you want to pull?")
+	fmt.Println()
+	for i, m := range opt.models {
+		fmt.Printf("  %d  %-24s  %-7s  %s\n", i+1, m.name, m.size, m.desc)
+	}
+	fmt.Println()
+	fmt.Printf("  Model [1-%d]: ", len(opt.models))
+
+	var modelChoice int
+	if _, err := fmt.Scan(&modelChoice); err != nil || modelChoice < 1 || modelChoice > len(opt.models) {
+		fmt.Fprintf(os.Stderr, "\n  Please enter 1, 2, or 3.\n")
+		os.Exit(1)
+	}
+	chosen := opt.models[modelChoice-1]
+
+	// Step 3: start ollama serve if not already running
+	fmt.Println()
+	fmt.Println("  Starting Ollama server...")
+	if !ollamaIsRunning() {
+		// start in background; ollama serve blocks so we detach
+		srv := exec.Command("ollama", "serve")
+		srv.Stdout = nil
+		srv.Stderr = nil
+		if err := srv.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "  Could not start ollama serve: %v\n", err)
+			fmt.Fprintln(os.Stderr, "  Run 'ollama serve' in another terminal and try again.")
+			os.Exit(1)
+		}
+		// give it a moment to bind
+		waitForOllama()
+		fmt.Println("  Server started.")
+	} else {
+		fmt.Println("  Server is already running.")
+	}
+
+	// Step 4: pull the model
+	fmt.Printf("\n  Pulling %s (%s) — this may take a few minutes...\n\n", chosen.name, chosen.size)
+	pull := exec.Command("ollama", "pull", chosen.id)
+	pull.Stdout = os.Stdout
+	pull.Stderr = os.Stderr
+	if err := pull.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "\n  Pull failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Step 5: register in veto
+	name := "ollama-" + strings.ReplaceAll(strings.Split(chosen.id, ":")[0], ".", "-")
+	lm := LocalModel{
+		Name:     name,
+		Endpoint: opt.endpoint,
+		Model:    chosen.id,
+	}
 	builtins := make(map[string]bool)
 	for _, m := range router.NewRegistry().All() {
 		builtins[m.Name] = true
 	}
-
 	if err := validateLocalModel(lm, builtins); err != nil {
-		fmt.Fprintf(os.Stderr, "\n  Invalid model: %v\n", err)
+		fmt.Fprintf(os.Stderr, "\n  Validation error: %v\n", err)
 		os.Exit(1)
 	}
 	if err := saveLocalModel(lm); err != nil {
@@ -145,13 +272,138 @@ func loginLocalModel() {
 	}
 
 	fmt.Println()
-	fmt.Printf("  Local model %q added!\n", name)
-	fmt.Println("  It will appear in 'veto providers' and be considered in all routing calls.")
+	fmt.Printf("  %s is ready and registered as %q!\n", chosen.name, name)
 	fmt.Println()
 	fmt.Println("  What's next:")
-	fmt.Println("    veto providers                       — confirm the model is listed")
-	fmt.Printf("    veto route --task \"...\" --kind summarize\n")
+	fmt.Printf("    veto providers                  — confirm %q is listed\n", name)
+	fmt.Println(`    veto run "summarize this file"  — route a task (may pick the local model)`)
 	fmt.Println()
+	fmt.Println("  Note: 'ollama serve' must be running. Add it to your shell startup or run")
+	fmt.Println("  it in a background terminal. veto will skip the local model if the server")
+	fmt.Println("  is unreachable.")
+	fmt.Println()
+}
+
+// loginLMStudio guides the user through LM Studio setup (which can't be automated).
+func loginLMStudio(opt localModelOption) {
+	fmt.Println()
+	fmt.Println("  LM Studio setup:")
+	fmt.Println()
+	fmt.Println("  1. Download and install LM Studio from https://lmstudio.ai")
+	fmt.Println("  2. Open LM Studio and download a model (Search tab)")
+	fmt.Println("  3. Go to the Local Server tab and click Start Server")
+	fmt.Println("  4. Note the model id shown in the server tab (e.g. mistral-7b-instruct)")
+	fmt.Println()
+	fmt.Println("  Once the server is running, come back here.")
+	fmt.Println()
+	fmt.Print("  Press Enter when ready (or Ctrl+C to cancel)...")
+	fmt.Scanln() //nolint:errcheck
+
+	// collect just the missing details
+	scanner := bufio.NewScanner(os.Stdin)
+	fmt.Print("  Model id (as shown in LM Studio server tab): ")
+	scanner.Scan()
+	modelID := strings.TrimSpace(scanner.Text())
+
+	fmt.Printf("  Routing name (e.g. lmstudio-%s): ", strings.Split(modelID, "-")[0])
+	scanner.Scan()
+	name := strings.TrimSpace(scanner.Text())
+	if name == "" {
+		name = "lmstudio-local"
+	}
+
+	lm := LocalModel{Name: name, Endpoint: opt.endpoint, Model: modelID}
+	builtins := make(map[string]bool)
+	for _, m := range router.NewRegistry().All() {
+		builtins[m.Name] = true
+	}
+	if err := validateLocalModel(lm, builtins); err != nil {
+		fmt.Fprintf(os.Stderr, "\n  Invalid model: %v\n", err)
+		os.Exit(1)
+	}
+	if err := saveLocalModel(lm); err != nil {
+		fmt.Fprintf(os.Stderr, "\n  Couldn't save model: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println()
+	fmt.Printf("  %q registered! Run 'veto providers' to confirm.\n", name)
+	fmt.Println()
+}
+
+// loginLocalModelManual is the original manual entry flow (endpoint + model id).
+func loginLocalModelManual() {
+	scanner := bufio.NewScanner(os.Stdin)
+	fmt.Println()
+	fmt.Println("  Manual entry — enter your server details.")
+	fmt.Println()
+
+	fmt.Print("  Name (routing id, e.g. my-local): ")
+	scanner.Scan()
+	name := strings.TrimSpace(scanner.Text())
+
+	fmt.Println()
+	fmt.Println("  Endpoint examples:")
+	fmt.Println("    Ollama:    http://localhost:11434/v1/chat/completions")
+	fmt.Println("    LM Studio: http://localhost:1234/v1/chat/completions")
+	fmt.Print("  Endpoint: ")
+	scanner.Scan()
+	endpoint := strings.TrimSpace(scanner.Text())
+
+	fmt.Print("  Model id (as the server knows it): ")
+	scanner.Scan()
+	modelID := strings.TrimSpace(scanner.Text())
+
+	fmt.Print("  API key (leave blank if not required): ")
+	scanner.Scan()
+	apiKey := strings.TrimSpace(scanner.Text())
+
+	lm := LocalModel{Name: name, Endpoint: endpoint, Model: modelID, APIKey: apiKey}
+	builtins := make(map[string]bool)
+	for _, m := range router.NewRegistry().All() {
+		builtins[m.Name] = true
+	}
+	if err := validateLocalModel(lm, builtins); err != nil {
+		fmt.Fprintf(os.Stderr, "\n  Invalid model: %v\n", err)
+		os.Exit(1)
+	}
+	if err := saveLocalModel(lm); err != nil {
+		fmt.Fprintf(os.Stderr, "\n  Couldn't save model: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println()
+	fmt.Printf("  Local model %q added!\n", name)
+	fmt.Println("  Run 'veto providers' to confirm it's listed.")
+	fmt.Println()
+}
+
+// ollamaIsRunning pings the Ollama REST API to check if the server is up.
+func ollamaIsRunning() bool {
+	out, err := exec.Command("ollama", "list").Output()
+	return err == nil && len(out) > 0
+}
+
+// waitForOllama polls until ollama serve is accepting connections (max ~5s).
+func waitForOllama() {
+	for i := 0; i < 10; i++ {
+		if ollamaIsRunning() {
+			return
+		}
+		// ponytail: simple sleep loop; 10×500ms = 5s max wait
+		_ = exec.Command("sleep", "0.5").Run()
+	}
+}
+
+// runVisible runs a shell command string with stdout/stderr connected to the terminal.
+func runVisible(command string) error {
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/c", command)
+	} else {
+		cmd = exec.Command("sh", "-c", command)
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // loginClaudeSubscription verifies the claude CLI is present and saves a subscription marker.
