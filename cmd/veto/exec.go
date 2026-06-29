@@ -145,7 +145,7 @@ func cmdExec(args []string) {
 	if len(allCriteria) > 0 && len(allOutputs) > 0 && len(failed) == 0 {
 		allCriteria = append(allCriteria, "no step undid another step's work (no regression introduced)")
 		finalSpec := router.TaskSpec{
-			ID:              taskHash(plan.Title, "review", "medium", 0),
+			ID:              taskHash(fmt.Sprintf("%s|steps=%d", plan.Title, len(plan.Steps)), "review", "medium", 0),
 			Kind:            router.KindReview,
 			Objective:       fmt.Sprintf("Plan: %s\n\nAll %d step(s) completed.", plan.Title, len(plan.Steps)),
 			Risk:            router.RiskMedium,

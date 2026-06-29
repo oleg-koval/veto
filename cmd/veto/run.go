@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -125,11 +126,23 @@ func cmdRun(args []string) {
 	}
 	var output string
 	if s, ok := exec.(streamer); ok {
-		if serr := s.Stream(ctx, prompt, os.Stdout); serr != nil {
-			fmt.Fprintf(os.Stderr, "run failed: %v\n", serr)
-			os.Exit(1)
+		// When criteria are set, tee stream output to a buffer so the reviewer can read it.
+		if len(criteria) > 0 {
+			var buf strings.Builder
+			w := io.MultiWriter(os.Stdout, &buf)
+			if serr := s.Stream(ctx, prompt, w); serr != nil {
+				fmt.Fprintf(os.Stderr, "run failed: %v\n", serr)
+				os.Exit(1)
+			}
+			fmt.Println()
+			output = buf.String()
+		} else {
+			if serr := s.Stream(ctx, prompt, os.Stdout); serr != nil {
+				fmt.Fprintf(os.Stderr, "run failed: %v\n", serr)
+				os.Exit(1)
+			}
+			fmt.Println()
 		}
-		fmt.Println()
 	} else {
 		result := exec.Run(ctx, prompt)
 		if result.Error != nil {
@@ -140,7 +153,7 @@ func cmdRun(args []string) {
 		fmt.Println(output)
 	}
 
-	// final QA: check acceptance criteria when --criteria was supplied and we have output
+	// final QA: check acceptance criteria when --criteria was supplied
 	if len(criteria) > 0 && output != "" {
 		if result, ok := reviewOutput(ctx, reg, mgr, spec, output, model.Name); ok {
 			render.PrintReview(result)
@@ -179,7 +192,9 @@ func prepareRouting() (*providerRegistry, *router.Manager, *router.FileStore, er
 // skills bodies are prepended to the execution prompt (admission always uses the clean Objective).
 // Pass nil skills for internal/meta routes (review, skill generation, plan conversion) to avoid recursion.
 func routeAndCapture(ctx context.Context, reg *providerRegistry, mgr *router.Manager, render *Renderer, spec router.TaskSpec, skills []string) (string, string, error) {
+	prev := mgr.OnEvent
 	mgr.OnEvent = func(e router.ProgressEvent) { render.OnEvent(e) }
+	defer func() { mgr.OnEvent = prev }()
 	model, _, err := mgr.Route(ctx, spec)
 	if err != nil {
 		return "", "", err

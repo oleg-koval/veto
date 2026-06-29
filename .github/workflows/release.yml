@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build binaries
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          LDFLAGS="-X main.version=${VERSION#v}"
+          GOOS=darwin  GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/veto-darwin-arm64  ./cmd/veto
+          GOOS=darwin  GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/veto-darwin-amd64  ./cmd/veto
+          GOOS=linux   GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/veto-linux-amd64   ./cmd/veto
+          GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/veto-windows-amd64.exe ./cmd/veto
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

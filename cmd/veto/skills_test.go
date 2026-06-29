@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// setTempSkillsDir redirects the veto-generated skills dir (always approved).
 func setTempSkillsDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -18,9 +19,11 @@ func setTempSkillsDir(t *testing.T) string {
 	return dir
 }
 
-func writeSkill(t *testing.T, dir, filename, content string) {
+func writeSkillFile(t *testing.T, dir, filename, content string) string {
 	t.Helper()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, filename), []byte(content), 0600))
+	path := filepath.Join(dir, filename)
+	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+	return path
 }
 
 // TestParseSkillFile verifies frontmatter + body extraction.
@@ -39,36 +42,62 @@ func TestParseSkillFile_NoFrontmatter(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// TestMatchSkills_ByKind matches a skill on kind alone (no keywords).
+func TestParseSkillFile_NoKinds_Valid(t *testing.T) {
+	data := []byte("---\nname: generic\n---\n- Always be concise.\n")
+	s, ok := parseSkillFile(data)
+	require.True(t, ok)
+	assert.Empty(t, s.Kinds) // matches all kinds
+	assert.Contains(t, s.Body, "concise")
+}
+
+// TestMatchSkills_ByKind matches a specific-kind skill.
 func TestMatchSkills_ByKind(t *testing.T) {
 	dir := setTempSkillsDir(t)
-	writeSkill(t, dir, "debug.md", "---\nname: debug-tips\nkinds: [debug]\nkeywords: []\n---\n- Check logs first.\n")
+	writeSkillFile(t, dir, "debug.md", "---\nname: debug-tips\nkinds: [debug]\nkeywords: []\n---\n- Check logs first.\n")
 
-	task := router.TaskSpec{Kind: router.KindDebug, Objective: "something unrelated"}
+	task := router.TaskSpec{Kind: router.KindDebug, Objective: "something"}
 	matched := matchSkills(task)
 	require.Len(t, matched, 1)
 	assert.Equal(t, "debug-tips", matched[0].Name)
 }
 
-// TestMatchSkills_KindMismatch returns nothing when kind doesn't match.
-func TestMatchSkills_KindMismatch(t *testing.T) {
+// TestMatchSkills_GenericKindMatchesAll verifies skills with no kinds field match any kind.
+func TestMatchSkills_GenericKindMatchesAll(t *testing.T) {
 	dir := setTempSkillsDir(t)
-	writeSkill(t, dir, "plan.md", "---\nname: planner\nkinds: [plan]\nkeywords: []\n---\n- Think step by step.\n")
+	writeSkillFile(t, dir, "generic.md", "---\nname: generic\nkeywords: []\n---\n- Be concise.\n")
 
-	task := router.TaskSpec{Kind: router.KindDebug, Objective: "debug something"}
-	assert.Empty(t, matchSkills(task))
+	for _, k := range []router.TaskKind{router.KindDebug, router.KindPlan, router.KindReview} {
+		matched := matchSkills(router.TaskSpec{Kind: k, Objective: "anything"})
+		require.Len(t, matched, 1, "generic skill should match kind %s", k)
+	}
 }
 
-// TestMatchSkills_KeywordFilter requires keyword overlap when keywords are set.
+// TestMatchSkills_SpecificBeatsGeneric — kind-specific skills come before generic ones.
+func TestMatchSkills_SpecificBeatsGeneric(t *testing.T) {
+	dir := setTempSkillsDir(t)
+	writeSkillFile(t, dir, "specific.md", "---\nname: specific\nkinds: [debug]\nkeywords: []\n---\nspecific body\n")
+	writeSkillFile(t, dir, "generic.md", "---\nname: generic\nkeywords: []\n---\ngeneric body\n")
+
+	matched := matchSkills(router.TaskSpec{Kind: router.KindDebug, Objective: "anything"})
+	require.Len(t, matched, 2)
+	assert.Equal(t, "specific", matched[0].Name, "specific skill must rank first")
+}
+
+// TestMatchSkills_KindMismatch returns nothing when kind doesn't match and no generic skills exist.
+func TestMatchSkills_KindMismatch(t *testing.T) {
+	dir := setTempSkillsDir(t)
+	writeSkillFile(t, dir, "plan.md", "---\nname: planner\nkinds: [plan]\nkeywords: []\n---\n- Think step by step.\n")
+
+	assert.Empty(t, matchSkills(router.TaskSpec{Kind: router.KindDebug, Objective: "debug something"}))
+}
+
+// TestMatchSkills_KeywordFilter requires overlap when keywords are set.
 func TestMatchSkills_KeywordFilter(t *testing.T) {
 	dir := setTempSkillsDir(t)
-	writeSkill(t, dir, "table.md", "---\nname: table-driven\nkinds: [code-change]\nkeywords: [table-driven, subtest]\n---\n- Use t.Run subtests.\n")
+	writeSkillFile(t, dir, "table.md", "---\nname: table-driven\nkinds: [code-change]\nkeywords: [table-driven]\n---\n- Use t.Run.\n")
 
-	match := router.TaskSpec{Kind: router.KindCodeChange, Objective: "write a table-driven test"}
-	miss := router.TaskSpec{Kind: router.KindCodeChange, Objective: "refactor the handler"}
-
-	assert.Len(t, matchSkills(match), 1)
-	assert.Empty(t, matchSkills(miss))
+	assert.Len(t, matchSkills(router.TaskSpec{Kind: router.KindCodeChange, Objective: "write a table-driven test"}), 1)
+	assert.Empty(t, matchSkills(router.TaskSpec{Kind: router.KindCodeChange, Objective: "refactor the handler"}))
 }
 
 // TestMatchSkills_Cap ensures at most 2 skills are returned.
@@ -76,11 +105,10 @@ func TestMatchSkills_Cap(t *testing.T) {
 	dir := setTempSkillsDir(t)
 	for i := 0; i < 5; i++ {
 		name := string(rune('a' + i))
-		writeSkill(t, dir, name+".md",
+		writeSkillFile(t, dir, name+".md",
 			"---\nname: skill-"+name+"\nkinds: [summarize]\nkeywords: []\n---\nbody "+name+"\n")
 	}
-	task := router.TaskSpec{Kind: router.KindSummarize, Objective: "anything"}
-	assert.Len(t, matchSkills(task), 2)
+	assert.Len(t, matchSkills(router.TaskSpec{Kind: router.KindSummarize, Objective: "anything"}), 2)
 }
 
 // TestLoadSkills_EmptyDir returns nil gracefully.
@@ -96,6 +124,21 @@ func TestLoadSkills_MissingDir(t *testing.T) {
 	assert.Nil(t, loadSkills())
 }
 
+// TestScanUnapprovedSkills_FileApproval — per-file approval removes the file from the unapproved list.
+func TestScanUnapprovedSkills_FileApproval(t *testing.T) {
+	dir := t.TempDir()
+	extFile := writeSkillFile(t, dir, "ext.md", "---\nname: external\nkinds: [debug]\n---\nexternal body\n")
+
+	// Without approval: unapproved.
+	unapproved := scanUnapprovedSkills([]string{dir}, skillsConfig{})
+	assert.Len(t, unapproved, 1)
+	assert.Equal(t, extFile, unapproved[0])
+
+	// With per-file approval: not unapproved.
+	unapproved = scanUnapprovedSkills([]string{dir}, skillsConfig{ApprovedFiles: []string{extFile}})
+	assert.Empty(t, unapproved)
+}
+
 // TestWithSkills_Empty returns objective unchanged.
 func TestWithSkills_Empty(t *testing.T) {
 	assert.Equal(t, "do the thing", withSkills("do the thing", nil))
@@ -109,8 +152,6 @@ func TestWithSkills_Injects(t *testing.T) {
 	assert.Contains(t, result, "- bullet one")
 	assert.Contains(t, result, "## Task")
 	assert.Contains(t, result, "my task")
-	// admission objective must come AFTER skills
-	assert.Greater(t, len(result), len("my task"))
 }
 
 // TestSkillSlug verifies slug generation.
@@ -127,4 +168,25 @@ func TestSplitCriteria(t *testing.T) {
 	assert.Nil(t, splitCriteria(""))
 	assert.Nil(t, splitCriteria("   "))
 	assert.Equal(t, []string{"trim me"}, splitCriteria("  trim me  "))
+}
+
+// TestScanUnapprovedSkills_Empty returns nothing when dir is empty.
+func TestScanUnapprovedSkills_Empty(t *testing.T) {
+	dir := t.TempDir()
+	result := scanUnapprovedSkills([]string{dir}, skillsConfig{})
+	assert.Empty(t, result)
+}
+
+// TestScanUnapprovedSkills_ApprovedDir — whole-dir approval marks all files as approved.
+func TestScanUnapprovedSkills_ApprovedDir(t *testing.T) {
+	dir := t.TempDir()
+	writeSkillFile(t, dir, "a.md", "---\nname: a\n---\nbody\n")
+	result := scanUnapprovedSkills([]string{dir}, skillsConfig{ApprovedDirs: []string{dir}})
+	assert.Empty(t, result)
+}
+
+// TestContainsStr verifies the helper.
+func TestContainsStr(t *testing.T) {
+	assert.True(t, containsStr([]string{"a", "b"}, "b"))
+	assert.False(t, containsStr([]string{"a"}, "z"))
 }

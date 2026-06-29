@@ -22,6 +22,10 @@ func main() {
 		printUsage(os.Stdout)
 		os.Exit(0)
 	}
+	// Notify once if new skills are pending approval (non-blocking).
+	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" {
+		checkPendingSkills()
+	}
 	switch os.Args[1] {
 	case "route":
 		cmdRoute(os.Args[2:])
@@ -37,6 +41,12 @@ func main() {
 		} else {
 			cmdLogout(nil)
 		}
+	case "exec":
+		cmdExec(os.Args[2:])
+	case "setup":
+		cmdSetup()
+	case "version", "--version", "-v":
+		fmt.Println("veto " + version)
 	case "install-git-hook":
 		cmdInstallGitHook(os.Args[2:])
 	default:
@@ -59,10 +69,12 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "COMMANDS")
 	fmt.Fprintln(o, "  login              connect a provider (opens browser, masked key input)")
 	fmt.Fprintln(o, "  logout             remove a configured provider or local model")
-	fmt.Fprintln(o, "  exec               execute a veto plan file step-by-step")
+	fmt.Fprintln(o, "  setup              discover and approve skills from your skill directories")
 	fmt.Fprintln(o, "  run                route a task and execute it — prints the model's response")
+	fmt.Fprintln(o, "  exec               execute a veto plan file step-by-step")
 	fmt.Fprintln(o, "  route              route a task to the best available model (no execution)")
 	fmt.Fprintln(o, "  providers          show which providers are configured")
+	fmt.Fprintln(o, "  version            print veto version")
 	fmt.Fprintln(o, "  install-git-hook   add veto to your git workflow")
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "QUICK START")
@@ -83,9 +95,10 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "SKILLS")
 	fmt.Fprintln(o, "  Skills are instruction snippets injected into the executor prompt.")
-	fmt.Fprintln(o, "  veto matches skills in ~/.veto/skills/ by task kind and keywords.")
-	fmt.Fprintln(o, "  If none match, a skill is generated and saved there for future reuse.")
-	fmt.Fprintln(o, "  To remove a skill: delete its .md file in ~/.veto/skills/.")
+	fmt.Fprintln(o, "  veto scans skill directories you approve: ~/.veto/skills/ (auto-approved,")
+	fmt.Fprintln(o, "  veto-generated) and any other directories added via 'veto setup'.")
+	fmt.Fprintln(o, "  New skills found at startup are flagged for approval on next 'veto setup'.")
+	fmt.Fprintln(o, "  Run 'veto setup' to discover existing skills in ~/.claude/skills/ or elsewhere.")
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "PROVIDERS")
 	fmt.Fprintln(o, "  ANTHROPIC_API_KEY     Claude Haiku · Sonnet · Opus")
@@ -323,6 +336,9 @@ func historyPath() string {
 // hookMarker identifies a prepare-commit-msg hook that veto installed, so we
 // can safely overwrite our own hook but never someone else's.
 const hookMarker = "installed by veto install-git-hook"
+
+// version is set at build time via -ldflags "-X main.version=<tag>".
+var version = "dev"
 
 // cmdInstallGitHook writes a prepare-commit-msg hook that runs veto route before each commit.
 func cmdInstallGitHook(args []string) {
