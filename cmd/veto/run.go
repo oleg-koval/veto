@@ -22,7 +22,7 @@ func cmdRun(args []string) {
 	kindFlag := fs.String("kind", "", "task kind (auto-detected if omitted)")
 	risk := fs.String("risk", "medium", "risk level: low|medium|high")
 	maxCost := fs.Float64("max-cost", 0, "max cost in USD (0 = no limit)")
-	timeout := fs.Duration("timeout", 60*time.Second, "total timeout (routing + execution)")
+	timeout := fs.Duration("timeout", 120*time.Second, "total timeout (routing + execution)")
 	quiet := fs.Bool("quiet", false, "suppress routing pipeline — print model output only")
 	criteriaFlag := fs.String("criteria", "", "comma-separated acceptance criteria; review runs after execution")
 	_ = fs.Parse(args)

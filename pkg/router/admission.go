@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/oleg-koval/veto/pkg/executor"
 )
+
+const admissionModelTimeout = 20 * time.Second
 
 //go:generate moq -out mocks/executor.go -pkg mocks -skip-ensure -fmt goimports . Executor
 
@@ -53,8 +56,11 @@ func (g *AdmissionGate) Ask(ctx context.Context, task TaskSpec, model ModelCapab
 		return AdmissionDecision{Accept: false, ReasonCodes: []string{ReasonParseFailure}},
 			fmt.Errorf("no executor registered for model %q", model.Name)
 	}
+	// per-model cap: a hung model shouldn't block routing indefinitely
+	mCtx, cancel := context.WithTimeout(ctx, admissionModelTimeout)
+	defer cancel()
 	prompt := buildAdmissionPrompt(task, model)
-	result := exec.Run(ctx, prompt)
+	result := exec.Run(mCtx, prompt)
 	if result.Error != nil {
 		return AdmissionDecision{
 			Accept:      false,

@@ -255,21 +255,14 @@ func generateSkill(ctx context.Context, reg *providerRegistry, mgr *router.Manag
 	return body, nil
 }
 
-// resolveSkills returns (names, bodies) for the skills matched (or generated) for task.
-func resolveSkills(ctx context.Context, reg *providerRegistry, mgr *router.Manager, task router.TaskSpec) (names, bodies []string) {
-	matched := matchSkills(task)
-	if len(matched) > 0 {
-		for _, s := range matched {
-			names = append(names, s.Name)
-			bodies = append(bodies, s.Body)
-		}
-		return names, bodies
+// resolveSkills returns (names, bodies) for the skills matching task from approved skill files.
+// Skills are never auto-generated here; generation is a separate offline step.
+func resolveSkills(_ context.Context, _ *providerRegistry, _ *router.Manager, task router.TaskSpec) (names, bodies []string) {
+	for _, s := range matchSkills(task) {
+		names = append(names, s.Name)
+		bodies = append(bodies, s.Body)
 	}
-	body, _ := generateSkill(ctx, reg, mgr, task)
-	if body == "" {
-		return nil, nil
-	}
-	return []string{string(task.Kind) + " (generated)"}, []string{body}
+	return names, bodies
 }
 
 // withSkills prepends matched skill bodies to the task objective.

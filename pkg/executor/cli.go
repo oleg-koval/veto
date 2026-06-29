@@ -36,6 +36,9 @@ func (e *CLIExecutor) Run(ctx context.Context, prompt string) Result {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return Result{Error: fmt.Errorf("claude cli: timed out (use --timeout to increase)")}
+		}
 		detail := strings.TrimSpace(stderr.String())
 		if detail == "" {
 			detail = err.Error()
