@@ -23,6 +23,7 @@ func cmdRun(args []string) {
 	maxCost := fs.Float64("max-cost", 0, "max cost in USD (0 = no limit)")
 	timeout := fs.Duration("timeout", 60*time.Second, "total timeout (routing + execution)")
 	quiet := fs.Bool("quiet", false, "suppress routing pipeline — print model output only")
+	criteriaFlag := fs.String("criteria", "", "comma-separated acceptance criteria; review runs after execution")
 	_ = fs.Parse(args)
 
 	objective := *taskObj
@@ -62,17 +63,32 @@ func cmdRun(args []string) {
 	render := NewRenderer(*quiet)
 	render.PrintTaskHeader(objective, kind, *risk, *maxCost, kindInferred)
 
-	mgr.OnEvent = func(e router.ProgressEvent) {
-		render.OnEvent(e)
-		logEvent(objective, kind, *risk, e)
+	var criteria []string
+	if *criteriaFlag != "" {
+		for _, c := range strings.Split(*criteriaFlag, ",") {
+			if t := strings.TrimSpace(c); t != "" {
+				criteria = append(criteria, t)
+			}
+		}
 	}
 
 	spec := router.TaskSpec{
-		ID:         taskHash(objective, kind, *risk, *maxCost),
-		Kind:       router.TaskKind(kind),
-		Objective:  objective,
-		Risk:       router.Risk(*risk),
-		MaxCostUSD: *maxCost,
+		ID:              taskHash(objective, kind, *risk, *maxCost),
+		Kind:            router.TaskKind(kind),
+		Objective:       objective,
+		Risk:            router.Risk(*risk),
+		MaxCostUSD:      *maxCost,
+		SuccessCriteria: criteria,
+	}
+
+	// resolve skills in parallel with no blocking — local match is instant;
+	// generation (rare miss path) runs before routing since it needs a model call anyway.
+	skillNames, skillBodies := resolveSkills(ctx, reg, mgr, spec)
+	render.PrintSkills(skillNames)
+
+	mgr.OnEvent = func(e router.ProgressEvent) {
+		render.OnEvent(e)
+		logEvent(objective, kind, *risk, e)
 	}
 
 	model, _, err := mgr.Route(ctx, spec)
@@ -102,22 +118,36 @@ func cmdRun(args []string) {
 	}
 
 	// Use streaming if the executor supports it, otherwise buffer and print.
+	// Skills are injected into the execution prompt; routing used the clean objective.
+	prompt := withSkills(objective, skillBodies)
 	type streamer interface {
 		Stream(ctx context.Context, prompt string, w interface{ Write([]byte) (int, error) }) error
 	}
+	var output string
 	if s, ok := exec.(streamer); ok {
-		if serr := s.Stream(ctx, objective, os.Stdout); serr != nil {
+		if serr := s.Stream(ctx, prompt, os.Stdout); serr != nil {
 			fmt.Fprintf(os.Stderr, "run failed: %v\n", serr)
 			os.Exit(1)
 		}
 		fmt.Println()
 	} else {
-		result := exec.Run(ctx, objective)
+		result := exec.Run(ctx, prompt)
 		if result.Error != nil {
 			fmt.Fprintf(os.Stderr, "run failed: %v\n", result.Error)
 			os.Exit(1)
 		}
-		fmt.Println(result.Output)
+		output = result.Output
+		fmt.Println(output)
+	}
+
+	// final QA: check acceptance criteria when --criteria was supplied and we have output
+	if len(criteria) > 0 && output != "" {
+		if result, ok := reviewOutput(ctx, reg, mgr, spec, output, model.Name); ok {
+			render.PrintReview(result)
+			if !result.Passed {
+				os.Exit(1)
+			}
+		}
 	}
 }
 
@@ -145,7 +175,10 @@ func prepareRouting() (*providerRegistry, *router.Manager, *router.FileStore, er
 	return reg, mgr, store, nil
 }
 
-func routeAndCapture(ctx context.Context, reg *providerRegistry, mgr *router.Manager, render *Renderer, spec router.TaskSpec) (string, string, error) {
+// routeAndCapture routes spec to the best model and runs the executor.
+// skills bodies are prepended to the execution prompt (admission always uses the clean Objective).
+// Pass nil skills for internal/meta routes (review, skill generation, plan conversion) to avoid recursion.
+func routeAndCapture(ctx context.Context, reg *providerRegistry, mgr *router.Manager, render *Renderer, spec router.TaskSpec, skills []string) (string, string, error) {
 	mgr.OnEvent = func(e router.ProgressEvent) { render.OnEvent(e) }
 	model, _, err := mgr.Route(ctx, spec)
 	if err != nil {
@@ -155,7 +188,7 @@ func routeAndCapture(ctx context.Context, reg *providerRegistry, mgr *router.Man
 	if !ok {
 		return "", "", fmt.Errorf("no executor for model %q", model.Name)
 	}
-	result := exec.Run(ctx, spec.Objective)
+	result := exec.Run(ctx, withSkills(spec.Objective, skills))
 	if result.Error != nil {
 		return model.Name, "", result.Error
 	}

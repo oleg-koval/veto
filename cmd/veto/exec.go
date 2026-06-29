@@ -74,6 +74,9 @@ func cmdExec(args []string) {
 	}
 
 	var failed []int
+	var allOutputs []string
+	var allCriteria []string
+
 	for i, step := range plan.Steps {
 		n := i + 1
 		stepCtx, cancel := context.WithTimeout(sigCtx, *timeout)
@@ -81,13 +84,21 @@ func cmdExec(args []string) {
 		render := NewRenderer(*quiet)
 		render.PrintTaskHeader(step.Task, step.Kind, step.Risk, 0, false)
 
+		criteria := splitCriteria(step.SuccessCriteria)
+		allCriteria = append(allCriteria, criteria...)
+
 		spec := router.TaskSpec{
-			ID:        taskHash(step.Task, step.Kind, step.Risk, 0),
-			Kind:      router.TaskKind(step.Kind),
-			Objective: step.Task,
-			Risk:      router.Risk(step.Risk),
+			ID:              taskHash(step.Task, step.Kind, step.Risk, 0),
+			Kind:            router.TaskKind(step.Kind),
+			Objective:       step.Task,
+			Risk:            router.Risk(step.Risk),
+			SuccessCriteria: criteria,
 		}
-		modelName, output, execErr := routeAndCapture(stepCtx, reg, mgr, render, spec)
+
+		skillNames, skillBodies := resolveSkills(stepCtx, reg, mgr, spec)
+		render.PrintSkills(skillNames)
+
+		modelName, output, execErr := routeAndCapture(stepCtx, reg, mgr, render, spec, skillBodies)
 		cancel()
 
 		if execErr != nil {
@@ -100,11 +111,28 @@ func cmdExec(args []string) {
 			continue
 		}
 
+		allOutputs = append(allOutputs, output)
+
 		if !*quiet {
 			fmt.Printf("\n  ── Running on %-10s %s\n\n", modelName, strings.Repeat("─", 35))
 		}
 		fmt.Println(output)
-		if step.SuccessCriteria != "" && !*quiet {
+
+		// per-step acceptance-criteria review
+		if len(criteria) > 0 {
+			if result, ok := reviewOutput(sigCtx, reg, mgr, spec, output, modelName); ok {
+				render.PrintReview(result)
+				if !result.Passed {
+					failed = append(failed, n)
+					fmt.Fprintf(os.Stderr, "\n  Step %d review failed: criteria not met\n", n)
+					if !handleStepFailure(failureMode, *quiet, n) {
+						_ = store.Save()
+						os.Exit(1)
+					}
+					continue
+				}
+			}
+		} else if step.SuccessCriteria != "" && !*quiet {
 			fmt.Printf("  ✓  %s\n", step.SuccessCriteria)
 		} else if !*quiet {
 			fmt.Printf("  ✓  Step %d done\n", n)
@@ -112,6 +140,31 @@ func cmdExec(args []string) {
 	}
 
 	_ = store.Save()
+
+	// final integrator pass: one cross-step review verifying no regression across all steps
+	if len(allCriteria) > 0 && len(allOutputs) > 0 && len(failed) == 0 {
+		allCriteria = append(allCriteria, "no step undid another step's work (no regression introduced)")
+		finalSpec := router.TaskSpec{
+			ID:              taskHash(plan.Title, "review", "medium", 0),
+			Kind:            router.KindReview,
+			Objective:       fmt.Sprintf("Plan: %s\n\nAll %d step(s) completed.", plan.Title, len(plan.Steps)),
+			Risk:            router.RiskMedium,
+			SuccessCriteria: allCriteria,
+		}
+		combinedOutput := strings.Join(allOutputs, "\n\n---\n\n")
+		finalRender := NewRenderer(*quiet)
+		if !*quiet {
+			fmt.Println("\n  ── Final review " + strings.Repeat("─", 38))
+		}
+		// "" = no single executor to exclude; the plan used multiple models
+		if result, ok := reviewOutput(sigCtx, reg, mgr, finalSpec, combinedOutput, ""); ok {
+			finalRender.PrintReview(result)
+			if !result.Passed {
+				fmt.Fprintln(os.Stderr, "  Final review failed: acceptance criteria not fully met.")
+				os.Exit(1)
+			}
+		}
+	}
 
 	if failureMode == "continue" && len(failed) > 0 {
 		fmt.Printf("\n  Summary: %d ok, %d failed (steps: %s)\n",
@@ -226,4 +279,20 @@ func joinInts(ns []int) string {
 		parts[i] = strconv.Itoa(n)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// splitCriteria splits a raw SuccessCriteria string (from plan YAML) into a slice.
+// Splits on newlines and semicolons; trims whitespace; drops empties.
+func splitCriteria(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == ';' })
+	var out []string
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }

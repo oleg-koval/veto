@@ -242,6 +242,42 @@ func (r *Renderer) stopSpin() {
 	}
 }
 
+// PrintSkills prints the names of skills that will be injected into the executor prompt.
+// No-op when quiet or names is empty.
+func (r *Renderer) PrintSkills(names []string) {
+	if r.quiet || len(names) == 0 {
+		return
+	}
+	fmt.Printf("  Skills: %s\n", strings.Join(names, ", "))
+}
+
+// PrintReview renders the per-criterion verdict after a review pass.
+func (r *Renderer) PrintReview(result ReviewResult) {
+	if r.quiet {
+		return
+	}
+	fmt.Println()
+	fmt.Println("  ── Review " + strings.Repeat("─", 44))
+	for _, c := range result.Criteria {
+		mark := r.color("32", "✓")
+		if !c.Met {
+			mark = r.color("31", "✗")
+		}
+		line := fmt.Sprintf("  %s  %s", mark, c.Criterion)
+		if c.Note != "" {
+			line += r.color("2", "  — "+c.Note)
+		}
+		fmt.Println(line)
+	}
+	fmt.Println()
+	if result.Passed {
+		fmt.Printf("  %s  All criteria met  (score: %.0f%%)\n", r.color("32", "✓"), result.Score*100)
+	} else {
+		fmt.Printf("  %s  Review failed  (score: %.0f%%)\n", r.color("31", "✗"), result.Score*100)
+	}
+	fmt.Println()
+}
+
 // spinner drives the animated "asking..." line.
 type spinner struct {
 	done chan struct{}

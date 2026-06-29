@@ -123,7 +123,7 @@ func convertPlan(ctx context.Context, reg *providerRegistry, mgr *router.Manager
 		Objective: conversionPromptTemplate + originalText,
 		Risk:      router.Risk("medium"),
 	}
-	_, output, err := routeAndCapture(ctx, reg, mgr, render, spec)
+	_, output, err := routeAndCapture(ctx, reg, mgr, render, spec, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("conversion routing failed: %w", err)
 	}
