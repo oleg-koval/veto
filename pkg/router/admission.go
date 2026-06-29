@@ -146,16 +146,13 @@ type admissionJSON struct {
 // the model may prepend/append prose — we find the first '{' and last '}'.
 func parseAdmissionJSON(output string) (AdmissionDecision, bool) {
 	start := strings.Index(output, "{")
-	end := strings.LastIndex(output, "}")
-	if start == -1 || end == -1 || end <= start {
+	if start == -1 {
 		return AdmissionDecision{}, false
 	}
-
-	raw := output[start : end+1]
+	// Use Decoder so trailing prose (common in Llama/Mistral responses) is ignored.
 	var j admissionJSON
-	if err := json.Unmarshal([]byte(raw), &j); err != nil {
+	if err := json.NewDecoder(strings.NewReader(output[start:])).Decode(&j); err != nil {
 		return AdmissionDecision{}, false
 	}
-
 	return AdmissionDecision(j), true
 }
