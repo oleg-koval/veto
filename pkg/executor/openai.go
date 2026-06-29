@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -90,7 +92,18 @@ func (e *OpenAIExecutor) Run(ctx context.Context, prompt string) Result {
 
 		resp, err := e.client.Do(req)
 		if err != nil {
-			return Result{Error: fmt.Errorf("openai http: %w", err)}
+			if attempt == 1 && tryStartOllama(e.endpoint) {
+				bodyReader.Seek(0, io.SeekStart) //nolint:errcheck
+				req2, _ := http.NewRequestWithContext(ctx, http.MethodPost, e.endpoint, bodyReader)
+				req2.Header = req.Header.Clone()
+				if resp2, err2 := e.client.Do(req2); err2 == nil {
+					resp = resp2
+					err = nil
+				}
+			}
+			if err != nil {
+				return Result{Error: fmt.Errorf("openai http: %w", err)}
+			}
 		}
 
 		if retryableStatus(resp.StatusCode) && attempt < maxRetries {
@@ -127,4 +140,33 @@ func (e *OpenAIExecutor) Run(ctx context.Context, prompt string) Result {
 		return Result{Output: ar.Choices[0].Message.Content}
 	}
 	return Result{Error: fmt.Errorf("openai: max retries exceeded")}
+}
+
+// tryStartOllama starts `ollama serve` in the background when the endpoint is
+// the local Ollama server and the binary is available. Blocks up to 5s waiting
+// for the server to become ready. Returns true if the server is now reachable.
+func tryStartOllama(endpoint string) bool {
+	if !strings.Contains(endpoint, "localhost:11434") && !strings.Contains(endpoint, "127.0.0.1:11434") {
+		return false
+	}
+	if _, err := exec.LookPath("ollama"); err != nil {
+		return false
+	}
+	srv := exec.Command("ollama", "serve")
+	srv.Stdout = nil
+	srv.Stderr = nil
+	if err := srv.Start(); err != nil {
+		return false
+	}
+	// Poll until ready (max ~5s).
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	for i := 0; i < 10; i++ {
+		time.Sleep(500 * time.Millisecond)
+		resp, err := client.Get("http://localhost:11434")
+		if err == nil {
+			resp.Body.Close()
+			return true
+		}
+	}
+	return false
 }

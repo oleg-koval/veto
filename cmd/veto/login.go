@@ -287,9 +287,7 @@ func loginOllama(opt localModelOption) {
 	fmt.Printf("    veto providers                  — confirm %q is listed\n", name)
 	fmt.Println(`    veto run "summarize this file"  — route a task (may pick the local model)`)
 	fmt.Println()
-	fmt.Println("  Note: 'ollama serve' must be running. Add it to your shell startup or run")
-	fmt.Println("  it in a background terminal. veto will skip the local model if the server")
-	fmt.Println("  is unreachable.")
+	fmt.Println("  veto will start ollama automatically if it isn't running when you route a task.")
 	fmt.Println()
 }
 
