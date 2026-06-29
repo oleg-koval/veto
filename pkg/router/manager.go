@@ -78,13 +78,13 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 			if ctx.Err() != nil {
 				return ModelCapabilities{}, AdmissionDecision{}, fmt.Errorf("routing: %w", ctx.Err())
 			}
-			// exec failure (not cancellation) — log and skip, do not abort
+			// exec/parse failure — log, show the real error, skip
 			m.store.LogDecision(task.ID, model.Name, AdmissionDecision{
 				Accept:      false,
 				ReasonCodes: []string{ReasonParseFailure},
 			})
 			m.emit(ProgressEvent{Kind: EventAskError, Model: model.Name,
-				Reasons: []string{ReasonParseFailure}})
+				Detail: err.Error()})
 			continue
 		}
 		m.store.LogDecision(task.ID, model.Name, decision)

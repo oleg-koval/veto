@@ -62,10 +62,8 @@ func (g *AdmissionGate) Ask(ctx context.Context, task TaskSpec, model ModelCapab
 	prompt := buildAdmissionPrompt(task, model)
 	result := exec.Run(mCtx, prompt)
 	if result.Error != nil {
-		return AdmissionDecision{
-			Accept:      false,
-			ReasonCodes: []string{ReasonParseFailure},
-		}, fmt.Errorf("admission gate executor: %w", result.Error)
+		return AdmissionDecision{Accept: false, ReasonCodes: []string{ReasonParseFailure}},
+			result.Error
 	}
 
 	if decision, ok := parseAdmissionJSON(result.Output); ok {
