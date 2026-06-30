@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -45,6 +46,10 @@ func main() {
 		cmdExec(os.Args[2:])
 	case "setup":
 		cmdSetup()
+	case "disable":
+		cmdDisable(os.Args[2:])
+	case "enable":
+		cmdEnable(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("veto " + version)
 	case "install-git-hook":
@@ -455,12 +460,16 @@ func (r *providerRegistry) modelCaps() []router.ModelCapabilities {
 func buildProviderRegistry() (*providerRegistry, error) {
 	creds, _ := loadCredentials() // best-effort; env vars take precedence
 	catalog := router.NewRegistry()
+	disabled := loadDisabledModels()
 	reg := &providerRegistry{
 		executors: make(map[string]router.Executor),
 		caps:      make(map[string]router.ModelCapabilities),
 	}
 
 	addBuiltin := func(name string, exec router.Executor) {
+		if disabled[name] {
+			return
+		}
 		reg.executors[name] = exec
 		if m, ok := catalog.ByName(name); ok {
 			reg.caps[name] = m
@@ -479,11 +488,11 @@ func buildProviderRegistry() (*providerRegistry, error) {
 		addBuiltin("opus", executor.NewAnthropicExecutor(key, "claude-opus-4-8"))
 	}
 	if key := getKey("OPENAI_API_KEY", creds); key != "" {
-		addBuiltin("gpt-4o", executor.NewOpenAIExecutor(key, "gpt-4o"))
-		addBuiltin("gpt-4o-mini", executor.NewOpenAIExecutor(key, "gpt-4o-mini"))
+		addBuiltin("gpt-4.1", executor.NewOpenAIExecutor(key, "gpt-4.1"))
+		addBuiltin("gpt-4.1-mini", executor.NewOpenAIExecutor(key, "gpt-4.1-mini"))
 	}
 	if key := getKey("OPENROUTER_API_KEY", creds); key != "" {
-		addBuiltin("llama-3.1-405b", executor.NewOpenRouterExecutor(key, "meta-llama/llama-3.1-405b"))
+		addBuiltin("meta-llama/llama-4-maverick", executor.NewOpenRouterExecutor(key, "meta-llama/llama-4-maverick"))
 	}
 
 	// Local / self-hosted models (OpenAI-compatible endpoints).
@@ -497,4 +506,106 @@ func buildProviderRegistry() (*providerRegistry, error) {
 		return nil, fmt.Errorf("no providers configured — run 'veto login' or set ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY")
 	}
 	return reg, nil
+}
+
+// loadDisabledModels reads the "disabled_models" list from ~/.veto/config.json.
+func loadDisabledModels() map[string]bool {
+	data, err := os.ReadFile(vetoCfgPath())
+	if err != nil {
+		return nil
+	}
+	var full map[string]json.RawMessage
+	if err := json.Unmarshal(data, &full); err != nil {
+		return nil
+	}
+	raw, ok := full["disabled_models"]
+	if !ok {
+		return nil
+	}
+	var names []string
+	if err := json.Unmarshal(raw, &names); err != nil {
+		return nil
+	}
+	out := make(map[string]bool, len(names))
+	for _, n := range names {
+		out[n] = true
+	}
+	return out
+}
+
+// saveDisabledModels writes the "disabled_models" list to ~/.veto/config.json (merges).
+func saveDisabledModels(names []string) error {
+	path := vetoCfgPath()
+	var full map[string]json.RawMessage
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &full)
+	}
+	if full == nil {
+		full = map[string]json.RawMessage{}
+	}
+	raw, err := json.Marshal(names)
+	if err != nil {
+		return err
+	}
+	full["disabled_models"] = raw
+	out, err := json.MarshalIndent(full, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0600)
+}
+
+// cmdDisable disables one or more named models so veto never routes to them.
+func cmdDisable(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: veto disable <model> [model ...]")
+		os.Exit(1)
+	}
+	disabled := loadDisabledModels()
+	if disabled == nil {
+		disabled = map[string]bool{}
+	}
+	for _, name := range args {
+		disabled[name] = true
+	}
+	list := make([]string, 0, len(disabled))
+	for name := range disabled {
+		list = append(list, name)
+	}
+	if err := saveDisabledModels(list); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	for _, name := range args {
+		fmt.Printf("  ✗ %s disabled — veto will not route to it\n", name)
+	}
+}
+
+// cmdEnable re-enables one or more previously disabled models.
+func cmdEnable(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: veto enable <model> [model ...]")
+		os.Exit(1)
+	}
+	disabled := loadDisabledModels()
+	toRemove := make(map[string]bool, len(args))
+	for _, name := range args {
+		toRemove[name] = true
+	}
+	list := make([]string, 0, len(disabled))
+	for name := range disabled {
+		if !toRemove[name] {
+			list = append(list, name)
+		}
+	}
+	if err := saveDisabledModels(list); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	for _, name := range args {
+		fmt.Printf("  ✓ %s enabled\n", name)
+	}
 }

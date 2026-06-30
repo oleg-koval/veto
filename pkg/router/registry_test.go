@@ -12,24 +12,24 @@ func TestNewRegistry(t *testing.T) {
 	models := reg.All()
 	// full catalog spans Anthropic + OpenAI + OpenRouter
 	assert.GreaterOrEqual(t, len(models), 6)
-	for _, want := range []string{"haiku", "sonnet", "opus", "gpt-4o", "gpt-4o-mini"} {
+	for _, want := range []string{"haiku", "sonnet", "opus", "gpt-4.1", "gpt-4.1-mini"} {
 		_, ok := reg.ByName(want)
 		assert.True(t, ok, "catalog should include %s", want)
 	}
 }
 
 func TestNewRegistryFor_FiltersToNamed(t *testing.T) {
-	reg := NewRegistryFor([]string{"gpt-4o", "gpt-4o-mini"})
+	reg := NewRegistryFor([]string{"gpt-4.1", "gpt-4.1-mini"})
 	models := reg.All()
 	assert.Len(t, models, 2)
-	_, ok := reg.ByName("gpt-4o")
+	_, ok := reg.ByName("gpt-4.1")
 	assert.True(t, ok)
 	_, ok = reg.ByName("opus")
 	assert.False(t, ok, "opus is not configured, must be excluded")
 }
 
 func TestNewRegistryFor_IgnoresUnknownNames(t *testing.T) {
-	reg := NewRegistryFor([]string{"gpt-4o", "no-such-model"})
+	reg := NewRegistryFor([]string{"gpt-4.1", "no-such-model"})
 	assert.Len(t, reg.All(), 1)
 }
 
