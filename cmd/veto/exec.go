@@ -82,7 +82,8 @@ func cmdExec(args []string) {
 		stepCtx, cancel := context.WithTimeout(sigCtx, *timeout)
 
 		render := NewRenderer(*quiet)
-		render.PrintTaskHeader(step.Task, step.Kind, step.Risk, 0, false)
+		stepComplexity := router.InferComplexity(step.Task, router.TaskKind(step.Kind))
+		render.PrintTaskHeader(step.Task, step.Kind, step.Risk, string(stepComplexity), 0, false)
 
 		criteria := splitCriteria(step.SuccessCriteria)
 		allCriteria = append(allCriteria, criteria...)
@@ -90,6 +91,7 @@ func cmdExec(args []string) {
 		spec := router.TaskSpec{
 			ID:              taskHash(step.Task, step.Kind, step.Risk, 0),
 			Kind:            router.TaskKind(step.Kind),
+			Complexity:      stepComplexity,
 			Objective:       step.Task,
 			Risk:            router.Risk(step.Risk),
 			SuccessCriteria: criteria,

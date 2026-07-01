@@ -31,6 +31,10 @@ func NewManager(registry *Registry, gate *AdmissionGate, store Store) *Manager {
 // The first accepted candidate is returned. All decisions are logged.
 // Returns ErrNoCandidate if no model passes the admission gate.
 func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, AdmissionDecision, error) {
+	if task.Complexity == "" {
+		task.Complexity = InferComplexity(task.Objective, task.Kind)
+	}
+
 	all := m.registry.All()
 	ranked := RankCandidates(task, all, m.registry)
 

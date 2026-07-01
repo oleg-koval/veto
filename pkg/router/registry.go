@@ -28,7 +28,7 @@ func catalog() []ModelCapabilities {
 			SupportsTools:      []string{toolBash, toolRead, "write", "edit"},
 			CostPer1kInputUSD:  0.00025,
 			CostPer1kOutputUSD: 0.00125,
-			Strengths:          []TaskKind{KindExtract, KindSummarize},
+			Strengths:          []TaskKind{KindExtract, KindSummarize, KindCodeChange},
 			Weaknesses:         []TaskKind{KindDebug, KindPlan},
 		},
 		{

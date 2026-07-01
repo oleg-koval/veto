@@ -42,6 +42,7 @@ func cmdRun(args []string) {
 	if kindInferred {
 		kind = inferKind(objective)
 	}
+	complexity := router.InferComplexity(objective, router.TaskKind(kind))
 
 	setupLogger()
 
@@ -62,7 +63,7 @@ func cmdRun(args []string) {
 	mgr := router.NewManager(modelReg, gate, store)
 
 	render := NewRenderer(*quiet)
-	render.PrintTaskHeader(objective, kind, *risk, *maxCost, kindInferred)
+	render.PrintTaskHeader(objective, kind, *risk, string(complexity), *maxCost, kindInferred)
 
 	var criteria []string
 	if *criteriaFlag != "" {
@@ -76,6 +77,7 @@ func cmdRun(args []string) {
 	spec := router.TaskSpec{
 		ID:              taskHash(objective, kind, *risk, *maxCost),
 		Kind:            router.TaskKind(kind),
+		Complexity:      complexity,
 		Objective:       objective,
 		Risk:            router.Risk(*risk),
 		MaxCostUSD:      *maxCost,

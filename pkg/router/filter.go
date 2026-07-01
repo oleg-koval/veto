@@ -17,6 +17,9 @@ func HardFilter(task TaskSpec, models []ModelCapabilities) []ModelCapabilities {
 		if task.MaxCostUSD > 0 && estimatedCost(m, task) > task.MaxCostUSD {
 			continue
 		}
+		if !tierMeetsComplexity(m.Tier, task.Complexity) {
+			continue
+		}
 		if isWeakKind(m, task.Kind) {
 			continue
 		}
@@ -69,6 +72,9 @@ func FilterReason(m ModelCapabilities, task TaskSpec) string {
 	}
 	if task.MaxCostUSD > 0 && estimatedCost(m, task) > task.MaxCostUSD {
 		return ReasonCostCeiling
+	}
+	if !tierMeetsComplexity(m.Tier, task.Complexity) {
+		return ReasonComplexityCeiling
 	}
 	if isWeakKind(m, task.Kind) {
 		return ReasonWeakKind

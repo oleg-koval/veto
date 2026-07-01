@@ -24,11 +24,21 @@ const (
 	RiskHigh   Risk = "high"
 )
 
+// Complexity classifies how demanding a task is, used to enforce tier constraints.
+type Complexity string
+
+const (
+	ComplexitySimple   Complexity = "simple"   // any tier
+	ComplexityModerate Complexity = "moderate" // mid or large
+	ComplexityComplex  Complexity = "complex"  // large only
+)
+
 // reason codes for admission decisions — machine-readable, not prose.
 const (
 	ReasonMissingTool       = "MISSING_REQUIRED_TOOL"
 	ReasonContextTooLarge   = "CONTEXT_TOO_LARGE"
 	ReasonCostCeiling       = "COST_CEILING_EXCEEDED"
+	ReasonComplexityCeiling = "COMPLEXITY_TOO_HIGH"
 	ReasonWeakKind          = "TASK_KIND_OUTSIDE_STRENGTHS"
 	ReasonRiskTooHigh       = "RISK_TOO_HIGH"
 	ReasonParseFailure      = "PARSE_FAILURE"
@@ -39,6 +49,7 @@ const (
 type TaskSpec struct {
 	ID              string
 	Kind            TaskKind
+	Complexity      Complexity // "" = inferred by Manager from Objective+Kind
 	Objective       string
 	Context         string
 	Constraints     []string

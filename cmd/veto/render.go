@@ -189,7 +189,8 @@ func compactError(s string) string {
 
 // PrintTaskHeader shows the task summary before routing starts.
 // kindInferred flags that --kind was not supplied and was auto-detected.
-func (r *Renderer) PrintTaskHeader(objective, kind, risk string, maxCost float64, kindInferred bool) {
+// complexity is always shown; it is always inferred unless the user overrides.
+func (r *Renderer) PrintTaskHeader(objective, kind, risk, complexity string, maxCost float64, kindInferred bool) {
 	if r.quiet {
 		return
 	}
@@ -203,7 +204,7 @@ func (r *Renderer) PrintTaskHeader(objective, kind, risk string, maxCost float64
 	if kindInferred {
 		kindStr += r.color("2", " (inferred)")
 	}
-	line := fmt.Sprintf("  kind: %s  ·  risk: %s", kindStr, risk)
+	line := fmt.Sprintf("  kind: %s  ·  risk: %s  ·  complexity: %s", kindStr, risk, complexity)
 	if maxCost > 0 {
 		line += fmt.Sprintf("  ·  max cost: $%.2f", maxCost)
 	}

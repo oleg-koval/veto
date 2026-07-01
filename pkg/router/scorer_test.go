@@ -43,16 +43,21 @@ func TestKindMatch(t *testing.T) {
 }
 
 func TestCostFit(t *testing.T) {
+	// $0.01/1k input — about 2/3 of opus cost ($0.015 ref)
 	m := ModelCapabilities{CostPer1kInputUSD: 0.01, CostPer1kOutputUSD: 0.01}
 
-	// no ceiling → neutral
-	assert.InDelta(t, 0.5, costFit(m, TaskSpec{}), 0.001)
+	// no ceiling → cost-efficiency score relative to opus reference (1 - 0.01/0.015 ≈ 0.333)
+	assert.InDelta(t, 0.333, costFit(m, TaskSpec{}), 0.001)
+
+	// free model → 1.0
+	free := ModelCapabilities{CostPer1kInputUSD: 0}
+	assert.InDelta(t, 1.0, costFit(free, TaskSpec{}), 0.001)
 
 	// well under ceiling → high score
 	score := costFit(m, TaskSpec{MaxTokens: 1000, MaxCostUSD: 1.0})
 	assert.Greater(t, score, 0.9)
 
-	// at or above ceiling → zero (new formula: 1000 input + 100 output * 0.01/1k = 0.011)
+	// at or above ceiling → zero (1000 input + 100 output * 0.01/1k = 0.011)
 	score2 := costFit(m, TaskSpec{MaxTokens: 1000, MaxCostUSD: 0.011})
 	assert.InDelta(t, 0.0, score2, 0.001)
 }

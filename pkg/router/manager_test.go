@@ -21,9 +21,10 @@ func rejectJSON(code string) string {
 }
 
 // TestManager_Route_FirstAccepted verifies sequential rank-order selection:
-// candidates are asked one at a time in score order, and the first to accept
-// wins. For KindDebug, opus (Strength) outranks sonnet (neutral) and haiku
-// is hard-filtered out entirely (Weakness), so opus must be asked first and win.
+// candidates are asked in score order and the first to accept wins.
+// Under cost-first scoring, the cheapest model passing hard-filter wins when
+// all models accept. For KindDebug, haiku/gpt-4.1-mini are hard-filtered
+// (Weakness), so the winner is the cheapest remaining model — llama-4-maverick.
 func TestManager_Route_FirstAccepted(t *testing.T) {
 	calls := 0
 	exec := &mocks.ExecutorMock{
@@ -40,7 +41,8 @@ func TestManager_Route_FirstAccepted(t *testing.T) {
 	model, decision, err := mgr.Route(context.Background(), task)
 	require.NoError(t, err)
 	assert.True(t, decision.Accept)
-	assert.Equal(t, "opus", model.Name, "higher-ranked model (Strength) should win")
+	// cheapest model that passes hard-filter wins (cost-first scoring)
+	assert.Equal(t, "meta-llama/llama-4-maverick", model.Name, "cheapest non-filtered model should win")
 	assert.Equal(t, 1, calls, "should stop after first acceptance")
 }
 
@@ -203,22 +205,21 @@ func TestManager_Route_EmitsAskEvents(t *testing.T) {
 }
 
 // TestManager_Route_RankOrderDeterministic verifies that when multiple candidates
-// would accept, the manager asks strictly in rank order and never calls a
-// lower-ranked candidate once a higher-ranked one has accepted.
+// would accept, the manager asks strictly in rank order and stops after the first
+// acceptance — and produces the same winner on every run (no randomness).
+// Under cost-first scoring, the cheapest non-filtered model wins: for KindDebug,
+// haiku/gpt-4.1-mini are hard-filtered (Weakness), so llama-4-maverick wins.
 func TestManager_Route_RankOrderDeterministic(t *testing.T) {
 	var askedModels []string
 	exec := &mocks.ExecutorMock{
 		RunFunc: func(_ context.Context, prompt string) executor.Result {
 			// the admission prompt embeds "You are the <name> model"
-			switch {
-			case strings.Contains(prompt, "You are the opus"):
-				askedModels = append(askedModels, "opus")
-			case strings.Contains(prompt, "You are the sonnet"):
-				askedModels = append(askedModels, "sonnet")
-			case strings.Contains(prompt, "You are the haiku"):
-				askedModels = append(askedModels, "haiku")
+			for _, name := range []string{"opus", "sonnet", "haiku", "gpt-4.1", "gpt-4.1-mini", "meta-llama/llama-4-maverick"} {
+				if strings.Contains(prompt, "You are the "+name) {
+					askedModels = append(askedModels, name)
+					break
+				}
 			}
-			// every candidate that gets asked accepts
 			return executor.Result{Output: acceptJSON()}
 		},
 	}
@@ -226,8 +227,8 @@ func TestManager_Route_RankOrderDeterministic(t *testing.T) {
 	gate := NewAdmissionGate(exec)
 	mgr := NewManager(reg, gate, NewMemoryStore())
 
-	// KindDebug: opus has it as a Strength (score 1.0 kind-match), sonnet is
-	// neutral (0.5), haiku has it as a Weakness and is hard-filtered out.
+	// KindDebug: haiku/gpt-4.1-mini hard-filtered (Weakness).
+	// Cost-first scoring: llama-4-maverick ($0.0002) ranks #1.
 	task := TaskSpec{ID: "t8", Kind: KindDebug}
 
 	for i := 0; i < 5; i++ {
@@ -235,7 +236,7 @@ func TestManager_Route_RankOrderDeterministic(t *testing.T) {
 		model, decision, err := mgr.Route(context.Background(), task)
 		require.NoError(t, err)
 		assert.True(t, decision.Accept)
-		assert.Equal(t, "opus", model.Name, "higher-ranked model must win deterministically")
-		assert.Equal(t, []string{"opus"}, askedModels, "lower-ranked sonnet must never be asked once opus accepts")
+		assert.Equal(t, "meta-llama/llama-4-maverick", model.Name, "cheapest non-filtered model must win deterministically")
+		assert.Equal(t, []string{"meta-llama/llama-4-maverick"}, askedModels, "only first model asked when it accepts")
 	}
 }

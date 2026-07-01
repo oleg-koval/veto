@@ -142,6 +142,7 @@ func cmdRoute(args []string) {
 	if kindInferred {
 		kind = inferKind(objective)
 	}
+	complexity := string(router.InferComplexity(objective, router.TaskKind(kind)))
 
 	setupLogger()
 
@@ -186,7 +187,7 @@ func cmdRoute(args []string) {
 	mgr := router.NewManager(modelReg, gate, store)
 
 	render := NewRenderer(*quiet)
-	render.PrintTaskHeader(objective, kind, *risk, *maxCost, kindInferred)
+	render.PrintTaskHeader(objective, kind, *risk, complexity, *maxCost, kindInferred)
 
 	// optional live web dashboard
 	var dash *dashboard
@@ -222,6 +223,7 @@ func cmdRoute(args []string) {
 	spec := router.TaskSpec{
 		ID:         hash,
 		Kind:       router.TaskKind(kind),
+		Complexity: router.Complexity(complexity),
 		Objective:  objective,
 		Risk:       router.Risk(*risk),
 		MaxCostUSD: *maxCost,

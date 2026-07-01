@@ -6,11 +6,13 @@ import (
 )
 
 // scoring weights — must sum to 1.0.
+// costFit is weighted highest because the admission gate already enforces kind-fit;
+// the scorer's job is to order candidates cheapest-viable first.
 const (
-	weightKindMatch   = 0.30
+	weightKindMatch   = 0.20
 	weightSuccessRate = 0.25
-	weightCostFit     = 0.20
-	weightRejectRate  = 0.15
+	weightCostFit     = 0.35
+	weightRejectRate  = 0.10
 	weightEvalScore   = 0.10
 )
 
@@ -76,16 +78,22 @@ func kindMatch(m ModelCapabilities, kind TaskKind) float64 {
 	return 0.5
 }
 
-// costFit returns 1.0 when cost is well within the ceiling, scaling down as cost approaches it.
-// when no ceiling is set, returns 0.5 (neutral).
+// costFit returns a cost-efficiency score in [0.05, 1.0].
+// With a ceiling: scales linearly from 1.0 (free) to 0.0 (at ceiling).
+// Without a ceiling: uses opus input cost as reference so cheaper models naturally rank higher.
+// Local/free models score 1.0; opus scores ~0.05.
 func costFit(m ModelCapabilities, task TaskSpec) float64 {
-	if task.MaxCostUSD <= 0 {
-		return 0.5
+	if task.MaxCostUSD > 0 {
+		est := estimatedCost(m, task)
+		if est >= task.MaxCostUSD {
+			return 0.0
+		}
+		return 1.0 - (est / task.MaxCostUSD)
 	}
-	est := estimatedCost(m, task)
-	if est >= task.MaxCostUSD {
-		return 0.0
+	// ponytail: ref = opus-level input cost; update if opus pricing changes
+	const ref = 0.015
+	if m.CostPer1kInputUSD <= 0 {
+		return 1.0 // local/free model
 	}
-	ratio := est / task.MaxCostUSD
-	return 1.0 - ratio
+	return max(0.05, 1.0-(m.CostPer1kInputUSD/ref))
 }
