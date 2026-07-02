@@ -161,6 +161,16 @@ func cmdRun(args []string) {
 		fmt.Println(output)
 	}
 
+	// write output to file when the objective specifies "save as X" / "save to X"
+	if outFile := inferOutputFile(objective); outFile != "" && output != "" {
+		content := stripCodeFence(output)
+		if err := os.WriteFile(outFile, []byte(content+"\n"), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "  warning: could not write %s: %v\n", outFile, err)
+		} else if !*quiet {
+			fmt.Printf("\n  → saved %s\n", outFile)
+		}
+	}
+
 	// final QA: check acceptance criteria when --criteria was supplied
 	if len(criteria) > 0 && output != "" {
 		if result, ok := reviewOutput(ctx, reg, mgr, spec, output, model.Name); ok {
@@ -170,6 +180,63 @@ func cmdRun(args []string) {
 			}
 		}
 	}
+}
+
+// inferOutputFile extracts a target filename from the objective when the user
+// says "save as X", "save to X", "save it in ... as X", etc.
+// Returns "" when no filename is found.
+func inferOutputFile(objective string) string {
+	lower := strings.ToLower(objective)
+	patterns := []string{
+		"save it in current folder as ",
+		"save it in the current folder as ",
+		"save it as ",
+		"save as ",
+		"save to ",
+		"write to ",
+		"output to ",
+		"create file ",
+		"store as ",
+		"store it as ",
+	}
+	for _, pat := range patterns {
+		idx := strings.Index(lower, pat)
+		if idx == -1 {
+			continue
+		}
+		rest := strings.TrimSpace(objective[idx+len(pat):])
+		// take first token — stop at whitespace or sentence-ending punctuation
+		end := strings.IndexAny(rest, " \t\n,;:")
+		name := rest
+		if end != -1 {
+			name = rest[:end]
+		}
+		name = strings.Trim(name, `"'.`)
+		if strings.Contains(name, ".") { // must look like a filename
+			return name
+		}
+	}
+	return ""
+}
+
+// stripCodeFence removes a single markdown code fence wrapper (```lang … ```)
+// from model output. Models often wrap content in fences even when told not to.
+func stripCodeFence(s string) string {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "```") {
+		return s
+	}
+	// drop the opening fence line (```html, ```go, etc.)
+	nl := strings.Index(s, "\n")
+	if nl == -1 {
+		return s
+	}
+	s = s[nl+1:]
+	// drop the closing fence
+	if strings.HasSuffix(s, "```") {
+		s = strings.TrimSpace(s[:len(s)-3])
+	}
+	return s
 }
 
 var validKinds = map[string]bool{
