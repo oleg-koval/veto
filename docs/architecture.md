@@ -39,9 +39,12 @@ Removes models that cannot possibly handle the task. Pure function — no I/O, d
 | Model lacks a required tool | `MISSING_REQUIRED_TOOL` |
 | Model context window < task's `MaxTokens` | `CONTEXT_TOO_LARGE` |
 | Estimated cost > task's `MaxCostUSD` | `COST_CEILING_EXCEEDED` |
+| Model tier too low for task complexity | `COMPLEXITY_TOO_HIGH` |
 | Task kind is in model's weakness list | `TASK_KIND_OUTSIDE_STRENGTHS` |
 
 The cost estimate at this stage is intentionally rough (assumes 1000 input tokens, 100 output tokens). The admission gate refines it per-model.
+
+**Complexity enforcement** — `tierMeetsComplexity` maps `Complexity` values to a minimum tier: `complex` → `large` only; `moderate` → `mid` or `large`; `simple` → any tier. `task.Complexity` is auto-inferred by `Manager.Route` before the filter runs (see "Complexity inference" below). Models below the required tier are pruned here, before the self-admission gate, so they are never asked.
 
 ## Stage 2: Scorer (`pkg/router/scorer.go`)
 
@@ -49,11 +52,15 @@ Ranks the survivors by a weighted score (range 0.0–1.0):
 
 | Factor | Weight | What it measures |
 |--------|--------|-----------------|
-| Kind match | 30% | Is this task kind a model strength (1.0), neutral (0.5), or weakness (0.0)? |
+| Cost fit | 35% | How cheap is this model relative to opus? (cheapest-viable-first) |
 | Historical success rate | 25% | How often has this model succeeded on similar tasks? |
-| Cost fit | 20% | How much headroom is there under the cost ceiling? |
-| Reject rate | 15% | How rarely does this model reject tasks it's given? |
+| Kind match | 20% | Is this task kind a model strength (1.0), neutral (0.5), or weakness (0.0)? |
+| Reject rate | 10% | How rarely does this model reject tasks it's given? |
 | Eval score | 10% | Average quality score on past tasks |
+
+**Cost-fit formula** — `costFit` uses opus input cost ($0.015/1k tokens) as a reference baseline when no `MaxCostUSD` ceiling is set. Local/free models score 1.0; models score `max(0.05, 1.0 − (inputCostPer1k / 0.015))`. This means haiku/mini rank far above opus purely on cost, and opus scores ~0.05. With a ceiling set, `costFit` scales linearly from 1.0 (near-free) to 0.0 (at or above the ceiling).
+
+Cost fit is weighted highest because the hard filter and admission gate already enforce kind-fit and tier constraints — the scorer's remaining job is to order the survivors cheapest-viable-first, so you never pay for opus when haiku or a local model can do the work.
 
 Historical signals come from `Registry.Signal()` via the model registry. The registry accumulates accept/reject decisions as `RoutingSignal` values during the session; the scorer reads these to rank candidates. Persistent history is written by `FileStore` but the scorer reads from the registry, not the store.
 
@@ -61,7 +68,7 @@ Historical signals come from `Registry.Signal()` via the model registry. The reg
 
 Sends a structured prompt to each candidate model in score order and parses its JSON response. The prompt tells the model its own capabilities and asks it to self-assess.
 
-The model must respond with JSON only:
+The model must respond with a JSON object. The parser (`parseAdmissionJSON`) scans for the first `{` in the output, then uses `json.Decoder.Decode` to read exactly one JSON value and stop — trailing prose appended by open models (Llama, Mistral) is ignored rather than causing a parse failure:
 
 ```json
 {
@@ -77,7 +84,38 @@ The model must respond with JSON only:
 
 **Confidence gate:** any model accepting with confidence < 0.7 is treated as a rejection (`LOW_CONFIDENCE`). This prevents models from accepting out of politeness without real certainty.
 
-**Fail-safe:** if the model returns prose instead of JSON, or the executor errors, the gate rejects. The gate never silently accepts on ambiguity.
+**Per-model timeout:** each executor call in `Ask` runs under a child context capped at `admissionModelTimeout` (20s), derived from the outer context. A hung model — API outage, slow `claude -p` — is cut off after 20s and treated as a rejection (`PARSE_FAILURE`), so routing continues to the next candidate rather than blocking indefinitely. The outer `--timeout` (default 120s) still bounds the whole routing session.
+
+**Fail-safe:** two distinct failure paths:
+- **Executor error** (API auth failure, rate limit, network error): `Ask` returns the executor's error directly. The manager surfaces it as the real message in `EventAskError.Detail` — the routing UI shows e.g. `! openai: 429 rate limited` rather than a generic label.
+- **JSON parse failure** (model returned text with no valid JSON object): `Ask` returns a soft reject — `AdmissionDecision{Accept: false, ReasonCodes: ["PARSE_FAILURE"]}` with no error. Routing continues silently to the next candidate.
+
+The gate never silently accepts on ambiguity.
+
+## Complexity inference (`pkg/router/complexity.go`)
+
+Before routing, `Manager.Route` auto-infers task complexity from the objective text and task kind if `TaskSpec.Complexity` is not set by the caller:
+
+```go
+if task.Complexity == "" {
+    task.Complexity = InferComplexity(task.Objective, task.Kind)
+}
+```
+
+`InferComplexity` scores the lowercase objective against three keyword tiers:
+
+| Tier | Score added | Example keywords |
+|------|-------------|-----------------|
+| High | +3 each | `cqrs`, `event sourcing`, `microservices`, `distributed system`, `multi-tenant` |
+| Medium | +2 each | `architecture`, `infrastructure`, `scalable`, `enterprise`, `system design` |
+| Low | +1 each | `e2e`, `pipeline`, `service`, `deploy`, `integrate` |
+| Simple signals | −2 each | `simple`, `basic`, `quick`, `hello world` |
+
+Task kind adjusts the score too: `plan` adds 2; `debug` adds 1; `extract`/`summarize` subtract 2.
+
+Final mapping: score ≥ 4 → `complex`; score ≥ 1 → `moderate`; else → `simple`.
+
+The inferred (or caller-supplied) complexity is then used by `HardFilter` via `tierMeetsComplexity` to restrict candidates before scoring begins. The complexity value is displayed in the task header alongside kind and risk.
 
 ## Manager (`pkg/router/manager.go`)
 
@@ -93,7 +131,7 @@ candidates [A, B, C]  (A highest-ranked)
     └─ C is never asked
 ```
 
-On exec failure (network error, API timeout) for a candidate: logs `PARSE_FAILURE`, emits `EventAskError`, and continues to the next candidate — unless the failure was caused by the outer context being cancelled/timed out, in which case the error propagates immediately via `fmt.Errorf("routing: %w", ctx.Err())`. The loop also checks `ctx.Err()` before each ask, so cancellation between asks is caught promptly without waiting on a model call.
+On exec failure (network error, API timeout, auth error) for a candidate: logs `PARSE_FAILURE`, emits `EventAskError` with `Detail` set to the real error message (e.g. `"openai: 429 rate limited"`), and continues to the next candidate — unless the failure was caused by the outer context being cancelled/timed out, in which case the error propagates immediately via `fmt.Errorf("routing: %w", ctx.Err())`. JSON parse failures (model returned text but no valid JSON) are handled as a soft reject in the gate and never reach this path as errors. The loop also checks `ctx.Err()` before each ask, so cancellation between asks is caught promptly without waiting on a model call.
 
 Cap: at most 3 candidates on a fresh run (prevents unnecessary calls when one model is almost certainly the right pick). When resuming from a checkpoint, all remaining untried candidates are attempted, still strictly in rank order.
 
@@ -118,6 +156,8 @@ pkg/executor/             AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor,
 
 `providerRegistry` exposes two views of the model set: `For(name)` (executor lookup, used by admission gate and run) and `modelCaps()` (capability slice, used to build the `router.Registry`). This allows local models added via `veto login` to participate in scoring and filtering alongside built-ins without any special-casing in the router layer.
 
+**Per-model disable/enable** — `buildProviderRegistry` calls `loadDisabledModels()` which reads `~/.veto/config.json` under the `"disabled_models"` key. Any model name found there is silently skipped when registering executors — it is invisible to the router and never appears as a candidate. `veto disable <model...>` adds names to this list; `veto enable <model...>` removes them. Both commands persist changes back to `config.json` and take effect on the next invocation.
+
 ### Executors
 
 | Executor | Transport | When used |
@@ -132,6 +172,8 @@ pkg/executor/             AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor,
 
 **Local / self-hosted models** (`OpenAICompatibleExecutor`) target any server that speaks the OpenAI chat-completions API: Ollama, LM Studio, vLLM, llama.cpp. They are configured via `veto login` → option 4 and stored in `~/.veto/models.json` as `LocalModel` entries. At build time, `buildProviderRegistry` loads these and calls `lm.capabilities()` which converts them to `router.ModelCapabilities` with defaults (tier `small`, 8192-token context, tools `[bash, read, write, edit]`, `CostPer1k*USD = 0`). The resulting capability list, including both built-ins and locals, is passed to `router.NewRegistryFromModels` so the scorer and filter treat local models identically to cloud models.
 
+**Ollama auto-start** — `OpenAICompatibleExecutor.Run` calls `tryStartOllama(endpoint)` on the first failed request (`attempt == 1`). The helper checks whether the endpoint targets `localhost:11434` or `127.0.0.1:11434`, locates the `ollama` binary with `exec.LookPath`, starts `ollama serve` in the background (stdout/stderr discarded), then polls `http://localhost:11434` every 500ms for up to 10 attempts (~5s). If the server becomes reachable, it clones the original request and retries once. If the server doesn't come up in time, the original connection error is returned normally. This means veto manages the Ollama server lifecycle at inference time — the server does not need to be running before `veto run` or `veto route`.
+
 ## Event bus
 
 `Manager.OnEvent` is a single callback wired by the CLI. All events from the routing pipeline flow through it:
@@ -143,7 +185,7 @@ pkg/executor/             AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor,
 | `ask_start` | Admission gate sending prompt to model |
 | `ask_accept` | Model accepted (with confidence, est. cost, est. tokens) |
 | `ask_reject` | Model rejected (with reason codes) |
-| `ask_error` | Executor or parse failure |
+| `ask_error` | Executor error (network, auth, rate limit) — `Detail` carries the real error message |
 
 The CLI renderer (`cmd/veto/render.go`) uses these events to drive the animated terminal display. The logger (`cmd/veto/logger.go`) uses the same events to write JSON lines to disk. Neither is coupled to the other.
 
@@ -176,7 +218,7 @@ Each step has `task` (objective), `kind`, `risk`, optional `depends_on` (forward
 2. If stdout is a TTY and `--quiet` is not set: prompts the user to convert.
 3. On yes: calls `convertPlan`, which routes the raw plan text to the best available model using `conversionPromptTemplate`, strips code fences from the output, re-parses and re-validates. The result is saved to `~/.veto/plans/<timestamp>-<slug>-converted.md`.
 
-**Step execution** — steps run sequentially. Each step gets its own `context.WithTimeout` (default 60s) and its own `Renderer`. `routeAndCapture` (see below) handles routing + execution. On step failure, behavior is controlled by `--on-failure`:
+**Step execution** — steps run sequentially. Each step gets its own `context.WithTimeout` (default 60s) and its own `Renderer`. Each step's `TaskSpec.Complexity` is left unset, so `Manager.Route` infers it independently from that step's objective and kind — a plan with a "summarize logs" step and a "design distributed cache" step routes them to appropriately different tier models. `routeAndCapture` (see below) handles routing + execution. On step failure, behavior is controlled by `--on-failure`:
 
 | Mode | Behavior |
 |------|----------|
@@ -208,7 +250,7 @@ If it does (currently `CLIExecutor` via subscription mode), tokens are piped dir
 
 `--quiet` on `veto run` suppresses the routing animation entirely and prints only the model's output — making `veto run --quiet "..." > file` scriptable.
 
-The timeout on `veto run` (default 60s) covers both routing and execution, unlike `veto route` which only times out the admission phase.
+The timeout on `veto run` (default 120s) covers both routing and execution, unlike `veto route` which only times out the admission phase. When the `CLIExecutor` (`claude -p`) is killed by a timeout, it reports `"claude cli: timed out (use --timeout to increase)"` rather than the raw `"signal: killed"` from the subprocess.
 
 **Shared helper: `routeAndCapture`** — both `cmdRun` and `cmdExec` (for plan steps) share `routeAndCapture(ctx, reg, mgr, render, spec)` in `run.go`. It wires `mgr.OnEvent`, calls `mgr.Route`, looks up the executor, calls `exec.Run`, and returns `(modelName, output, error)`. This keeps each command's routing setup in one place (`prepareRouting`) and execution logic in one function.
 
@@ -241,10 +283,9 @@ Approval state is stored in `~/.veto/config.json` under the `"skills"` key as `a
 
 1. `loadSkills()` reads all `.md` files from `skillSourceDirs()` (the union of `~/.veto/skills/` and user-approved dirs), filtering to only approved files in unapproved dirs.
 2. `matchSkills(spec)` separates matches into kind-specific (skill has `kinds` list that includes the task kind) and generic (empty `kinds`). Kind-specific are preferred; combined list capped at 2.
-3. On total miss: `generateSkill` routes a `summarize/low` task to generate bullet-point instructions, saves to `~/.veto/skills/<kind>.md`, and returns the body. Failure is best-effort — the main routing call is never blocked.
-4. `withSkills(objective, bodies)` prepends matched skill bodies under `## Relevant skills` before the task objective. Internal/meta routes (review, skill generation, plan conversion) pass `nil` to avoid recursion.
+3. `withSkills(objective, bodies)` prepends matched skill bodies under `## Relevant skills` before the task objective. Internal/meta routes (review, plan conversion) pass `nil` to avoid recursion.
 
-Skills accumulate over time as each new task kind is encountered. They can be hand-edited — veto uses the file as-is on the next call.
+Skills are **never auto-generated during a routing call**. `resolveSkills` only reads from pre-existing approved files — there is no hidden upstream routing call before the animation starts. `generateSkill` still exists for offline/manual skill creation but is no longer part of the hot path. Skills can be hand-written and placed in `~/.veto/skills/<kind>.md`; veto uses the file as-is on the next call.
 
 ## Acceptance-criteria review (`cmd/veto/review.go`)
 
@@ -276,6 +317,8 @@ If no review-capable model is available or routing fails, the review is skipped 
 `veto login` stores API keys in `~/.veto/credentials.json` (mode 0600, JSON object of `ENV_KEY → value`). At runtime, environment variables take precedence — the credentials file is only consulted when the env var is absent.
 
 Local model definitions are stored separately in `~/.veto/models.json` (mode 0600, JSON array of `LocalModel`). `saveLocalModel` replaces by name if the name already exists. `veto logout` removes entries from either file: API keys via `removeCredential`, local models via `removeLocalModel`. Both interactive (menu) and non-interactive (`veto logout <name>`) modes are supported.
+
+`loginLocalModel` (option 4) runs in a loop: after each model is registered, it asks "Add another local model? [y/N]", allowing multiple local models to be registered in a single `veto login` invocation.
 
 ## Logging
 

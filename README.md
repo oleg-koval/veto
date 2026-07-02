@@ -8,7 +8,7 @@ Instead of guessing which AI model to use, veto asks each candidate model whethe
 $ veto route --task "refactor the auth middleware to use JWT" --kind refactor --risk medium
 
   Routing: "refactor the auth middleware to use JWT"
-  kind: refactor  ·  risk: medium
+  kind: refactor  ·  risk: medium  ·  complexity: simple
 
   ── Filtering candidates ──────────────────────────────────
 
@@ -63,11 +63,11 @@ For subscription mode, veto verifies the `claude` CLI is present and saves a `CL
 
 For local / self-hosted models, choose option 4. veto guides you through three paths:
 
-- **Ollama** — veto checks if Ollama is installed (and installs it via Homebrew/curl if not), lets you pick a model from a curated list (Qwen 2.5 Coder, Llama 3.2, Mistral), pulls it, starts `ollama serve`, and registers the model automatically.
+- **Ollama** — veto checks if Ollama is installed (and installs it via Homebrew/curl if not), lets you pick a model from a curated list (Qwen 2.5 Coder, Llama 3.2, Mistral), pulls it, and registers the model automatically. At inference time, if `ollama serve` isn't running, veto starts it in the background and waits up to 5s for it to become ready — no manual server management needed.
 - **LM Studio** — walks you through starting the server manually, then collects the model id.
 - **Manual** — enter endpoint URL and model id directly (works with any OpenAI-compatible server: vLLM, llama.cpp, etc).
 
-The model is stored in `~/.veto/models.json` and participates in all routing calls at $0 cost.
+The model is stored in `~/.veto/models.json` and participates in all routing calls at $0 cost. After each local model is added, veto asks if you want to add another — you can register as many as you like in a single `veto login` session.
 
 To remove a provider or local model: `veto logout` (interactive) or `veto logout <name>` (non-interactive).
 
@@ -116,6 +116,8 @@ veto route "extract all TODO comments from the codebase" --kind extract
 | `veto run "..."` | Route a task and execute it — prints the model's response |
 | `veto exec <plan.md>` | Execute a multi-step plan file, routing each step |
 | `veto route "..."` | Route only — prints the selected model name, no execution |
+| `veto disable <model...>` | Exclude one or more models from all routing |
+| `veto enable <model...>` | Re-include a previously disabled model |
 | `veto setup` | Discover and approve skill files from your skill directories |
 | `veto providers` | Show which providers are configured and how |
 | `veto version` | Print veto version |
@@ -130,7 +132,7 @@ Route and execute in one step. The winning model's response is printed to stdout
 | `--kind` | *(auto-detected)* | Task type (see below) |
 | `--risk` | `medium` | Impact level: `low`, `medium`, `high` |
 | `--max-cost` | `0` (no limit) | Maximum spend in USD |
-| `--timeout` | `60s` | Total timeout (routing + execution) |
+| `--timeout` | `120s` | Total timeout (routing + execution) |
 | `--quiet` | `false` | Suppress routing animation — print model output only |
 | `--criteria` | *(none)* | Comma-separated acceptance criteria; a review pass runs after execution |
 
@@ -226,7 +228,7 @@ Route only — select the best model without executing the task. Useful when you
 
 **End-to-end execution** — `veto run` routes and then calls the winning model with your task, printing the response to stdout. Streaming output is used automatically when the executor supports it (subscription mode via `claude -p` streams tokens as they arrive).
 
-**Skill injection** — before executing, veto looks up reusable instruction snippets that match the task kind. Skills in `~/.veto/skills/` are always used (auto-generated or hand-written). Skills from other directories (e.g. `~/.claude/skills/`) can be approved via `veto setup`. At startup, veto silently checks for unapproved skill files and reminds you to run `veto setup` if any are found. Kind-specific skills are preferred over generic ones; cap is 2 per execution.
+**Skill injection** — before executing, veto looks up reusable instruction snippets that match the task kind. Skills in `~/.veto/skills/` are always available (hand-written or previously generated via `generateSkill`). Skills from other directories (e.g. `~/.claude/skills/`) can be approved via `veto setup`. At startup, veto silently checks for unapproved skill files and reminds you to run `veto setup` if any are found. Kind-specific skills are preferred over generic ones; cap is 2 per execution. Skills are never auto-generated during a routing call — only pre-existing approved files are used, so there is no hidden warm-up cost at the start of each invocation.
 
 **Acceptance-criteria review** — `--criteria "..."` on `veto run` triggers a second routing call after execution. A different model (not the one that did the work) grades the output against each criterion and returns a structured pass/fail. Exits 1 if any criterion fails — making it scriptable as a quality gate.
 
@@ -243,11 +245,17 @@ MODEL=$(veto route --quiet "summarize this PR")
 echo "Using: $MODEL"
 ```
 
+**Complexity-aware tier enforcement** — veto auto-infers task complexity (`simple` / `moderate` / `complex`) from keywords in the objective and the task kind. Complex tasks (CQRS, microservices, distributed architecture…) are hard-filtered to large-tier models only; moderate tasks require mid or large tier. Small models are removed before the admission gate runs — they never get a chance to self-admit into tasks beyond their capability. Complexity is shown in the task header alongside kind and risk.
+
+**Cost-first scoring** — candidates are ranked cheapest-viable-first. The scorer uses opus-level input cost ($0.015/1k tokens) as its reference baseline: local/free models score 1.0, haiku/mini score much higher than opus. Expensive models are asked only after cheaper ones reject. The admission gate already enforces kind-fit, so the scorer's job is to order the survivors by cost.
+
 **Confidence gating** — any model that accepts but reports less than 70% confidence is treated as a rejection. You only get models that are genuinely sure.
 
 **Multi-provider fallback** — if your primary provider is down or all its models reject, veto continues down the ranked list across providers automatically.
 
-**Structured rejection reasons** — when nothing accepts, you get machine-readable reason codes (`COST_CEILING_EXCEEDED`, `TASK_KIND_OUTSIDE_STRENGTHS`, etc.) in both the UI and the log, so you know exactly what to adjust.
+**Structured rejection reasons** — when nothing accepts, you get machine-readable reason codes (`COST_CEILING_EXCEEDED`, `COMPLEXITY_TOO_HIGH`, `TASK_KIND_OUTSIDE_STRENGTHS`, etc.) in both the UI and the log, so you know exactly what to adjust.
+
+**Per-model disable/enable** — `veto disable haiku gpt-4.1` excludes those models from all future routing without removing their credentials. `veto enable haiku` brings them back. Disabled model names are stored in `~/.veto/config.json` under `"disabled_models"` — edit the file directly for bulk changes.
 
 **7-day rotating logs** — every routing decision is logged as JSON lines to `~/.veto/logs/veto-YYYY-MM-DD.log`. Files older than 7 days are pruned automatically.
 
@@ -257,8 +265,8 @@ echo "Using: $MODEL"
 |----------|--------|-------------|
 | Anthropic (subscription) | `haiku`, `sonnet`, `opus` | `CLAUDE_SUBSCRIPTION=true` + `claude` CLI logged in |
 | Anthropic (API key) | `haiku`, `sonnet`, `opus` | `ANTHROPIC_API_KEY` |
-| OpenAI | `gpt-4o`, `gpt-4o-mini` | `OPENAI_API_KEY` |
-| OpenRouter | `llama-3.1-405b` (and 100+ more via API) | `OPENROUTER_API_KEY` |
+| OpenAI | `gpt-4.1`, `gpt-4.1-mini` | `OPENAI_API_KEY` |
+| OpenRouter | `meta-llama/llama-4-maverick` (and 100+ more via API) | `OPENROUTER_API_KEY` |
 | Local / self-hosted | any name you choose | `veto login` → option 4 (guided Ollama install, LM Studio, or manual) |
 
 Subscription mode takes precedence over API key when both are configured. Local models use an OpenAI-compatible executor — any server that speaks the chat-completions API works. Cost is $0 — local inference has no per-token billing. `veto providers` shows which mode is active and lists all local models.
@@ -277,7 +285,7 @@ Subscription mode takes precedence over API key when both are configured. Local 
 ~/.veto/
   credentials.json                      # stored API keys and subscription marker (0600)
   models.json                           # local / self-hosted model definitions (0600)
-  config.json                           # settings: on_failure, skills approval state
+  config.json                           # settings: on_failure, skills approval state, disabled_models
   skills/<kind>.md                      # cached skill snippets (auto-generated, editable)
   checkpoints/<hash>.json               # resume state for interrupted routing
   plans/<timestamp>-<slug>-converted.md # auto-converted plan files
