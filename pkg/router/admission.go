@@ -59,7 +59,19 @@ func (g *AdmissionGate) Ask(ctx context.Context, task TaskSpec, model ModelCapab
 	// per-model cap: a hung model shouldn't block routing indefinitely
 	mCtx, cancel := context.WithTimeout(ctx, admissionModelTimeout)
 	defer cancel()
-	prompt := buildAdmissionPrompt(task, model)
+
+	// use the executor's actual tool list, not the model's theoretical capability.
+	// HTTP executors are text-only — no tools pass through a plain chat completion.
+	// Only CLIExecutor (claude -p) runs with real tool access.
+	effectiveTools := model.SupportsTools
+	type toolProvider interface{ EffectiveTools() []string }
+	if tp, ok := exec.(toolProvider); ok {
+		effectiveTools = tp.EffectiveTools()
+	} else {
+		effectiveTools = nil // text-only: advertise no tools so model can reject accurately
+	}
+
+	prompt := buildAdmissionPrompt(task, model, effectiveTools)
 	result := exec.Run(mCtx, prompt)
 	if result.Error != nil {
 		return AdmissionDecision{Accept: false, ReasonCodes: []string{ReasonParseFailure}},
@@ -76,15 +88,24 @@ func (g *AdmissionGate) Ask(ctx context.Context, task TaskSpec, model ModelCapab
 }
 
 // buildAdmissionPrompt constructs the prompt sent to the candidate model.
+// effectiveTools is what the executor can actually provide — nil means text-only
+// (the executor is a plain HTTP chat API with no tool definitions passed).
 // the prompt explicitly forbids prose — JSON only.
-func buildAdmissionPrompt(task TaskSpec, model ModelCapabilities) string {
+func buildAdmissionPrompt(task TaskSpec, model ModelCapabilities, effectiveTools []string) string {
 	constraints := strings.Join(task.Constraints, ", ")
 	if constraints == "" {
 		constraints = "none"
 	}
-	tools := strings.Join(task.RequiredTools, ", ")
-	if tools == "" {
-		tools = "none"
+	required := strings.Join(task.RequiredTools, ", ")
+	if required == "" {
+		required = "none"
+	}
+
+	var toolsLine string
+	if len(effectiveTools) == 0 {
+		toolsLine = "none (text-output mode — you will receive the task and must respond with the answer directly; you cannot execute code, read files, or write files)"
+	} else {
+		toolsLine = strings.Join(effectiveTools, ", ")
 	}
 
 	return fmt.Sprintf(`You are the %s model (%s tier). A task router has selected you as a candidate for the following task.
@@ -98,9 +119,10 @@ TASK:
 
 YOUR PROFILE:
   max context tokens: %d
-  supported tools: %s
+  available tools (actual, not theoretical): %s
 
-Decide whether you accept this task. Respond with ONLY valid JSON — no prose, no explanation, no markdown.
+Decide whether you accept this task given the tools actually available to you.
+Respond with ONLY valid JSON — no prose, no explanation, no markdown.
 The JSON must match this exact schema:
 
 {
@@ -122,9 +144,9 @@ If rejecting: set "accept": false, populate "reason_codes" with at least one cod
 
 Respond with JSON only. Nothing before or after the JSON object.`,
 		model.Name, model.Tier,
-		task.Kind, task.Objective, constraints, tools, task.Risk,
+		task.Kind, task.Objective, constraints, required, task.Risk,
 		model.MaxContextTokens,
-		strings.Join(model.SupportsTools, ", "),
+		toolsLine,
 	)
 }
 

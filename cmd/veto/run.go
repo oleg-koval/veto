@@ -122,7 +122,13 @@ func cmdRun(args []string) {
 
 	// Use streaming if the executor supports it, otherwise buffer and print.
 	// Skills are injected into the execution prompt; routing used the clean objective.
+	// For text-only executors (HTTP-based, no tool definitions passed), append an
+	// instruction to output content directly — not prose about what they would do.
 	prompt := withSkills(objective, skillBodies)
+	type toolProvider interface{ EffectiveTools() []string }
+	if _, agentic := exec.(toolProvider); !agentic {
+		prompt += "\n\n---\nOutput the requested content directly. No explanation, no description of what you will do, no markdown prose. If the task is to create a file, output the file contents only."
+	}
 	type streamer interface {
 		Stream(ctx context.Context, prompt string, w interface{ Write([]byte) (int, error) }) error
 	}
@@ -205,7 +211,12 @@ func routeAndCapture(ctx context.Context, reg *providerRegistry, mgr *router.Man
 	if !ok {
 		return "", "", fmt.Errorf("no executor for model %q", model.Name)
 	}
-	result := exec.Run(ctx, withSkills(spec.Objective, skills))
+	type toolProvider interface{ EffectiveTools() []string }
+	prompt := withSkills(spec.Objective, skills)
+	if _, agentic := exec.(toolProvider); !agentic {
+		prompt += "\n\n---\nOutput the requested content directly. No explanation, no description of what you will do, no markdown prose. If the task is to create a file, output the file contents only."
+	}
+	result := exec.Run(ctx, prompt)
 	if result.Error != nil {
 		return model.Name, "", result.Error
 	}

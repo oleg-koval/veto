@@ -101,7 +101,8 @@ func TestBuildAdmissionPrompt(t *testing.T) {
 		MaxContextTokens: 200000,
 		SupportsTools:    []string{"bash", "read"},
 	}
-	prompt := buildAdmissionPrompt(task, model)
+	// pass the model's tools as effective tools (simulating an agentic executor)
+	prompt := buildAdmissionPrompt(task, model, model.SupportsTools)
 	assert.Contains(t, prompt, "opus")
 	assert.Contains(t, prompt, "large")
 	assert.Contains(t, prompt, string(KindDebug))
@@ -111,6 +112,10 @@ func TestBuildAdmissionPrompt(t *testing.T) {
 	assert.Contains(t, prompt, "JSON")
 	// no prose instruction
 	assert.Contains(t, prompt, "ONLY valid JSON")
+
+	// text-only executor: tools line must say "none (text-output mode...)"
+	textPrompt := buildAdmissionPrompt(task, model, nil)
+	assert.Contains(t, textPrompt, "text-output mode")
 }
 
 func TestParseAdmissionJSON(t *testing.T) {

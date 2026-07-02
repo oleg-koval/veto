@@ -52,6 +52,13 @@ func (e *CLIExecutor) Run(ctx context.Context, prompt string) Result {
 	return Result{Output: out}
 }
 
+// EffectiveTools returns the tools claude -p can use during execution.
+// CLIExecutor is the only executor that actually invokes tools — HTTP executors
+// are text-only and do not implement ToolProvider.
+func (e *CLIExecutor) EffectiveTools() []string {
+	return []string{"bash", "read", "write", "edit"}
+}
+
 // Stream invokes the CLI and pipes tokens directly to w as they arrive.
 // Returns an error if the process fails; output is already written to w on success.
 func (e *CLIExecutor) Stream(ctx context.Context, prompt string, w io.Writer) error {
