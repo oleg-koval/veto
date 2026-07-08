@@ -205,8 +205,14 @@ Route only — select the best model without executing the task. Useful when you
 | `--max-cost` | `0` (no limit) | Maximum spend in USD |
 | `--timeout` | `30s` | Per-model admission timeout |
 | `--quiet` | `false` | Print selected model name only (machine-readable) |
+| `--json` | `false` | Print one JSON result line; implies `--quiet` and `--no-resume` |
 | `--no-resume` | `false` | Ignore saved checkpoint and start fresh |
 | `--dashboard` | `false` | Open a live routing view in your browser |
+
+```bash
+# scriptable model selection with metadata
+veto route --json "summarize this PR"
+```
 
 ### Task kinds
 
@@ -243,6 +249,18 @@ veto run --quiet "summarize this PR" > summary.txt
 # use the selected model name in a shell pipeline
 MODEL=$(veto route --quiet "summarize this PR")
 echo "Using: $MODEL"
+```
+
+**JSON mode for agent infrastructure** — `--json` on `veto route` suppresses animation and checkpoint resume, then emits one JSON line on stdout:
+
+```json
+{"model":"sonnet","tier":"mid","kind":"summarize","risk":"medium","complexity":"simple","confidence":0.93,"saved_usd":0.0123}
+```
+
+If no model accepts, the command exits non-zero and emits:
+
+```json
+{"error":"no_candidate","kind":"summarize","risk":"medium","complexity":"simple"}
 ```
 
 **Complexity-aware tier enforcement** — veto auto-infers task complexity (`simple` / `moderate` / `complex`) from keywords in the objective and the task kind. Complex tasks (CQRS, microservices, distributed architecture…) are hard-filtered to large-tier models only; moderate tasks require mid or large tier. Small models are removed before the admission gate runs — they never get a chance to self-admit into tasks beyond their capability. Complexity is shown in the task header alongside kind and risk.

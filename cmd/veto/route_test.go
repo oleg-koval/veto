@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/oleg-koval/veto/pkg/router"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInferKind(t *testing.T) {
@@ -56,4 +59,40 @@ func TestSavingsVsOpus(t *testing.T) {
 	spec := router.TaskSpec{Kind: router.KindCodeChange, MaxTokens: 1000}
 	saved := router.EstimatedCost(opus, spec) - router.EstimatedCost(haiku, spec)
 	assert.Greater(t, saved, 0.0, "routing to haiku must be cheaper than opus")
+}
+
+func TestPrintRouteJSONSuccess(t *testing.T) {
+	var out bytes.Buffer
+	printRouteJSONSuccess(&out, router.ModelCapabilities{
+		Name: "sonnet",
+		Tier: "mid",
+	}, "code-change", "medium", "moderate", 0.937, 0.0123)
+
+	var got routeJSONSuccess
+	require.NoError(t, json.Unmarshal(out.Bytes(), &got))
+	assert.Equal(t, routeJSONSuccess{
+		Model:      "sonnet",
+		Tier:       "mid",
+		Kind:       "code-change",
+		Risk:       "medium",
+		Complexity: "moderate",
+		Confidence: 0.937,
+		SavedUSD:   0.0123,
+	}, got)
+	assert.Equal(t, byte('\n'), out.Bytes()[out.Len()-1])
+}
+
+func TestPrintRouteJSONError(t *testing.T) {
+	var out bytes.Buffer
+	printRouteJSONError(&out, "no_candidate", "review", "high", "complex")
+
+	var got routeJSONError
+	require.NoError(t, json.Unmarshal(out.Bytes(), &got))
+	assert.Equal(t, routeJSONError{
+		Error:      "no_candidate",
+		Kind:       "review",
+		Risk:       "high",
+		Complexity: "complex",
+	}, got)
+	assert.Equal(t, byte('\n'), out.Bytes()[out.Len()-1])
 }
