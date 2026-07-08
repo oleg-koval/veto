@@ -94,6 +94,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  --risk      low|medium|high  (default: medium)")
 	fmt.Fprintln(o, "  --max-cost  max spend in USD, e.g. --max-cost 0.01  (default: no limit)")
 	fmt.Fprintln(o, "  --quiet     print only the selected model name — useful in scripts")
+	fmt.Fprintln(o, "  --json      print one JSON result line — implies --quiet and --no-resume")
 	fmt.Fprintln(o, "  --no-resume ignore a saved checkpoint and start fresh")
 	fmt.Fprintln(o, "  --dashboard open a live routing view in your browser")
 	fmt.Fprintln(o, "  --criteria  comma-separated acceptance criteria; run a QA review after execution")
@@ -254,7 +255,7 @@ func cmdRoute(args []string) {
 	if errors.Is(err, router.ErrNoCandidate) {
 		deleteCheckpoint(hash)
 		if *jsonOut {
-			fmt.Printf("{\"error\":\"no_candidate\",\"kind\":%q,\"risk\":%q,\"complexity\":%q}\n", kind, *risk, complexity)
+			printRouteJSONError(os.Stdout, "no_candidate", kind, *risk, complexity)
 			os.Exit(1)
 		}
 		if !*quiet {
@@ -287,8 +288,7 @@ func cmdRoute(args []string) {
 
 	// json mode: single machine-readable line for scripting / agent infra
 	if *jsonOut {
-		fmt.Printf("{\"model\":%q,\"tier\":%q,\"kind\":%q,\"risk\":%q,\"complexity\":%q,\"confidence\":%.2f,\"saved_usd\":%.4f}\n",
-			model.Name, model.Tier, kind, *risk, complexity, decision.Confidence, saved)
+		printRouteJSONSuccess(os.Stdout, model, kind, *risk, complexity, decision.Confidence, saved)
 	} else if *quiet {
 		// quiet mode: machine-readable single line (model name only)
 		fmt.Printf("%s\n", model.Name)
@@ -307,6 +307,44 @@ func cmdRoute(args []string) {
 		dash.sendResult(model.Name, model.Tier, saved, true)
 		keepDashboardAlive(dashURL)
 	}
+}
+
+type routeJSONSuccess struct {
+	Model      string  `json:"model"`
+	Tier       string  `json:"tier"`
+	Kind       string  `json:"kind"`
+	Risk       string  `json:"risk"`
+	Complexity string  `json:"complexity"`
+	Confidence float64 `json:"confidence"`
+	SavedUSD   float64 `json:"saved_usd"`
+}
+
+type routeJSONError struct {
+	Error      string `json:"error"`
+	Kind       string `json:"kind"`
+	Risk       string `json:"risk"`
+	Complexity string `json:"complexity"`
+}
+
+func printRouteJSONSuccess(w io.Writer, model router.ModelCapabilities, kind, risk, complexity string, confidence, savedUSD float64) {
+	_ = json.NewEncoder(w).Encode(routeJSONSuccess{
+		Model:      model.Name,
+		Tier:       model.Tier,
+		Kind:       kind,
+		Risk:       risk,
+		Complexity: complexity,
+		Confidence: confidence,
+		SavedUSD:   savedUSD,
+	})
+}
+
+func printRouteJSONError(w io.Writer, code, kind, risk, complexity string) {
+	_ = json.NewEncoder(w).Encode(routeJSONError{
+		Error:      code,
+		Kind:       kind,
+		Risk:       risk,
+		Complexity: complexity,
+	})
 }
 
 // keepDashboardAlive blocks until the user interrupts, so the served page stays

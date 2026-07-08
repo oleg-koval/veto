@@ -1,0 +1,8 @@
+/veto
+*.test
+*.out
+coverage.txt
+
+# Local/generated outputs
+*.html
+.hermes/

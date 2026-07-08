@@ -250,6 +250,8 @@ If it does (currently `CLIExecutor` via subscription mode), tokens are piped dir
 
 `--quiet` on `veto run` suppresses the routing animation entirely and prints only the model's output — making `veto run --quiet "..." > file` scriptable.
 
+`--json` on `veto route` is the stricter scripting mode for agent infrastructure. It implies `--quiet` and `--no-resume`, suppresses checkpoint prompts, and emits a single JSON object on stdout. Successful routes include `model`, `tier`, `kind`, `risk`, `complexity`, `confidence`, and `saved_usd`; no-candidate routes exit non-zero with `{"error":"no_candidate",...}`.
+
 The timeout on `veto run` (default 120s) covers both routing and execution, unlike `veto route` which only times out the admission phase. When the `CLIExecutor` (`claude -p`) is killed by a timeout, it reports `"claude cli: timed out (use --timeout to increase)"` rather than the raw `"signal: killed"` from the subprocess.
 
 **Shared helper: `routeAndCapture`** — both `cmdRun` and `cmdExec` (for plan steps) share `routeAndCapture(ctx, reg, mgr, render, spec)` in `run.go`. It wires `mgr.OnEvent`, calls `mgr.Route`, looks up the executor, calls `exec.Run`, and returns `(modelName, output, error)`. This keeps each command's routing setup in one place (`prepareRouting`) and execution logic in one function.
