@@ -121,9 +121,16 @@ func cmdRoute(args []string) {
 	maxCost := fs.Float64("max-cost", 0, "max cost in USD (0 = no limit)")
 	timeout := fs.Duration("timeout", 30*time.Second, "per-model admission timeout")
 	quiet := fs.Bool("quiet", false, "suppress routing animation (useful in scripts)")
+	jsonOut := fs.Bool("json", false, "emit the routing result as a single JSON line (implies --quiet and --no-resume; ideal for scripting/agent infra)")
 	noResume := fs.Bool("no-resume", false, "ignore any saved checkpoint and start fresh")
 	dashFlag := fs.Bool("dashboard", false, "watch routing live in a local web page")
 	_ = fs.Parse(args)
+
+	// --json is a scripting mode: no animation, no interactive checkpoint resume.
+	if *jsonOut {
+		*quiet = true
+		*noResume = true
+	}
 
 	// objective: --task wins, else the positional args joined
 	objective := *taskObj
@@ -246,6 +253,10 @@ func cmdRoute(args []string) {
 	}
 	if errors.Is(err, router.ErrNoCandidate) {
 		deleteCheckpoint(hash)
+		if *jsonOut {
+			fmt.Printf("{\"error\":\"no_candidate\",\"kind\":%q,\"risk\":%q,\"complexity\":%q}\n", kind, *risk, complexity)
+			os.Exit(1)
+		}
 		if !*quiet {
 			fmt.Println()
 			fmt.Println("  No model accepted this task.")
@@ -274,8 +285,12 @@ func cmdRoute(args []string) {
 	}
 	render.PrintResult(model, decision, saved)
 
-	// quiet mode: machine-readable single line
-	if *quiet {
+	// json mode: single machine-readable line for scripting / agent infra
+	if *jsonOut {
+		fmt.Printf("{\"model\":%q,\"tier\":%q,\"kind\":%q,\"risk\":%q,\"complexity\":%q,\"confidence\":%.2f,\"saved_usd\":%.4f}\n",
+			model.Name, model.Tier, kind, *risk, complexity, decision.Confidence, saved)
+	} else if *quiet {
+		// quiet mode: machine-readable single line (model name only)
 		fmt.Printf("%s\n", model.Name)
 	}
 
