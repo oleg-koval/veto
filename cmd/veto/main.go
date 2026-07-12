@@ -108,8 +108,9 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "PROVIDERS")
 	fmt.Fprintln(o, "  ANTHROPIC_API_KEY     Claude Haiku · Sonnet · Opus")
-	fmt.Fprintln(o, "  OPENAI_API_KEY        GPT-4o · GPT-4o mini")
+	fmt.Fprintln(o, "  OPENAI_API_KEY        GPT-4.1 · GPT-4.1-mini")
 	fmt.Fprintln(o, "  OPENROUTER_API_KEY    Llama, Mistral, Gemini, and 100+ more")
+	fmt.Fprintln(o, "  XAI_API_KEY           Grok 4.5, 4.3, 3, 3-mini (xAI)")
 	fmt.Fprintln(o, "  (or run 'veto login' — veto stores keys in ~/.veto/credentials.json)")
 }
 
@@ -549,6 +550,12 @@ func buildProviderRegistry() (*providerRegistry, error) {
 	if key := getKey("OPENROUTER_API_KEY", creds); key != "" {
 		addBuiltin("meta-llama/llama-4-maverick", executor.NewOpenRouterExecutor(key, "meta-llama/llama-4-maverick"))
 	}
+	if key := getKey("XAI_API_KEY", creds); key != "" {
+		addBuiltin("grok-3-mini", executor.NewXAIExecutor(key, "grok-3-mini"))
+		addBuiltin("grok-3", executor.NewXAIExecutor(key, "grok-3"))
+		addBuiltin("grok-4.3", executor.NewXAIExecutor(key, "grok-4.3"))
+		addBuiltin("grok-4.5", executor.NewXAIExecutor(key, "grok-4.5"))
+	}
 
 	// Local / self-hosted models (OpenAI-compatible endpoints).
 	locals, _ := loadLocalModels()
@@ -558,7 +565,7 @@ func buildProviderRegistry() (*providerRegistry, error) {
 	}
 
 	if len(reg.executors) == 0 {
-		return nil, fmt.Errorf("no providers configured — run 'veto login' or set ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY")
+		return nil, fmt.Errorf("no providers configured — run 'veto login' or set ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY / XAI_API_KEY")
 	}
 	return reg, nil
 }

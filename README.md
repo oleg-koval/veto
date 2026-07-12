@@ -61,7 +61,7 @@ For Anthropic, veto asks whether you use a **subscription** (Claude Max / Pro) o
 
 For subscription mode, veto verifies the `claude` CLI is present and saves a `CLAUDE_SUBSCRIPTION=true` marker. For API key mode, it opens the keys page in your browser and stores the key (masked input) at `~/.veto/credentials.json` (mode 0600).
 
-For local / self-hosted models, choose option 4. veto guides you through three paths:
+For local / self-hosted models, choose option 5. veto guides you through three paths:
 
 - **Ollama** — veto checks if Ollama is installed (and installs it via Homebrew/curl if not), lets you pick a model from a curated list (Qwen 2.5 Coder, Llama 3.2, Mistral), pulls it, and registers the model automatically. At inference time, if `ollama serve` isn't running, veto starts it in the background and waits up to 5s for it to become ready — no manual server management needed.
 - **LM Studio** — walks you through starting the server manually, then collects the model id.
@@ -78,6 +78,7 @@ You can also set environment variables directly:
 export ANTHROPIC_API_KEY=sk-ant-...
 export OPENAI_API_KEY=sk-...
 export OPENROUTER_API_KEY=sk-or-...
+export XAI_API_KEY=xai-...
 
 # Subscription mode (Claude Max / Pro — requires claude CLI logged in)
 export CLAUDE_SUBSCRIPTION=true
@@ -89,12 +90,15 @@ export CLAUDE_SUBSCRIPTION=true
 veto providers
 ```
 
+(After adding XAI support, `veto providers` will also show Grok status when `XAI_API_KEY` is set. Currently includes grok-4.5, grok-4.3, grok-3, and grok-3-mini.)
+
 ```
 provider        status          models
 ──────────────  ──────────────  ──────────────────────
 Anthropic       veto login      Claude Haiku, Sonnet, Opus
 OpenAI          not set         run 'veto login'
 OpenRouter      not set         run 'veto login'
+xAI (Grok)      not set         run 'veto login'
 ```
 
 **3. Run a task:**
@@ -285,7 +289,8 @@ If no model accepts, the command exits non-zero and emits:
 | Anthropic (API key) | `haiku`, `sonnet`, `opus` | `ANTHROPIC_API_KEY` |
 | OpenAI | `gpt-4.1`, `gpt-4.1-mini` | `OPENAI_API_KEY` |
 | OpenRouter | `meta-llama/llama-4-maverick` (and 100+ more via API) | `OPENROUTER_API_KEY` |
-| Local / self-hosted | any name you choose | `veto login` → option 4 (guided Ollama install, LM Studio, or manual) |
+| xAI (Grok) | `grok-4.5`, `grok-4.3`, `grok-3`, `grok-3-mini` | `XAI_API_KEY` |
+| Local / self-hosted | any name you choose | `veto login` → option 5 (guided Ollama install, LM Studio, or manual) |
 
 Subscription mode takes precedence over API key when both are configured. Local models use an OpenAI-compatible executor — any server that speaks the chat-completions API works. Cost is $0 — local inference has no per-token billing. `veto providers` shows which mode is active and lists all local models.
 

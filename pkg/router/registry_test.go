@@ -10,9 +10,9 @@ import (
 func TestNewRegistry(t *testing.T) {
 	reg := NewRegistry()
 	models := reg.All()
-	// full catalog spans Anthropic + OpenAI + OpenRouter
-	assert.GreaterOrEqual(t, len(models), 6)
-	for _, want := range []string{"haiku", "sonnet", "opus", "gpt-4.1", "gpt-4.1-mini"} {
+	// full catalog spans Anthropic + OpenAI + OpenRouter + xAI
+	assert.GreaterOrEqual(t, len(models), 10)
+	for _, want := range []string{"haiku", "sonnet", "opus", "gpt-4.1", "gpt-4.1-mini", "grok-3", "grok-3-mini", "grok-4.3", "grok-4.5"} {
 		_, ok := reg.ByName(want)
 		assert.True(t, ok, "catalog should include %s", want)
 	}
