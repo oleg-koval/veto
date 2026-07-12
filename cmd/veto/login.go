@@ -31,7 +31,7 @@ var knownProviders = []providerInfo{
 	{
 		name:    "OpenAI",
 		envKey:  "OPENAI_API_KEY",
-		models:  "GPT-4o, GPT-4o mini",
+		models:  "GPT-4.1, GPT-4.1-mini",
 		keyURL:  "https://platform.openai.com/api-keys",
 		keyHint: "sk-",
 	},
@@ -41,6 +41,13 @@ var knownProviders = []providerInfo{
 		models:  "Llama, Mistral, Gemini, and 100+ more",
 		keyURL:  "https://openrouter.ai/keys",
 		keyHint: "sk-or-",
+	},
+	{
+		name:    "xAI (Grok)",
+		envKey:  "XAI_API_KEY",
+		models:  "grok-4.5, grok-4.3, grok-3, grok-3-mini",
+		keyURL:  "https://console.x.ai/",
+		keyHint: "",
 	},
 }
 
@@ -53,13 +60,15 @@ func cmdLogin() {
 	fmt.Println("  1  Anthropic (Claude)  — API key or subscription (Claude Max / claude CLI)")
 	fmt.Println("  2  OpenAI              — API key")
 	fmt.Println("  3  OpenRouter          — API key (100+ models)")
-	fmt.Println("  4  Local / self-hosted — Ollama, LM Studio, vLLM, llama.cpp")
+	fmt.Println("  4  xAI (Grok)          — API key (Grok 4.5 / 4.3 / 3 family)")
+	fmt.Println("  5  Local / self-hosted — Ollama, LM Studio, vLLM, llama.cpp")
 	fmt.Println()
-	fmt.Print("  Provider [1-4]: ")
+	fmt.Print("  Provider [1-5]: ")
 
 	var choice int
-	if _, err := fmt.Scan(&choice); err != nil || choice < 1 || choice > len(knownProviders)+1 {
-		fmt.Fprintln(os.Stderr, "\n  That doesn't look right. Please enter 1, 2, 3, or 4.")
+	maxChoice := len(knownProviders) + 1
+	if _, err := fmt.Scan(&choice); err != nil || choice < 1 || choice > maxChoice {
+		fmt.Fprintf(os.Stderr, "\n  That doesn't look right. Please enter 1-%d.\n", maxChoice)
 		os.Exit(1)
 	}
 

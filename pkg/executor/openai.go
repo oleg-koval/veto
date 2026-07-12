@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	openAIEndpoint    = "https://api.openai.com/v1/chat/completions"
+	openAIEndpoint     = "https://api.openai.com/v1/chat/completions"
 	openRouterEndpoint = "https://openrouter.ai/api/v1/chat/completions"
+	xAIEndpoint        = "https://api.x.ai/v1/chat/completions"
 )
 
 // OpenAIExecutor calls the OpenAI Chat Completions API.
@@ -40,6 +41,12 @@ func NewOpenRouterExecutor(apiKey, model string) *OpenAIExecutor {
 // endpoint (Ollama, LM Studio, vLLM, llama.cpp server). apiKey may be empty.
 func NewOpenAICompatibleExecutor(apiKey, model, endpoint string) *OpenAIExecutor {
 	return &OpenAIExecutor{apiKey: apiKey, model: model, endpoint: endpoint, client: &http.Client{}}
+}
+
+// NewXAIExecutor creates an executor for xAI Grok models via the OpenAI-compatible
+// endpoint at api.x.ai. Use XAI_API_KEY.
+func NewXAIExecutor(apiKey, model string) *OpenAIExecutor {
+	return &OpenAIExecutor{apiKey: apiKey, model: model, endpoint: xAIEndpoint, client: &http.Client{}}
 }
 
 type openAIRequest struct {

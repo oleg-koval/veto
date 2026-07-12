@@ -33,7 +33,10 @@ func TestManager_Route_FirstAccepted(t *testing.T) {
 			return executor.Result{Output: acceptJSON()}
 		},
 	}
-	reg := NewRegistry()
+	// Use a fixed subset of the catalog so that adding new built-in models (e.g. grok-*)
+	// does not change the cheapest-survivor for this test scenario.
+	testModels := []string{"haiku", "sonnet", "opus", "gpt-4.1", "gpt-4.1-mini", "meta-llama/llama-4-maverick"}
+	reg := NewRegistryFor(testModels)
 	gate := NewAdmissionGate(exec)
 	mgr := NewManager(reg, gate, NewMemoryStore())
 
@@ -42,6 +45,7 @@ func TestManager_Route_FirstAccepted(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, decision.Accept)
 	// cheapest model that passes hard-filter wins (cost-first scoring)
+	// (haiku + gpt-4.1-mini filtered by debug weakness)
 	assert.Equal(t, "meta-llama/llama-4-maverick", model.Name, "cheapest non-filtered model should win")
 	assert.Equal(t, 1, calls, "should stop after first acceptance")
 }
@@ -223,7 +227,10 @@ func TestManager_Route_RankOrderDeterministic(t *testing.T) {
 			return executor.Result{Output: acceptJSON()}
 		},
 	}
-	reg := NewRegistry()
+	// Use a fixed subset of the catalog so that adding new built-in models (e.g. grok-*)
+	// does not change the cheapest-survivor for this test scenario.
+	testModels := []string{"haiku", "sonnet", "opus", "gpt-4.1", "gpt-4.1-mini", "meta-llama/llama-4-maverick"}
+	reg := NewRegistryFor(testModels)
 	gate := NewAdmissionGate(exec)
 	mgr := NewManager(reg, gate, NewMemoryStore())
 
