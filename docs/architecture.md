@@ -30,6 +30,15 @@ TaskSpec
         + AdmissionDecision
 ```
 
+Routing and execution are separate contracts. The admission gate sends a
+short JSON-only probe with a fixed 512-token output budget. After a model is
+selected, the command uses the executor's full-task path with an independent,
+bounded output budget (8192 by default; configurable with
+`--max-output-tokens`). A short admission response therefore cannot truncate
+the user's task result. Provider usage and length termination are retained
+when the transport reports them; missing usage remains unknown rather than
+being treated as zero.
+
 ## Stage 1: Hard Filter (`pkg/router/filter.go`)
 
 Removes models that cannot possibly handle the task. Pure function — no I/O, deterministic. Reasons it prunes:
@@ -42,7 +51,7 @@ Removes models that cannot possibly handle the task. Pure function — no I/O, d
 | Model tier too low for task complexity | `COMPLEXITY_TOO_HIGH` |
 | Task kind is in model's weakness list | `TASK_KIND_OUTSIDE_STRENGTHS` |
 
-The cost estimate at this stage is intentionally rough (assumes 1000 input tokens, 100 output tokens). The admission gate refines it per-model.
+The cost estimate at this stage is intentionally rough (assumes 1000 input tokens, 100 output tokens). The admission gate refines it per-model. This is a preflight estimate for routing, not an absolute billing guarantee: actual execution can use a different number of tokens, and some providers do not report usage.
 
 **Complexity enforcement** — `tierMeetsComplexity` maps `Complexity` values to a minimum tier: `complex` → `large` only; `moderate` → `mid` or `large`; `simple` → any tier. `task.Complexity` is auto-inferred by `Manager.Route` before the filter runs (see "Complexity inference" below). Models below the required tier are pruned here, before the self-admission gate, so they are never asked.
 
@@ -62,7 +71,11 @@ Ranks the survivors by a weighted score (range 0.0–1.0):
 
 Cost fit is weighted highest because the hard filter and admission gate already enforce kind-fit and tier constraints — the scorer's remaining job is to order the survivors cheapest-viable-first, so you never pay for opus when haiku or a local model can do the work.
 
-Historical signals come from `Registry.Signal()` via the model registry. The registry accumulates accept/reject decisions as `RoutingSignal` values during the session; the scorer reads these to rank candidates. Persistent history is written by `FileStore` but the scorer reads from the registry, not the store.
+Historical signals come from the manager's configured `Store`. The built-in `MemoryStore` and `FileStore` maintain task-kind-aware acceptance, execution, usage, cost, latency, and optional evaluation aggregates; `Manager.Route` passes that store to the scorer so a fresh process can learn from persisted history. The static `Registry.Signal()` remains a neutral-baseline signal source for callers that rank directly without a store.
+
+## Offline evaluation (`veto benchmark`)
+
+`veto benchmark --corpus <path>` is deterministic and does not load credentials or contact providers. The checked-in corpus replays four policies: cheapest viable, strongest tier, the static scorer with neutral history, and the adaptive scorer with recorded history. JSON metrics include success rate, quality score, average/P95 cost and latency, admission attempts, budget violations, and confidence-calibration error/Brier score when confidence labels are present. Synthetic replay validates routing mechanics only; real labeled executions are required to assess production model quality or calibration.
 
 ## Stage 3: Admission Gate (`pkg/router/admission.go`)
 
@@ -154,7 +167,7 @@ pkg/executor/             AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor,
                           OpenAICompatibleExecutor (local/self-hosted)
 ```
 
-`providerRegistry` exposes two views of the model set: `For(name)` (executor lookup, used by admission gate and run) and `modelCaps()` (capability slice, used to build the `router.Registry`). This allows local models added via `veto login` to participate in scoring and filtering alongside built-ins without any special-casing in the router layer.
+`providerRegistry` exposes two views of the model set: `For(name)` (executor lookup, used by admission and execution) and `modelCaps()` (capability slice, used to build the `router.Registry`). `modelCaps()` intersects catalog metadata with the active transport's effective tools before hard filtering. This allows local models added via `veto login` to participate in scoring and filtering alongside built-ins without claiming capabilities their transport cannot provide.
 
 **Per-model disable/enable** — `buildProviderRegistry` calls `loadDisabledModels()` which reads `~/.veto/config.json` under the `"disabled_models"` key. Any model name found there is silently skipped when registering executors — it is invisible to the router and never appears as a candidate. `veto disable <model...>` adds names to this list; `veto enable <model...>` removes them. Both commands persist changes back to `config.json` and take effect on the next invocation.
 
@@ -170,7 +183,15 @@ pkg/executor/             AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor,
 
 **Subscription mode** (`CLIExecutor`) shells out to the `claude` CLI with `-p` (print mode) and `--output-format text`. This bypasses the Anthropic API entirely — cost is $0 per route because it runs under the user's flat Claude Max / Pro subscription. Subscription takes precedence over API key when both are configured.
 
-**Local / self-hosted models** (`OpenAICompatibleExecutor`) target any server that speaks the OpenAI chat-completions API: Ollama, LM Studio, vLLM, llama.cpp. They are configured via `veto login` → option 4 and stored in `~/.veto/models.json` as `LocalModel` entries. At build time, `buildProviderRegistry` loads these and calls `lm.capabilities()` which converts them to `router.ModelCapabilities` with defaults (tier `small`, 8192-token context, tools `[bash, read, write, edit]`, `CostPer1k*USD = 0`). The resulting capability list, including both built-ins and locals, is passed to `router.NewRegistryFromModels` so the scorer and filter treat local models identically to cloud models.
+All concrete transports implement the short `Run` admission path and the
+separate `Execute` task path. HTTP executors send the configured
+`max_tokens` value for execution (default 8192, or `--max-output-tokens`) and
+parse provider usage plus finish/stop reasons. `length` and `max_tokens`
+termination is exposed as truncation metadata. The Claude CLI owns its own
+output controls and reports usage/truncation as unknown through this contract;
+its execution path retains the real shell/read/write/edit tools.
+
+**Local / self-hosted models** (`OpenAICompatibleExecutor`) target any server that speaks the OpenAI chat-completions API: Ollama, LM Studio, vLLM, llama.cpp. They are configured via `veto login` → option 4 and stored in `~/.veto/models.json` as `LocalModel` entries. At build time, `buildProviderRegistry` loads these and calls `lm.capabilities()` which converts them to `router.ModelCapabilities` with defaults (tier `small`, 8192-token context, no executable tools, `CostPer1k*USD = 0`). OpenAI-compatible HTTP is text-only in veto: it returns content but does not read files, write files, run commands, or invoke tools. The resulting capability list, including both built-ins and locals, is passed to `router.NewRegistryFromModels` so the scorer and filter treat local models honestly.
 
 **Ollama auto-start** — `OpenAICompatibleExecutor.Run` calls `tryStartOllama(endpoint)` on the first failed request (`attempt == 1`). The helper checks whether the endpoint targets `localhost:11434` or `127.0.0.1:11434`, locates the `ollama` binary with `exec.LookPath`, starts `ollama serve` in the background (stdout/stderr discarded), then polls `http://localhost:11434` every 500ms for up to 10 attempts (~5s). If the server becomes reachable, it clones the original request and retries once. If the server doesn't come up in time, the original connection error is returned normally. This means veto manages the Ollama server lifecycle at inference time — the server does not need to be running before `veto run` or `veto route`.
 
@@ -236,7 +257,7 @@ Each step has `task` (objective), `kind`, `risk`, optional `depends_on` (forward
 
 ## `veto run` — route + execute (`cmd/veto/run.go`)
 
-`veto run` is a thin wrapper around the routing pipeline that adds an execution step. After `Manager.Route` returns a winner, `cmdRun` looks up the executor for that model via the provider registry and calls it directly with the objective as the prompt.
+`veto run` is a thin wrapper around the routing pipeline that adds an execution step. After `Manager.Route` returns a winner, `cmdRun` looks up the executor for that model via the provider registry and invokes its separate full-task execution contract with `executor.ExecutionOptions{MaxOutputTokens: ...}`. The default is `executor.DefaultExecutionMaxTokens` (8192), configurable with `--max-output-tokens`; the admission probe's 512-token budget is never reused for task output.
 
 **Streaming:** `cmdRun` checks whether the executor implements an optional `streamer` interface:
 
@@ -246,7 +267,7 @@ type streamer interface {
 }
 ```
 
-If it does (currently `CLIExecutor` via subscription mode), tokens are piped directly to `os.Stdout` as they arrive. If not, `exec.Run` is used and the full response is printed at once. This keeps the fast path simple while allowing subscription users to see output incrementally.
+If it does (currently `CLIExecutor` via subscription mode), tokens are piped directly to `os.Stdout` as they arrive. If not, the executor's full `Execute` path is used and the complete response is printed at once. This keeps the fast path simple while allowing subscription users to see output incrementally without accidentally using the admission limit.
 
 `--quiet` on `veto run` suppresses the routing animation entirely and prints only the model's output — making `veto run --quiet "..." > file` scriptable.
 
@@ -254,7 +275,13 @@ If it does (currently `CLIExecutor` via subscription mode), tokens are piped dir
 
 The timeout on `veto run` (default 120s) covers both routing and execution, unlike `veto route` which only times out the admission phase. When the `CLIExecutor` (`claude -p`) is killed by a timeout, it reports `"claude cli: timed out (use --timeout to increase)"` rather than the raw `"signal: killed"` from the subprocess.
 
-**Shared helper: `routeAndCapture`** — both `cmdRun` and `cmdExec` (for plan steps) share `routeAndCapture(ctx, reg, mgr, render, spec)` in `run.go`. It wires `mgr.OnEvent`, calls `mgr.Route`, looks up the executor, calls `exec.Run`, and returns `(modelName, output, error)`. This keeps each command's routing setup in one place (`prepareRouting`) and execution logic in one function.
+**Shared helper: `routeAndCaptureWithOptions`** — both `cmdRun` and `cmdExec` (for plan steps) share the execution helper in `run.go`. It wires `mgr.OnEvent`, calls `mgr.Route`, looks up the executor, calls its full `Execute` method with explicit options, and returns `(modelName, output, error)`. Internal conversion/review paths use the bounded default. This keeps each command's routing setup in one place (`prepareRouting`) and prevents admission and execution transports from drifting.
+
+**Explicit output files:** only `--output <relative-path>` writes a file. The
+path must remain inside the current working directory and cannot target hidden
+files or directories. New files are created with mode `0600`; existing files
+are never replaced unless `--force` is supplied. Objective text is never parsed
+as an implicit write command.
 
 ## Skills library (`cmd/veto/skills.go`)
 
@@ -310,7 +337,11 @@ When `--criteria "..."` is supplied to `veto run`, a second routing call runs af
 
 4. `render.PrintReview` displays the per-criterion table. If `passed` is false, `veto run` exits with code 1.
 
-If no review-capable model is available or routing fails, the review is skipped silently (a note goes to stderr) — the executor's output is still printed.
+If criteria were requested and no review-capable model is available, routing
+fails, the reviewer returns malformed JSON, or the result is incomplete or
+internally inconsistent, the quality gate fails closed and the command exits
+non-zero. An output is not considered verified merely because review was
+unavailable.
 
 `TaskSpec.SkipModels` is a general mechanism: it causes the Manager to skip those model names in the admission loop. It is also used by checkpoint resume (already-tried models are skipped on re-entry).
 

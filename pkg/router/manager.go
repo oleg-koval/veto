@@ -12,7 +12,7 @@ type Manager struct {
 	registry   *Registry
 	gate       *AdmissionGate
 	store      Store
-	maxRetries int          // ponytail: simple cap, no backoff — add if needed
+	maxRetries int                 // ponytail: simple cap, no backoff — add if needed
 	OnEvent    func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
 }
 
@@ -36,7 +36,9 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 	}
 
 	all := m.registry.All()
-	ranked := RankCandidates(task, all, m.registry)
+	// Store history is the routing signal source. This is deliberately kept
+	// separate from the static registry so persisted outcomes affect later runs.
+	ranked := RankCandidates(task, all, m.store)
 
 	// emit per-model filter events so the CLI can show what was pruned and why
 	passSet := make(map[string]bool, len(ranked))
@@ -83,7 +85,7 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 				return ModelCapabilities{}, AdmissionDecision{}, fmt.Errorf("routing: %w", ctx.Err())
 			}
 			// exec/parse failure — log, show the real error, skip
-			m.store.LogDecision(task.ID, model.Name, AdmissionDecision{
+			m.logDecision(task.ID, model.Name, task.Kind, AdmissionDecision{
 				Accept:      false,
 				ReasonCodes: []string{ReasonParseFailure},
 			})
@@ -91,7 +93,7 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 				Detail: err.Error()})
 			continue
 		}
-		m.store.LogDecision(task.ID, model.Name, decision)
+		m.logDecision(task.ID, model.Name, task.Kind, decision)
 		if decision.Accept {
 			m.emit(ProgressEvent{
 				Kind:       EventAskAccept,
@@ -108,10 +110,37 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 	return ModelCapabilities{}, AdmissionDecision{}, ErrNoCandidate
 }
 
+// logDecision preserves the original Store API for third-party stores while
+// using task-kind-aware history when the built-in extension is available.
+func (m *Manager) logDecision(taskID, modelName string, kind TaskKind, decision AdmissionDecision) {
+	if store, ok := m.store.(interface {
+		LogDecisionForKind(string, string, TaskKind, AdmissionDecision)
+	}); ok {
+		store.LogDecisionForKind(taskID, modelName, kind, decision)
+		return
+	}
+	m.store.LogDecision(taskID, modelName, decision)
+}
+
 func (m *Manager) emit(e ProgressEvent) {
 	if m.OnEvent != nil {
 		m.OnEvent(e)
 	}
+}
+
+// RecordExecution persists an execution outcome when the configured store
+// supports kind-aware telemetry, while preserving compatibility with legacy
+// Store implementations.
+func (m *Manager) RecordExecution(task TaskSpec, modelName string, metrics ExecutionMetrics) {
+	if store, ok := m.store.(KindAwareStore); ok {
+		store.RecordExecution(task.ID, modelName, task.Kind, metrics)
+		return
+	}
+	score := metrics.Score
+	if !metrics.ScoreKnown {
+		score = 0
+	}
+	m.store.LogResult(task.ID, modelName, score, metrics.Status)
 }
 
 // ErrNoCandidate is returned when no model accepts the task.

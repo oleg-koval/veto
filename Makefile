@@ -3,7 +3,7 @@ CMD     := ./cmd/veto
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 
-.PHONY: build install test lint clean release
+.PHONY: build install test lint clean release benchmark
 
 build:
 	go build $(LDFLAGS) -o $(BIN) $(CMD)
@@ -13,6 +13,9 @@ install:
 
 test:
 	go test -race -timeout 120s ./...
+
+benchmark:
+	@go run ./cmd/veto benchmark --corpus internal/eval/testdata/routing_corpus.json
 
 lint:
 	go vet ./...

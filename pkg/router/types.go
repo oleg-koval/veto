@@ -6,13 +6,13 @@ package router
 type TaskKind string
 
 const (
-	KindExtract   TaskKind = "extract"
-	KindSummarize TaskKind = "summarize"
+	KindExtract    TaskKind = "extract"
+	KindSummarize  TaskKind = "summarize"
 	KindCodeChange TaskKind = "code-change"
-	KindDebug     TaskKind = "debug"
-	KindPlan      TaskKind = "plan"
-	KindReview    TaskKind = "review"
-	KindRefactor  TaskKind = "refactor"
+	KindDebug      TaskKind = "debug"
+	KindPlan       TaskKind = "plan"
+	KindReview     TaskKind = "review"
+	KindRefactor   TaskKind = "refactor"
 )
 
 // Risk classifies the potential impact of a task.
@@ -64,14 +64,16 @@ type TaskSpec struct {
 
 // ModelCapabilities describes what a model can and cannot handle.
 type ModelCapabilities struct {
-	Name                string
-	Tier                string // "small" | "mid" | "large"
-	MaxContextTokens    int
-	SupportsTools       []string
-	CostPer1kInputUSD   float64
-	CostPer1kOutputUSD  float64
-	Strengths           []TaskKind
-	Weaknesses          []TaskKind
+	Name               string
+	Provider           string
+	APIModel           string
+	Tier               string // "small" | "mid" | "large"
+	MaxContextTokens   int
+	SupportsTools      []string
+	CostPer1kInputUSD  float64
+	CostPer1kOutputUSD float64
+	Strengths          []TaskKind
+	Weaknesses         []TaskKind
 }
 
 // AdmissionDecision is the structured response a model returns when asked
@@ -92,6 +94,30 @@ type RoutingSignal struct {
 	HistoricalSuccessRate float64
 	HistoricalRejectRate  float64
 	AvgEvalScore          float64
+	EvalScoreKnown        bool
 	RecentCostUSD         float64
 	RecentLatencyMs       float64
+	AvgInputTokens        float64
+	AvgOutputTokens       float64
+	AvgTotalTokens        float64
+	UsageKnown            bool
+	CostKnown             bool
+	LatencyKnown          bool
+}
+
+// ExecutionMetrics records the outcome and provider telemetry for one model
+// execution. Known flags distinguish an observed zero from an unavailable
+// measurement (for example, subscription CLIs usually do not expose usage).
+type ExecutionMetrics struct {
+	Status       string
+	Score        float64
+	ScoreKnown   bool
+	InputTokens  int
+	OutputTokens int
+	TotalTokens  int
+	UsageKnown   bool
+	CostUSD      float64
+	CostKnown    bool
+	LatencyMs    int64
+	LatencyKnown bool
 }

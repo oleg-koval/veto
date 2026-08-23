@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/oleg-koval/veto/pkg/executor"
 	"github.com/oleg-koval/veto/pkg/router/mocks"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func acceptJSON() string {
@@ -232,7 +232,6 @@ func TestManager_Route_RankOrderDeterministic(t *testing.T) {
 	testModels := []string{"haiku", "sonnet", "opus", "gpt-4.1", "gpt-4.1-mini", "meta-llama/llama-4-maverick"}
 	reg := NewRegistryFor(testModels)
 	gate := NewAdmissionGate(exec)
-	mgr := NewManager(reg, gate, NewMemoryStore())
 
 	// KindDebug: haiku/gpt-4.1-mini hard-filtered (Weakness).
 	// Cost-first scoring: llama-4-maverick ($0.0002) ranks #1.
@@ -240,10 +239,40 @@ func TestManager_Route_RankOrderDeterministic(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		askedModels = nil
+		mgr := NewManager(reg, gate, NewMemoryStore())
 		model, decision, err := mgr.Route(context.Background(), task)
 		require.NoError(t, err)
 		assert.True(t, decision.Accept)
 		assert.Equal(t, "meta-llama/llama-4-maverick", model.Name, "cheapest non-filtered model must win deterministically")
 		assert.Equal(t, []string{"meta-llama/llama-4-maverick"}, askedModels, "only first model asked when it accepts")
 	}
+}
+
+func TestManager_Route_UsesStoreSignalsForRanking(t *testing.T) {
+	models := []ModelCapabilities{
+		{Name: "unreliable", Tier: tierSmall, MaxContextTokens: 10000, Strengths: []TaskKind{KindCodeChange}},
+		{Name: "reliable", Tier: tierSmall, MaxContextTokens: 10000, Strengths: []TaskKind{KindCodeChange}},
+	}
+	reg := NewRegistryFromModels(models)
+	store := NewMemoryStore()
+	store.RecordExecution("old-1", "unreliable", KindCodeChange, ExecutionMetrics{Status: "failure"})
+	store.RecordExecution("old-2", "reliable", KindCodeChange, ExecutionMetrics{Status: "success"})
+
+	var asked string
+	exec := &mocks.ExecutorMock{
+		RunFunc: func(_ context.Context, prompt string) executor.Result {
+			for _, model := range models {
+				if strings.Contains(prompt, "You are the "+model.Name+" model") {
+					asked = model.Name
+					break
+				}
+			}
+			return executor.Result{Output: acceptJSON()}
+		},
+	}
+	mgr := NewManager(reg, NewAdmissionGate(exec), store)
+
+	_, _, err := mgr.Route(context.Background(), TaskSpec{ID: "new", Kind: KindCodeChange})
+	require.NoError(t, err)
+	assert.Equal(t, "reliable", asked)
 }

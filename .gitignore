@@ -3,6 +3,10 @@
 *.out
 coverage.txt
 
+# Provider verification captures are local-only.
+/artifacts/http/
+scripts/__pycache__/
+
 # Local/generated outputs
 *.html
 .hermes/

@@ -13,8 +13,8 @@ import (
 // CLIExecutor runs a subscription CLI (e.g. claude -p) to answer prompts.
 // Cost is $0 marginal — the user pays a flat subscription, not per token.
 type CLIExecutor struct {
-	binary   string   // "claude"
-	args     []string // flags that precede the prompt, e.g. ["-p", "--model", "...", "--output-format", "text"]
+	binary string   // "claude"
+	args   []string // flags that precede the prompt, e.g. ["-p", "--model", "...", "--output-format", "text"]
 }
 
 // NewClaudeCLIExecutor creates an executor that shells out to the claude CLI.
@@ -50,6 +50,14 @@ func (e *CLIExecutor) Run(ctx context.Context, prompt string) Result {
 		return Result{Error: fmt.Errorf("claude cli: empty response")}
 	}
 	return Result{Output: out}
+}
+
+// Execute invokes the CLI for a full task. Claude Code owns its own context
+// and output controls, so the shared token option is intentionally not added
+// to the command line; the result still satisfies the same execution
+// contract, with provider usage and truncation remaining unknown.
+func (e *CLIExecutor) Execute(ctx context.Context, prompt string, _ ExecutionOptions) Result {
+	return e.Run(ctx, prompt)
 }
 
 // EffectiveTools returns the tools claude -p can use during execution.

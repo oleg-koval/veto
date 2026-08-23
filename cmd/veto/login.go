@@ -13,41 +13,45 @@ import (
 )
 
 type providerInfo struct {
-	name    string
-	envKey  string
-	models  string
-	keyURL  string
-	keyHint string
+	name     string
+	provider string
+	envKey   string
+	models   string
+	keyURL   string
+	keyHint  string
 }
 
 var knownProviders = []providerInfo{
 	{
-		name:    "Anthropic",
-		envKey:  "ANTHROPIC_API_KEY",
-		models:  "Claude Haiku, Sonnet, Opus",
-		keyURL:  "https://console.anthropic.com/settings/keys",
-		keyHint: "sk-ant-",
+		name:     "Anthropic",
+		provider: "anthropic",
+		envKey:   "ANTHROPIC_API_KEY",
+		keyURL:   "https://console.anthropic.com/settings/keys",
+		keyHint:  "sk-ant-",
 	},
 	{
-		name:    "OpenAI",
-		envKey:  "OPENAI_API_KEY",
-		models:  "GPT-4.1, GPT-4.1-mini",
-		keyURL:  "https://platform.openai.com/api-keys",
-		keyHint: "sk-",
+		name:     "OpenAI",
+		provider: "openai",
+		envKey:   "OPENAI_API_KEY",
+		models:   "GPT-4.1, GPT-4.1-mini",
+		keyURL:   "https://platform.openai.com/api-keys",
+		keyHint:  "sk-",
 	},
 	{
-		name:    "OpenRouter",
-		envKey:  "OPENROUTER_API_KEY",
-		models:  "Llama, Mistral, Gemini, and 100+ more",
-		keyURL:  "https://openrouter.ai/keys",
-		keyHint: "sk-or-",
+		name:     "OpenRouter",
+		provider: "openrouter",
+		envKey:   "OPENROUTER_API_KEY",
+		models:   "Llama, Mistral, Gemini, and 100+ more",
+		keyURL:   "https://openrouter.ai/keys",
+		keyHint:  "sk-or-",
 	},
 	{
-		name:    "xAI (Grok)",
-		envKey:  "XAI_API_KEY",
-		models:  "grok-4.5, grok-4.3, grok-3, grok-3-mini",
-		keyURL:  "https://console.x.ai/",
-		keyHint: "",
+		name:     "xAI (Grok)",
+		provider: "xai",
+		envKey:   "XAI_API_KEY",
+		models:   "grok-4.5, grok-4.3, grok-3, grok-3-mini",
+		keyURL:   "https://console.x.ai/",
+		keyHint:  "",
 	},
 }
 
@@ -106,8 +110,8 @@ func cmdLogin() {
 
 // localModelOption describes a popular local model server veto can install for the user.
 type localModelOption struct {
-	label     string // display name
-	serverCmd string // binary to check with `which`
+	label     string            // display name
+	serverCmd string            // binary to check with `which`
 	installOS map[string]string // GOOS -> install command (empty = manual)
 	endpoint  string
 	models    []ollamaModelChoice
@@ -126,7 +130,6 @@ var localServerOptions = []localModelOption{
 		serverCmd: "ollama",
 		installOS: map[string]string{
 			"darwin": "brew install ollama",
-			"linux":  "curl -fsSL https://ollama.com/install.sh | sh",
 		},
 		endpoint: "http://localhost:11434/v1/chat/completions",
 		models: []ollamaModelChoice{
@@ -487,7 +490,7 @@ func loginAPIKey(p providerInfo) {
 
 	fmt.Println()
 	fmt.Printf("  %s is connected!\n", p.name)
-	fmt.Printf("  Models available: %s\n", p.models)
+	fmt.Printf("  Models available: %s\n", catalogModelNames(p.provider))
 	fmt.Println()
 	fmt.Println("  What's next:")
 	fmt.Println("    veto providers              — see all connected providers")

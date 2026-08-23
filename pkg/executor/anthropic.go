@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	anthropicEndpoint    = "https://api.anthropic.com/v1/messages"
-	anthropicAPIVersion  = "2023-06-01"
-	admissionMaxTokens   = 512
+	anthropicEndpoint   = "https://api.anthropic.com/v1/messages"
+	anthropicAPIVersion = "2023-06-01"
+	admissionMaxTokens  = 512
 )
 
 // AnthropicExecutor calls the Anthropic Messages API.
@@ -41,22 +41,42 @@ type anthropicMessage struct {
 	Content string `json:"content"`
 }
 
+type anthropicContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type anthropicUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
 type anthropicResponse struct {
-	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	} `json:"content"`
-	Error *struct {
+	Content    []anthropicContent `json:"content"`
+	StopReason string             `json:"stop_reason"`
+	Usage      *anthropicUsage    `json:"usage"`
+	Error      *struct {
 		Message string `json:"message"`
 	} `json:"error"`
 }
 
 // Run sends prompt to the Anthropic Messages API and returns the text response.
-// Retries up to maxRetries times on transient server errors (429, 502, 503, 504).
+// It is the short admission-probe path and always uses the 512-token budget.
 func (e *AnthropicExecutor) Run(ctx context.Context, prompt string) Result {
+	return e.run(ctx, prompt, admissionMaxTokens)
+}
+
+// Execute sends a full task prompt with an explicit bounded output budget.
+func (e *AnthropicExecutor) Execute(ctx context.Context, prompt string, options ExecutionOptions) Result {
+	return e.run(ctx, prompt, options.maxOutputTokens())
+}
+
+// run sends prompt to the Anthropic Messages API.
+// Retries up to maxRetries times on transient server errors (429, 502, 503, 504).
+func (e *AnthropicExecutor) run(ctx context.Context, prompt string, maxTokens int) Result {
 	body, err := json.Marshal(anthropicRequest{
 		Model:     e.model,
-		MaxTokens: admissionMaxTokens,
+		MaxTokens: maxTokens,
 		Messages:  []anthropicMessage{{Role: "user", Content: prompt}},
 	})
 	if err != nil {
@@ -98,14 +118,17 @@ func (e *AnthropicExecutor) Run(ctx context.Context, prompt string) Result {
 			return Result{Error: fmt.Errorf("anthropic read: %w", readErr)}
 		}
 		var ar anthropicResponse
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			if json.Unmarshal(data, &ar) == nil && ar.Error != nil {
+				return Result{Error: fmt.Errorf("anthropic api: %s", ar.Error.Message)}
+			}
+			return Result{Error: fmt.Errorf("anthropic status %d: %s", resp.StatusCode, responseSnippet(data))}
+		}
 		if decErr := json.Unmarshal(data, &ar); decErr != nil {
 			return Result{Error: fmt.Errorf("anthropic decode: %w", decErr)}
 		}
 		if ar.Error != nil {
 			return Result{Error: fmt.Errorf("anthropic api: %s", ar.Error.Message)}
-		}
-		if resp.StatusCode != http.StatusOK {
-			return Result{Error: fmt.Errorf("anthropic status %d", resp.StatusCode)}
 		}
 
 		var parts []string
@@ -114,7 +137,24 @@ func (e *AnthropicExecutor) Run(ctx context.Context, prompt string) Result {
 				parts = append(parts, c.Text)
 			}
 		}
-		return Result{Output: strings.Join(parts, "")}
+		output := strings.TrimSpace(strings.Join(parts, ""))
+		if output == "" {
+			return Result{Error: fmt.Errorf("anthropic: empty response")}
+		}
+		result := Result{
+			Output:       output,
+			FinishReason: ar.StopReason,
+			Truncated:    ar.StopReason == "max_tokens",
+		}
+		if ar.Usage != nil {
+			result.Usage = Usage{
+				InputTokens:  ar.Usage.InputTokens,
+				OutputTokens: ar.Usage.OutputTokens,
+				TotalTokens:  ar.Usage.InputTokens + ar.Usage.OutputTokens,
+				Known:        true,
+			}
+		}
+		return result
 	}
 	return Result{Error: fmt.Errorf("anthropic: max retries exceeded")}
 }

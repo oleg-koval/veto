@@ -90,6 +90,13 @@ func TestRegistry_ModelTiers(t *testing.T) {
 	assert.Greater(t, opus.CostPer1kInputUSD, haiku.CostPer1kInputUSD, "opus must cost more than haiku")
 }
 
+func TestRegistry_BuiltinTransportMetadataIsComplete(t *testing.T) {
+	for _, model := range NewRegistry().All() {
+		assert.NotEmpty(t, model.Provider, "%s must identify its provider", model.Name)
+		assert.NotEmpty(t, model.APIModel, "%s must identify its provider model id", model.Name)
+	}
+}
+
 func TestNewRegistryFromModels(t *testing.T) {
 	models := []ModelCapabilities{
 		{Name: "local-a", Tier: "small", MaxContextTokens: 8192},

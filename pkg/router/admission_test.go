@@ -5,10 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/oleg-koval/veto/pkg/executor"
 	"github.com/oleg-koval/veto/pkg/router/mocks"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAdmissionGate_Accept(t *testing.T) {
@@ -120,10 +120,10 @@ func TestBuildAdmissionPrompt(t *testing.T) {
 
 func TestParseAdmissionJSON(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		wantOK  bool
-		accept  bool
+		name   string
+		input  string
+		wantOK bool
+		accept bool
 	}{
 		{
 			name:   "valid accept",
@@ -179,6 +179,20 @@ func TestAdmissionGate_LowConfidenceAccept_Rejected(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, decision.Accept, "accept:true with confidence<0.7 must be treated as rejection")
 	assert.Equal(t, []string{ReasonLowConfidence}, decision.ReasonCodes)
+}
+
+func TestAdmissionGate_AcceptOverEstimatedCostCeiling_Rejected(t *testing.T) {
+	exec := &mocks.ExecutorMock{
+		RunFunc: func(_ context.Context, _ string) executor.Result {
+			return executor.Result{Output: `{"accept":true,"confidence":0.95,"estimated_cost_usd":0.02}`}
+		},
+	}
+	gate := NewAdmissionGate(exec)
+	decision, err := gate.Ask(t.Context(), TaskSpec{MaxCostUSD: 0.01}, ModelCapabilities{})
+	require.NoError(t, err)
+	assert.False(t, decision.Accept)
+	assert.Equal(t, []string{ReasonCostCeiling}, decision.ReasonCodes)
+	assert.InDelta(t, 0.02, decision.EstimatedCostUSD, 0.000001)
 }
 
 func TestAdmissionGate_PromptIncludesModelInfo(t *testing.T) {

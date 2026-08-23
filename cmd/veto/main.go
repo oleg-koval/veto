@@ -23,13 +23,21 @@ func main() {
 		printUsage(os.Stdout)
 		os.Exit(0)
 	}
+	if rootHelpRequested(os.Args[1]) {
+		printUsage(os.Stdout)
+		return
+	}
 	// Notify once if new skills are pending approval (non-blocking).
-	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" {
+	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" {
 		checkPendingSkills()
 	}
 	switch os.Args[1] {
 	case "route":
 		cmdRoute(os.Args[2:])
+	case "benchmark":
+		cmdBenchmark(os.Args[2:])
+	case "verify-models":
+		cmdVerifyModels(os.Args[2:])
 	case "run":
 		cmdRun(os.Args[2:])
 	case "providers":
@@ -61,6 +69,15 @@ func main() {
 	}
 }
 
+func rootHelpRequested(arg string) bool {
+	switch arg {
+	case "help", "--help", "-h":
+		return true
+	default:
+		return false
+	}
+}
+
 func printUsage(w io.Writer) {
 	o := w
 	fmt.Fprintln(o, "veto — route tasks to the right AI model, automatically")
@@ -78,6 +95,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  run                route a task and execute it — prints the model's response")
 	fmt.Fprintln(o, "  exec               execute a veto plan file step-by-step")
 	fmt.Fprintln(o, "  route              route a task to the best available model (no execution)")
+	fmt.Fprintln(o, "  benchmark          replay an offline routing corpus and emit JSON metrics")
+	fmt.Fprintln(o, "  verify-models      verify catalog IDs against one provider account")
 	fmt.Fprintln(o, "  providers          show which providers are configured")
 	fmt.Fprintln(o, "  version            print veto version")
 	fmt.Fprintln(o, "  install-git-hook   add veto to your git workflow")
@@ -92,7 +111,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  --kind      extract|summarize|code-change|debug|plan|review|refactor")
 	fmt.Fprintln(o, "              (auto-detected from the task text if omitted)")
 	fmt.Fprintln(o, "  --risk      low|medium|high  (default: medium)")
-	fmt.Fprintln(o, "  --max-cost  max spend in USD, e.g. --max-cost 0.01  (default: no limit)")
+	fmt.Fprintln(o, "  --max-cost  estimated preflight ceiling in USD, e.g. 0.01  (default: none)")
 	fmt.Fprintln(o, "  --quiet     print only the selected model name — useful in scripts")
 	fmt.Fprintln(o, "  --json      print one JSON result line — implies --quiet and --no-resume")
 	fmt.Fprintln(o, "  --no-resume ignore a saved checkpoint and start fresh")
@@ -108,7 +127,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "PROVIDERS")
 	fmt.Fprintln(o, "  ANTHROPIC_API_KEY     Claude Haiku · Sonnet · Opus")
-	fmt.Fprintln(o, "  OPENAI_API_KEY        GPT-4.1 · GPT-4.1-mini")
+	fmt.Fprintln(o, "  OPENAI_API_KEY        OpenAI catalog models")
 	fmt.Fprintln(o, "  OPENROUTER_API_KEY    Llama, Mistral, Gemini, and 100+ more")
 	fmt.Fprintln(o, "  XAI_API_KEY           Grok 4.5, 4.3, 3, 3-mini (xAI)")
 	fmt.Fprintln(o, "  (or run 'veto login' — veto stores keys in ~/.veto/credentials.json)")
@@ -120,7 +139,7 @@ func cmdRoute(args []string) {
 	taskObj := fs.String("task", "", "task objective (or pass as a positional argument)")
 	kindFlag := fs.String("kind", "", "task kind (auto-detected from objective if omitted): extract|summarize|code-change|debug|plan|review|refactor")
 	risk := fs.String("risk", "medium", "risk level: low|medium|high")
-	maxCost := fs.Float64("max-cost", 0, "max cost in USD (0 = no limit)")
+	maxCost := fs.Float64("max-cost", 0, "estimated preflight cost ceiling in USD (0 = none)")
 	timeout := fs.Duration("timeout", 30*time.Second, "per-model admission timeout")
 	quiet := fs.Bool("quiet", false, "suppress routing animation (useful in scripts)")
 	jsonOut := fs.Bool("json", false, "emit the routing result as a single JSON line (implies --quiet and --no-resume; ideal for scripting/agent infra)")
@@ -441,6 +460,7 @@ func cmdProviders() {
 	fmt.Printf("%-14s  %-18s  %s\n", "──────────────", "──────────────────", "──────────────────────")
 	configured := 0
 	for _, p := range knownProviders {
+		models := catalogModelNames(p.provider)
 		// Anthropic: check subscription mode before API key
 		if p.envKey == "ANTHROPIC_API_KEY" {
 			switch {
@@ -448,10 +468,10 @@ func cmdProviders() {
 				fmt.Printf("%-14s  %-18s  %s\n", p.name, "subscription (cli)", "Claude Haiku, Sonnet, Opus")
 				configured++
 			case os.Getenv(p.envKey) != "":
-				fmt.Printf("%-14s  %-18s  %s\n", p.name, "env var", p.models)
+				fmt.Printf("%-14s  %-18s  %s\n", p.name, "env var", models)
 				configured++
 			case creds[p.envKey] != "":
-				fmt.Printf("%-14s  %-18s  %s\n", p.name, "veto login", p.models)
+				fmt.Printf("%-14s  %-18s  %s\n", p.name, "veto login", models)
 				configured++
 			default:
 				fmt.Printf("%-14s  %-18s  run 'veto login'\n", p.name, "not set")
@@ -460,10 +480,10 @@ func cmdProviders() {
 		}
 		switch {
 		case os.Getenv(p.envKey) != "":
-			fmt.Printf("%-14s  %-18s  %s\n", p.name, "env var", p.models)
+			fmt.Printf("%-14s  %-18s  %s\n", p.name, "env var", models)
 			configured++
 		case creds[p.envKey] != "":
-			fmt.Printf("%-14s  %-18s  %s\n", p.name, "veto login", p.models)
+			fmt.Printf("%-14s  %-18s  %s\n", p.name, "veto login", models)
 			configured++
 		default:
 			fmt.Printf("%-14s  %-18s  run 'veto login'\n", p.name, "not set")
@@ -492,6 +512,16 @@ func cmdProviders() {
 	}
 }
 
+func catalogModelNames(provider string) string {
+	var names []string
+	for _, model := range router.NewRegistry().All() {
+		if model.Provider == provider {
+			names = append(names, model.Name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
 // providerRegistry maps model names to their executors and capabilities.
 // Lives here so cmd imports both pkg/executor and pkg/router without circular deps.
 type providerRegistry struct {
@@ -507,7 +537,14 @@ func (r *providerRegistry) For(name string) (router.Executor, bool) {
 // modelCaps returns the capability list for all configured models (built-ins + locals).
 func (r *providerRegistry) modelCaps() []router.ModelCapabilities {
 	caps := make([]router.ModelCapabilities, 0, len(r.caps))
-	for _, c := range r.caps {
+	for name, c := range r.caps {
+		if exec := r.executors[name]; exec != nil {
+			if tools, ok := exec.(executor.ToolProvider); ok {
+				c.SupportsTools = append([]string(nil), tools.EffectiveTools()...)
+			} else {
+				c.SupportsTools = nil
+			}
+		}
 		caps = append(caps, c)
 	}
 	return caps
@@ -522,39 +559,50 @@ func buildProviderRegistry() (*providerRegistry, error) {
 		caps:      make(map[string]router.ModelCapabilities),
 	}
 
-	addBuiltin := func(name string, exec router.Executor) {
-		if disabled[name] {
+	addBuiltin := func(model router.ModelCapabilities, exec router.Executor) {
+		if disabled[model.Name] {
 			return
 		}
-		reg.executors[name] = exec
-		if m, ok := catalog.ByName(name); ok {
-			reg.caps[name] = m
-		}
+		reg.executors[model.Name] = exec
+		reg.caps[model.Name] = model
 	}
 
 	// Subscription mode: use claude CLI (flat-fee, $0 marginal) instead of API key.
 	// Subscription takes precedence over API key when both are present.
-	if creds["CLAUDE_SUBSCRIPTION"] == "true" || os.Getenv("CLAUDE_SUBSCRIPTION") == "true" {
-		addBuiltin("haiku", executor.NewClaudeCLIExecutor("claude-haiku-4-5-20251001"))
-		addBuiltin("sonnet", executor.NewClaudeCLIExecutor("claude-sonnet-4-6"))
-		addBuiltin("opus", executor.NewClaudeCLIExecutor("claude-opus-4-8"))
-	} else if key := getKey("ANTHROPIC_API_KEY", creds); key != "" {
-		addBuiltin("haiku", executor.NewAnthropicExecutor(key, "claude-haiku-4-5-20251001"))
-		addBuiltin("sonnet", executor.NewAnthropicExecutor(key, "claude-sonnet-4-6"))
-		addBuiltin("opus", executor.NewAnthropicExecutor(key, "claude-opus-4-8"))
+	subscription := creds["CLAUDE_SUBSCRIPTION"] == "true" || os.Getenv("CLAUDE_SUBSCRIPTION") == "true"
+	providerKeys := map[string]string{
+		"anthropic":  getKey("ANTHROPIC_API_KEY", creds),
+		"openai":     getKey("OPENAI_API_KEY", creds),
+		"openrouter": getKey("OPENROUTER_API_KEY", creds),
 	}
-	if key := getKey("OPENAI_API_KEY", creds); key != "" {
-		addBuiltin("gpt-4.1", executor.NewOpenAIExecutor(key, "gpt-4.1"))
-		addBuiltin("gpt-4.1-mini", executor.NewOpenAIExecutor(key, "gpt-4.1-mini"))
-	}
-	if key := getKey("OPENROUTER_API_KEY", creds); key != "" {
-		addBuiltin("meta-llama/llama-4-maverick", executor.NewOpenRouterExecutor(key, "meta-llama/llama-4-maverick"))
+	for _, model := range catalog.All() {
+		var modelExecutor router.Executor
+		switch model.Provider {
+		case "anthropic":
+			if subscription {
+				modelExecutor = executor.NewClaudeCLIExecutor(model.APIModel)
+			} else if key := providerKeys[model.Provider]; key != "" {
+				modelExecutor = executor.NewAnthropicExecutor(key, model.APIModel)
+			}
+		case "openai":
+			if key := providerKeys[model.Provider]; key != "" {
+				modelExecutor = executor.NewOpenAIExecutor(key, model.APIModel)
+			}
+		case "openrouter":
+			if key := providerKeys[model.Provider]; key != "" {
+				modelExecutor = executor.NewOpenRouterExecutor(key, model.APIModel)
+			}
+		}
+		if modelExecutor != nil {
+			addBuiltin(model, modelExecutor)
+		}
 	}
 	if key := getKey("XAI_API_KEY", creds); key != "" {
-		addBuiltin("grok-3-mini", executor.NewXAIExecutor(key, "grok-3-mini"))
-		addBuiltin("grok-3", executor.NewXAIExecutor(key, "grok-3"))
-		addBuiltin("grok-4.3", executor.NewXAIExecutor(key, "grok-4.3"))
-		addBuiltin("grok-4.5", executor.NewXAIExecutor(key, "grok-4.5"))
+		for _, name := range []string{"grok-3-mini", "grok-3", "grok-4.3", "grok-4.5"} {
+			if model, ok := catalog.ByName(name); ok {
+				addBuiltin(model, executor.NewXAIExecutor(key, model.Name))
+			}
+		}
 	}
 
 	// Local / self-hosted models (OpenAI-compatible endpoints).

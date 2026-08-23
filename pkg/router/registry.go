@@ -23,6 +23,8 @@ func catalog() []ModelCapabilities {
 	return []ModelCapabilities{
 		{
 			Name:               "haiku",
+			Provider:           "anthropic",
+			APIModel:           "claude-haiku-4-5-20251001",
 			Tier:               tierSmall,
 			MaxContextTokens:   200000,
 			SupportsTools:      []string{toolBash, toolRead, "write", "edit"},
@@ -33,6 +35,8 @@ func catalog() []ModelCapabilities {
 		},
 		{
 			Name:               "sonnet",
+			Provider:           "anthropic",
+			APIModel:           "claude-sonnet-4-6",
 			Tier:               tierMid,
 			MaxContextTokens:   200000,
 			SupportsTools:      []string{toolBash, toolRead, "write", "edit", "web-search"},
@@ -43,6 +47,8 @@ func catalog() []ModelCapabilities {
 		},
 		{
 			Name:               "opus",
+			Provider:           "anthropic",
+			APIModel:           "claude-opus-4-8",
 			Tier:               tierLarge,
 			MaxContextTokens:   200000,
 			SupportsTools:      []string{toolBash, toolRead, "write", "edit", "web-search", "computer-use"},
@@ -53,6 +59,8 @@ func catalog() []ModelCapabilities {
 		},
 		{
 			Name:               "gpt-4.1",
+			Provider:           "openai",
+			APIModel:           "gpt-4.1",
 			Tier:               tierMid,
 			MaxContextTokens:   1047576,
 			SupportsTools:      []string{toolBash, toolRead, "write", "edit", "web-search"},
@@ -63,6 +71,8 @@ func catalog() []ModelCapabilities {
 		},
 		{
 			Name:               "gpt-4.1-mini",
+			Provider:           "openai",
+			APIModel:           "gpt-4.1-mini",
 			Tier:               tierSmall,
 			MaxContextTokens:   1047576,
 			SupportsTools:      []string{toolBash, toolRead, "write", "edit"},
@@ -72,7 +82,46 @@ func catalog() []ModelCapabilities {
 			Weaknesses:         []TaskKind{KindDebug, KindPlan},
 		},
 		{
+			Name:               "sol",
+			Provider:           "openai",
+			APIModel:           "gpt-5.6-sol",
+			Tier:               tierLarge,
+			MaxContextTokens:   1050000,
+			SupportsTools:      []string{toolBash, toolRead, "write", "edit", "web-search"},
+			CostPer1kInputUSD:  0.005,
+			CostPer1kOutputUSD: 0.030,
+			// sol is planning-only: hard-restricted via Weaknesses to every kind but KindPlan.
+			Strengths:  []TaskKind{KindPlan},
+			Weaknesses: []TaskKind{KindExtract, KindSummarize, KindCodeChange, KindDebug, KindReview, KindRefactor},
+		},
+		{
+			Name:               "terra",
+			Provider:           "openai",
+			APIModel:           "gpt-5.6-terra",
+			Tier:               tierMid,
+			MaxContextTokens:   1050000,
+			SupportsTools:      []string{toolBash, toolRead, "write", "edit", "web-search"},
+			CostPer1kInputUSD:  0.0025,
+			CostPer1kOutputUSD: 0.015,
+			Strengths:          []TaskKind{KindCodeChange, KindReview, KindRefactor},
+			Weaknesses:         []TaskKind{},
+		},
+		{
+			Name:               "luna",
+			Provider:           "openai",
+			APIModel:           "gpt-5.6-luna",
+			Tier:               tierSmall,
+			MaxContextTokens:   1050000,
+			SupportsTools:      []string{toolBash, toolRead, "write", "edit"},
+			CostPer1kInputUSD:  0.001,
+			CostPer1kOutputUSD: 0.006,
+			Strengths:          []TaskKind{KindExtract, KindSummarize},
+			Weaknesses:         []TaskKind{KindDebug, KindPlan},
+		},
+		{
 			Name:               "meta-llama/llama-4-maverick",
+			Provider:           "openrouter",
+			APIModel:           "meta-llama/llama-4-maverick",
 			Tier:               tierLarge,
 			MaxContextTokens:   1000000,
 			SupportsTools:      []string{toolBash, toolRead, "write", "edit"},
@@ -83,6 +132,8 @@ func catalog() []ModelCapabilities {
 		},
 		{
 			Name:               "grok-3-mini",
+			Provider:           "xai",
+			APIModel:           "grok-3-mini",
 			Tier:               tierSmall,
 			MaxContextTokens:   131072,
 			SupportsTools:      []string{toolBash, toolRead, "write", "edit"},
@@ -93,6 +144,8 @@ func catalog() []ModelCapabilities {
 		},
 		{
 			Name:               "grok-3",
+			Provider:           "xai",
+			APIModel:           "grok-3",
 			Tier:               tierMid,
 			MaxContextTokens:   131072,
 			SupportsTools:      []string{toolBash, toolRead, "write", "edit", "web-search"},
@@ -103,6 +156,8 @@ func catalog() []ModelCapabilities {
 		},
 		{
 			Name:               "grok-4.3",
+			Provider:           "xai",
+			APIModel:           "grok-4.3",
 			Tier:               tierLarge,
 			MaxContextTokens:   1000000,
 			SupportsTools:      []string{toolBash, toolRead, "write", "edit", "web-search"},
@@ -113,6 +168,8 @@ func catalog() []ModelCapabilities {
 		},
 		{
 			Name:               "grok-4.5",
+			Provider:           "xai",
+			APIModel:           "grok-4.5",
 			Tier:               tierLarge,
 			MaxContextTokens:   500000,
 			SupportsTools:      []string{toolBash, toolRead, "write", "edit", "web-search"},

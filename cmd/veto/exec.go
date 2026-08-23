@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/oleg-koval/veto/pkg/executor"
 	"github.com/oleg-koval/veto/pkg/router"
 	"golang.org/x/term"
 )
@@ -22,6 +23,7 @@ func cmdExec(args []string) {
 	quiet := fs.Bool("quiet", false, "suppress routing pipeline — print model output only")
 	dryRun := fs.Bool("dry-run", false, "print steps without executing")
 	timeout := fs.Duration("timeout", 60*time.Second, "per-step timeout")
+	maxOutputTokens := fs.Int("max-output-tokens", executor.DefaultExecutionMaxTokens, "maximum output tokens per step")
 	onFailure := fs.String("on-failure", "", "abort-ask|abort|continue (default from config or abort-ask)")
 	_ = fs.Parse(args)
 
@@ -100,7 +102,7 @@ func cmdExec(args []string) {
 		skillNames, skillBodies := resolveSkills(stepCtx, reg, mgr, spec)
 		render.PrintSkills(skillNames)
 
-		modelName, output, execErr := routeAndCapture(stepCtx, reg, mgr, render, spec, skillBodies)
+		modelName, output, execErr := routeAndCaptureWithOptions(stepCtx, reg, mgr, render, spec, skillBodies, executor.ExecutionOptions{MaxOutputTokens: *maxOutputTokens})
 		cancel()
 
 		if execErr != nil {
@@ -122,18 +124,22 @@ func cmdExec(args []string) {
 
 		// per-step acceptance-criteria review
 		if len(criteria) > 0 {
-			if result, ok := reviewOutput(sigCtx, reg, mgr, spec, output, modelName); ok {
-				render.PrintReview(result)
-				if !result.Passed {
-					failed = append(failed, n)
+			result, reviewErr := reviewOutput(sigCtx, reg, mgr, spec, output, modelName)
+			if reviewErr != nil || !result.Passed {
+				failed = append(failed, n)
+				if reviewErr != nil {
+					fmt.Fprintf(os.Stderr, "\n  Step %d review failed: %v\n", n, reviewErr)
+				} else {
+					render.PrintReview(result)
 					fmt.Fprintf(os.Stderr, "\n  Step %d review failed: criteria not met\n", n)
-					if !handleStepFailure(failureMode, *quiet, n) {
-						_ = store.Save()
-						os.Exit(1)
-					}
-					continue
 				}
+				if !handleStepFailure(failureMode, *quiet, n) {
+					_ = store.Save()
+					os.Exit(1)
+				}
+				continue
 			}
+			render.PrintReview(result)
 		} else if step.SuccessCriteria != "" && !*quiet {
 			fmt.Printf("  ✓  %s\n", step.SuccessCriteria)
 		} else if !*quiet {
@@ -159,12 +165,15 @@ func cmdExec(args []string) {
 			fmt.Println("\n  ── Final review " + strings.Repeat("─", 38))
 		}
 		// "" = no single executor to exclude; the plan used multiple models
-		if result, ok := reviewOutput(sigCtx, reg, mgr, finalSpec, combinedOutput, ""); ok {
-			finalRender.PrintReview(result)
-			if !result.Passed {
-				fmt.Fprintln(os.Stderr, "  Final review failed: acceptance criteria not fully met.")
-				os.Exit(1)
-			}
+		result, reviewErr := reviewOutput(sigCtx, reg, mgr, finalSpec, combinedOutput, "")
+		if reviewErr != nil {
+			fmt.Fprintf(os.Stderr, "  Final review failed: %v\n", reviewErr)
+			os.Exit(1)
+		}
+		finalRender.PrintReview(result)
+		if !result.Passed {
+			fmt.Fprintln(os.Stderr, "  Final review failed: acceptance criteria not fully met.")
+			os.Exit(1)
 		}
 	}
 

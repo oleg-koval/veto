@@ -60,24 +60,43 @@ type openAIMessage struct {
 	Content string `json:"content"`
 }
 
+type openAIChoice struct {
+	Message      openAIMessage `json:"message"`
+	FinishReason string        `json:"finish_reason"`
+}
+
+type openAIUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
 type openAIResponse struct {
-	Choices []struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	} `json:"choices"`
-	Error *struct {
+	Choices []openAIChoice `json:"choices"`
+	Usage   *openAIUsage   `json:"usage"`
+	Error   *struct {
 		Message string `json:"message"`
 	} `json:"error"`
 }
 
 // Run sends prompt to the OpenAI-compatible API and returns the text response.
-// Retries up to maxRetries times on transient server errors (429, 502, 503, 504).
+// It is the short admission-probe path and always uses the 512-token budget.
 func (e *OpenAIExecutor) Run(ctx context.Context, prompt string) Result {
+	return e.run(ctx, prompt, admissionMaxTokens)
+}
+
+// Execute sends a full task prompt with an explicit bounded output budget.
+func (e *OpenAIExecutor) Execute(ctx context.Context, prompt string, options ExecutionOptions) Result {
+	return e.run(ctx, prompt, options.maxOutputTokens())
+}
+
+// run sends prompt to the OpenAI-compatible API.
+// Retries up to maxRetries times on transient server errors (429, 502, 503, 504).
+func (e *OpenAIExecutor) run(ctx context.Context, prompt string, maxTokens int) Result {
 	body, err := json.Marshal(openAIRequest{
 		Model:     e.model,
 		Messages:  []openAIMessage{{Role: "user", Content: prompt}},
-		MaxTokens: admissionMaxTokens,
+		MaxTokens: maxTokens,
 	})
 	if err != nil {
 		return Result{Error: fmt.Errorf("openai marshal: %w", err)}
@@ -132,21 +151,55 @@ func (e *OpenAIExecutor) Run(ctx context.Context, prompt string) Result {
 			return Result{Error: fmt.Errorf("openai read: %w", readErr)}
 		}
 		var ar openAIResponse
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			if json.Unmarshal(data, &ar) == nil && ar.Error != nil {
+				return Result{Error: fmt.Errorf("openai api: %s", ar.Error.Message)}
+			}
+			return Result{Error: fmt.Errorf("openai status %d: %s", resp.StatusCode, responseSnippet(data))}
+		}
 		if decErr := json.Unmarshal(data, &ar); decErr != nil {
 			return Result{Error: fmt.Errorf("openai decode: %w", decErr)}
 		}
 		if ar.Error != nil {
 			return Result{Error: fmt.Errorf("openai api: %s", ar.Error.Message)}
 		}
-		if resp.StatusCode != http.StatusOK {
-			return Result{Error: fmt.Errorf("openai status %d", resp.StatusCode)}
-		}
 		if len(ar.Choices) == 0 {
 			return Result{Error: fmt.Errorf("openai: empty response")}
 		}
-		return Result{Output: ar.Choices[0].Message.Content}
+		choice := ar.Choices[0]
+		output := strings.TrimSpace(choice.Message.Content)
+		if output == "" {
+			return Result{Error: fmt.Errorf("openai: empty response")}
+		}
+		result := Result{
+			Output:       output,
+			FinishReason: choice.FinishReason,
+			Truncated:    isTruncationReason(choice.FinishReason),
+		}
+		if ar.Usage != nil {
+			result.Usage = Usage{
+				InputTokens:  ar.Usage.PromptTokens,
+				OutputTokens: ar.Usage.CompletionTokens,
+				TotalTokens:  ar.Usage.TotalTokens,
+				Known:        true,
+			}
+		}
+		return result
 	}
 	return Result{Error: fmt.Errorf("openai: max retries exceeded")}
+}
+
+func responseSnippet(data []byte) string {
+	const maxSnippet = 512
+	snippet := strings.TrimSpace(string(data))
+	if len(snippet) > maxSnippet {
+		return snippet[:maxSnippet] + "..."
+	}
+	return snippet
+}
+
+func isTruncationReason(reason string) bool {
+	return reason == "length" || reason == "max_tokens"
 }
 
 // tryStartOllama starts `ollama serve` in the background when the endpoint is

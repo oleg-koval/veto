@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "name": "cheap-small",
+      "tier": "small",
+      "max_context_tokens": 200000,
+      "supports_tools": ["bash", "read", "write", "edit"],
+      "cost_per_1k_input_usd": 0.00025,
+      "cost_per_1k_output_usd": 0.00125,
+      "strengths": ["extract", "summarize", "code-change"],
+      "weaknesses": ["debug", "plan", "review"]
+    },
+    {
+      "name": "balanced-mid",
+      "tier": "mid",
+      "max_context_tokens": 200000,
+      "supports_tools": ["bash", "read", "write", "edit"],
+      "cost_per_1k_input_usd": 0.003,
+      "cost_per_1k_output_usd": 0.015,
+      "strengths": ["code-change", "debug", "review", "refactor"],
+      "weaknesses": []
+    },
+    {
+      "name": "strong-large",
+      "tier": "large",
+      "max_context_tokens": 200000,
+      "supports_tools": ["bash", "read", "write", "edit"],
+      "cost_per_1k_input_usd": 0.015,
+      "cost_per_1k_output_usd": 0.075,
+      "strengths": ["code-change", "debug", "plan", "review", "refactor"],
+      "weaknesses": []
+    }
+  ],
+  "tasks": [
+    {
+      "id": "summarize-release-notes",
+      "kind": "summarize",
+      "complexity": "simple",
+      "risk": "low",
+      "objective": "Summarize the release notes in five bullets.",
+      "outcomes": {
+        "cheap-small": {"accepted": true, "success": true, "confidence": 0.88, "confidence_known": true, "score": 0.72, "score_known": true, "input_tokens": 800, "output_tokens": 120, "total_tokens": 920, "usage_known": true, "cost_usd": 0.00035, "cost_known": true, "latency_ms": 300, "latency_known": true},
+        "balanced-mid": {"accepted": true, "success": true, "confidence": 0.94, "confidence_known": true, "score": 0.88, "score_known": true, "cost_usd": 0.0048, "cost_known": true, "latency_ms": 700, "latency_known": true},
+        "strong-large": {"accepted": true, "success": true, "confidence": 0.97, "confidence_known": true, "score": 0.95, "score_known": true, "cost_usd": 0.024, "cost_known": true, "latency_ms": 1200, "latency_known": true}
+      }
+    },
+    {
+      "id": "debug-timeout",
+      "kind": "debug",
+      "complexity": "moderate",
+      "risk": "medium",
+      "objective": "Find the cause of the timeout in the worker service.",
+      "outcomes": {
+        "balanced-mid": {"accepted": false, "success": false},
+        "strong-large": {"accepted": true, "success": true, "confidence": 0.91, "confidence_known": true, "score": 0.91, "score_known": true, "cost_usd": 0.028, "cost_known": true, "latency_ms": 1800, "latency_known": true}
+      }
+    },
+    {
+      "id": "small-code-change",
+      "kind": "code-change",
+      "complexity": "simple",
+      "risk": "low",
+      "objective": "Add a retry to the HTTP client.",
+      "outcomes": {
+        "cheap-small": {"accepted": true, "success": false, "confidence": 0.82, "confidence_known": true, "score": 0.42, "score_known": true, "cost_usd": 0.0012, "cost_known": true, "latency_ms": 500, "latency_known": true},
+        "balanced-mid": {"accepted": true, "success": true, "confidence": 0.9, "confidence_known": true, "score": 0.86, "score_known": true, "cost_usd": 0.007, "cost_known": true, "latency_ms": 900, "latency_known": true},
+        "strong-large": {"accepted": true, "success": true, "confidence": 0.96, "confidence_known": true, "score": 0.94, "score_known": true, "cost_usd": 0.031, "cost_known": true, "latency_ms": 1500, "latency_known": true}
+      }
+    },
+    {
+      "id": "moderate-refactor",
+      "kind": "refactor",
+      "complexity": "moderate",
+      "risk": "medium",
+      "objective": "Refactor the duplicated authentication handlers.",
+      "outcomes": {
+        "balanced-mid": {"accepted": true, "success": true, "confidence": 0.89, "confidence_known": true, "score": 0.79, "score_known": true, "cost_usd": 0.012, "cost_known": true, "latency_ms": 1100, "latency_known": true},
+        "strong-large": {"accepted": true, "success": true, "confidence": 0.95, "confidence_known": true, "score": 0.93, "score_known": true, "cost_usd": 0.042, "cost_known": true, "latency_ms": 1900, "latency_known": true}
+      }
+    },
+    {
+      "id": "followup-code-change",
+      "kind": "code-change",
+      "complexity": "simple",
+      "risk": "low",
+      "objective": "Add input validation to the HTTP client.",
+      "outcomes": {
+        "cheap-small": {"accepted": true, "success": false, "confidence": 0.8, "confidence_known": true, "score": 0.38, "score_known": true, "cost_usd": 0.0011, "cost_known": true, "latency_ms": 450, "latency_known": true},
+        "balanced-mid": {"accepted": true, "success": true, "confidence": 0.9, "confidence_known": true, "score": 0.84, "score_known": true, "cost_usd": 0.0065, "cost_known": true, "latency_ms": 850, "latency_known": true},
+        "strong-large": {"accepted": true, "success": true, "confidence": 0.95, "confidence_known": true, "score": 0.93, "score_known": true, "cost_usd": 0.030, "cost_known": true, "latency_ms": 1450, "latency_known": true}
+      }
+    },
+    {
+      "id": "complex-plan",
+      "kind": "plan",
+      "complexity": "complex",
+      "risk": "high",
+      "max_cost_usd": 0.03,
+      "objective": "Design a migration plan for the distributed event pipeline.",
+      "outcomes": {
+        "strong-large": {"accepted": true, "success": true, "confidence": 0.92, "confidence_known": true, "score": 0.89, "score_known": true, "cost_usd": 0.055, "cost_known": true, "latency_ms": 2400, "latency_known": true}
+      }
+    }
+  ]
+}
