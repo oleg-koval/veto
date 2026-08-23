@@ -6,12 +6,25 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestExecutionOptions_DefaultIsBounded(t *testing.T) {
+	assert.Equal(t, DefaultExecutionMaxTokens, (ExecutionOptions{}).maxOutputTokens())
+	assert.Equal(t, DefaultExecutionMaxTokens, (ExecutionOptions{MaxOutputTokens: -1}).maxOutputTokens())
+	assert.Equal(t, 4096, (ExecutionOptions{MaxOutputTokens: 4096}).maxOutputTokens())
+}
+
+func TestExecutorsExposeSeparateTaskExecutionContract(t *testing.T) {
+	var _ TaskExecutor = (*AnthropicExecutor)(nil)
+	var _ TaskExecutor = (*OpenAIExecutor)(nil)
+	var _ TaskExecutor = (*CLIExecutor)(nil)
+}
 
 // roundTripFunc lets tests inject a custom http.RoundTripper without a real server.
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -22,22 +35,13 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { retu
 
 func anthropicAcceptResp(text string) anthropicResponse {
 	return anthropicResponse{
-		Content: []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		}{{Type: "text", Text: text}},
+		Content: []anthropicContent{{Type: "text", Text: text}},
 	}
 }
 
 func openAIAcceptResp(text string) openAIResponse {
 	return openAIResponse{
-		Choices: []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		}{{Message: struct {
-			Content string `json:"content"`
-		}{Content: text}}},
+		Choices: []openAIChoice{{Message: openAIMessage{Content: text}}},
 	}
 }
 
@@ -65,13 +69,34 @@ func TestAnthropicExecutor_Success(t *testing.T) {
 	assert.Equal(t, "hello", res.Output)
 }
 
+func TestAnthropicExecutor_ExecuteUsesRequestedOutputLimitAndMetadata(t *testing.T) {
+	const requested = 4096
+	const output = "a long task result"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req anthropicRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		assert.Equal(t, requested, req.MaxTokens)
+		json.NewEncoder(w).Encode(anthropicResponse{
+			Content:    []anthropicContent{{Type: "text", Text: output}},
+			StopReason: "max_tokens",
+			Usage:      &anthropicUsage{InputTokens: 11, OutputTokens: 22},
+		})
+	}))
+	defer srv.Close()
+
+	exec := &AnthropicExecutor{apiKey: "k", model: "m", endpoint: srv.URL, client: srv.Client()}
+	res := exec.Execute(t.Context(), "prompt", ExecutionOptions{MaxOutputTokens: requested})
+	require.NoError(t, res.Error)
+	assert.Equal(t, output, res.Output)
+	assert.True(t, res.Truncated)
+	assert.Equal(t, "max_tokens", res.FinishReason)
+	assert.Equal(t, Usage{InputTokens: 11, OutputTokens: 22, TotalTokens: 33, Known: true}, res.Usage)
+}
+
 func TestAnthropicExecutor_MultipleContentBlocks(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := anthropicResponse{
-			Content: []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			}{
+			Content: []anthropicContent{
 				{Type: "text", Text: "part one"},
 				{Type: "other", Text: "ignored"},
 				{Type: "text", Text: "part two"},
@@ -154,6 +179,73 @@ func TestOpenAIExecutor_Success(t *testing.T) {
 	res := exec.Run(t.Context(), "hello")
 	require.NoError(t, res.Error)
 	assert.Equal(t, "gpt says hi", res.Output)
+}
+
+func TestOpenAIExecutor_ExecuteUsesRequestedOutputLimitAndMetadata(t *testing.T) {
+	const requested = 4096
+	const output = "a long task result"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req openAIRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		assert.Equal(t, requested, req.MaxTokens)
+		json.NewEncoder(w).Encode(openAIResponse{
+			Choices: []openAIChoice{{Message: openAIMessage{Content: output}, FinishReason: "length"}},
+			Usage:   &openAIUsage{PromptTokens: 11, CompletionTokens: 22, TotalTokens: 33},
+		})
+	}))
+	defer srv.Close()
+
+	exec := &OpenAIExecutor{apiKey: "k", model: "m", endpoint: srv.URL, client: srv.Client()}
+	res := exec.Execute(t.Context(), "prompt", ExecutionOptions{MaxOutputTokens: requested})
+	require.NoError(t, res.Error)
+	assert.Equal(t, output, res.Output)
+	assert.True(t, res.Truncated)
+	assert.Equal(t, "length", res.FinishReason)
+	assert.Equal(t, Usage{InputTokens: 11, OutputTokens: 22, TotalTokens: 33, Known: true}, res.Usage)
+}
+
+func TestOpenAIExecutor_ExecuteDoesNotSilentlyReturnEmptyOutput(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(openAIResponse{
+			Choices: []openAIChoice{{Message: openAIMessage{Content: "   "}}},
+		})
+	}))
+	defer srv.Close()
+
+	exec := &OpenAIExecutor{apiKey: "k", model: "m", endpoint: srv.URL, client: srv.Client()}
+	res := exec.Execute(t.Context(), "prompt", ExecutionOptions{})
+	require.Error(t, res.Error)
+	assert.Contains(t, res.Error.Error(), "empty response")
+}
+
+func TestOpenAIExecutor_NonJSONErrorIncludesStatusAndBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("upstream unavailable"))
+	}))
+	defer srv.Close()
+
+	exec := &OpenAIExecutor{apiKey: "k", model: "m", endpoint: srv.URL, client: srv.Client()}
+	res := exec.Execute(t.Context(), "prompt", ExecutionOptions{})
+	require.Error(t, res.Error)
+	assert.Contains(t, res.Error.Error(), "502")
+	assert.Contains(t, res.Error.Error(), "upstream unavailable")
+}
+
+func TestOpenAIExecutor_ExecuteSupportsLargeOutput(t *testing.T) {
+	output := strings.Repeat("x", admissionMaxTokens+1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(openAIResponse{
+			Choices: []openAIChoice{{Message: openAIMessage{Content: output}}},
+		})
+	}))
+	defer srv.Close()
+
+	exec := &OpenAIExecutor{apiKey: "k", model: "m", endpoint: srv.URL, client: srv.Client()}
+	res := exec.Execute(t.Context(), "prompt", ExecutionOptions{MaxOutputTokens: admissionMaxTokens + 1})
+	require.NoError(t, res.Error)
+	assert.Len(t, res.Output, admissionMaxTokens+1)
+	assert.False(t, res.Usage.Known, "missing provider usage must remain distinguishable from known zero usage")
 }
 
 func TestOpenAIExecutor_APIError(t *testing.T) {
@@ -384,13 +476,7 @@ func TestNewOpenAICompatibleExecutor_HitsCustomEndpoint(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotURL = r.URL.Path
 		resp := openAIResponse{
-			Choices: []struct {
-				Message struct {
-					Content string `json:"content"`
-				} `json:"message"`
-			}{{Message: struct {
-				Content string `json:"content"`
-			}{Content: `{"accept":true,"confidence":0.9,"reason_codes":[]}`}}},
+			Choices: []openAIChoice{{Message: openAIMessage{Content: `{"accept":true,"confidence":0.9,"reason_codes":[]}`}}},
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
@@ -409,13 +495,7 @@ func TestNewOpenAICompatibleExecutor_EmptyAPIKey(t *testing.T) {
 	// local servers typically ignore the Authorization header; ensure we don't error on empty key
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := openAIResponse{
-			Choices: []struct {
-				Message struct {
-					Content string `json:"content"`
-				} `json:"message"`
-			}{{Message: struct {
-				Content string `json:"content"`
-			}{Content: "ok"}}},
+			Choices: []openAIChoice{{Message: openAIMessage{Content: "ok"}}},
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}))

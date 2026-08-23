@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/oleg-koval/veto/pkg/router"
@@ -69,6 +69,33 @@ func parseReviewJSON(output string) (ReviewResult, bool) {
 	return r, true
 }
 
+// validateReviewResult rejects incomplete or internally inconsistent reviewer
+// output. A requested quality gate must not pass merely because the model set
+// the top-level passed field to true.
+func validateReviewResult(criteria []string, result ReviewResult) error {
+	if result.Score < 0 || result.Score > 1 {
+		return errors.New("review score must be between 0 and 1")
+	}
+	if len(result.Criteria) != len(criteria) {
+		return fmt.Errorf("review returned %d criterion result; expected %d", len(result.Criteria), len(criteria))
+	}
+	allMet := true
+	for i, expected := range criteria {
+		got := result.Criteria[i]
+		if strings.TrimSpace(got.Criterion) != strings.TrimSpace(expected) {
+			return fmt.Errorf("review criterion %d does not match request", i+1)
+		}
+		allMet = allMet && got.Met
+	}
+	if result.Passed && !allMet {
+		return errors.New("review returned passed=true with unmet criterion")
+	}
+	if !result.Passed && allMet {
+		return errors.New("review returned passed=false with all criteria met")
+	}
+	return nil
+}
+
 // reviewOutput runs an acceptance-criteria check on output.
 //
 // Returns (result, true) when a review was performed.
@@ -83,9 +110,9 @@ func reviewOutput(
 	original router.TaskSpec,
 	output string,
 	executorModel string,
-) (ReviewResult, bool) {
+) (ReviewResult, error) {
 	if len(original.SuccessCriteria) == 0 {
-		return ReviewResult{}, false
+		return ReviewResult{}, nil
 	}
 
 	prompt := buildReviewPrompt(original, output)
@@ -104,15 +131,15 @@ func reviewOutput(
 	render := NewRenderer(true) // quiet: suppress nested pipeline noise
 	_, reviewOutput, err := routeAndCapture(ctx, reg, mgr, render, reviewSpec, nil)
 	if err != nil {
-		// no review model available or routing failed — skip gracefully
-		fmt.Fprintf(os.Stderr, "  (review skipped: %v)\n", err)
-		return ReviewResult{}, false
+		return ReviewResult{}, fmt.Errorf("review unavailable: %w", err)
 	}
 
 	result, ok := parseReviewJSON(reviewOutput)
 	if !ok {
-		fmt.Fprintln(os.Stderr, "  (review skipped: reviewer returned unparseable output)")
-		return ReviewResult{}, false
+		return ReviewResult{}, errors.New("reviewer returned unparseable output")
 	}
-	return result, true
+	if err := validateReviewResult(original.SuccessCriteria, result); err != nil {
+		return ReviewResult{}, err
+	}
+	return result, nil
 }

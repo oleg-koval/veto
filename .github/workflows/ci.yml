@@ -21,6 +21,19 @@ jobs:
       - name: Build
         run: go build ./...
 
+      - name: Build onboarding smoke binary
+        run: go build -o "$RUNNER_TEMP/veto-onboarding" ./cmd/veto
+
+      - name: Fresh-home onboarding smoke
+        env:
+          VETO_BINARY: ${{ runner.temp }}/veto-onboarding
+        run: ./scripts/onboarding-smoke.sh
+
+      - name: Offline routing benchmark smoke
+        run: |
+          go run ./cmd/veto benchmark --corpus internal/eval/testdata/routing_corpus.json > "$RUNNER_TEMP/veto-benchmark.json"
+          python3 -m json.tool "$RUNNER_TEMP/veto-benchmark.json" >/dev/null
+
       - name: Test (race detector)
         run: go test -race -timeout 120s ./...
 

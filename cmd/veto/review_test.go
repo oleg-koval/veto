@@ -50,6 +50,75 @@ func TestParseReviewJSON_MalformedJSON(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestValidateReviewResult(t *testing.T) {
+	tests := []struct {
+		name     string
+		criteria []string
+		result   ReviewResult
+		wantErr  string
+	}{
+		{
+			name:     "valid pass",
+			criteria: []string{"tests pass", "docs updated"},
+			result: ReviewResult{Passed: true, Score: 1, Criteria: []CriterionResult{
+				{Criterion: "tests pass", Met: true},
+				{Criterion: "docs updated", Met: true},
+			}},
+		},
+		{
+			name:     "missing criterion",
+			criteria: []string{"tests pass", "docs updated"},
+			result: ReviewResult{Passed: true, Score: 1, Criteria: []CriterionResult{
+				{Criterion: "tests pass", Met: true},
+			}},
+			wantErr: "returned 1 criterion result; expected 2",
+		},
+		{
+			name:     "passed contradicts unmet criterion",
+			criteria: []string{"tests pass"},
+			result: ReviewResult{Passed: true, Score: 1, Criteria: []CriterionResult{
+				{Criterion: "tests pass", Met: false},
+			}},
+			wantErr: "passed=true with unmet criterion",
+		},
+		{
+			name:     "failed contradicts all criteria met",
+			criteria: []string{"tests pass"},
+			result: ReviewResult{Passed: false, Score: 1, Criteria: []CriterionResult{
+				{Criterion: "tests pass", Met: true},
+			}},
+			wantErr: "passed=false with all criteria met",
+		},
+		{
+			name:     "criterion order mismatch",
+			criteria: []string{"tests pass"},
+			result: ReviewResult{Passed: false, Score: 0, Criteria: []CriterionResult{
+				{Criterion: "something else", Met: false},
+			}},
+			wantErr: "criterion 1 does not match request",
+		},
+		{
+			name:     "score out of range",
+			criteria: []string{"tests pass"},
+			result: ReviewResult{Passed: false, Score: 1.2, Criteria: []CriterionResult{
+				{Criterion: "tests pass", Met: false},
+			}},
+			wantErr: "score must be between 0 and 1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateReviewResult(tt.criteria, tt.result)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
 // TestBuildReviewPrompt embeds all criteria and objective in the prompt.
 func TestBuildReviewPrompt(t *testing.T) {
 	spec := router.TaskSpec{
@@ -67,8 +136,8 @@ func TestBuildReviewPrompt(t *testing.T) {
 // Passes nil ctx/reg/mgr — safe because the function exits before using them.
 func TestReviewOutput_SkippedWhenNoCriteria(t *testing.T) {
 	spec := router.TaskSpec{Objective: "do stuff"} // no SuccessCriteria
-	_, ok := reviewOutput(nil, nil, nil, spec, "some output", "")
-	assert.False(t, ok, "review should be skipped when SuccessCriteria is empty")
+	_, err := reviewOutput(nil, nil, nil, spec, "some output", "")
+	require.NoError(t, err)
 }
 
 // TestReviewOutput_SkipModels verifies the review spec excludes the executor model.

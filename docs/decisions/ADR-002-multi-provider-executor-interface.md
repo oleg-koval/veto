@@ -8,18 +8,27 @@ Accepted
 
 ## Context
 
-veto supports multiple AI providers (Anthropic, OpenAI, OpenRouter). The admission gate in `pkg/router` needs to call models, but `pkg/router` should not import provider-specific SDKs — that would create coupling between the routing logic and provider implementations, making both harder to test and extend.
+veto supports multiple AI providers (Anthropic, OpenAI, OpenRouter, local OpenAI-compatible servers, and the Claude subscription CLI). The admission gate in `pkg/router` needs to call models, but routing should not import provider-specific SDKs — that would create coupling between routing logic and provider implementations, making both harder to test and extend. Full task execution has different output limits and transport capabilities from the short admission probe, so it must not share the admission-only call implicitly.
 
 ## Decision
 
 Define the `Executor` interface at the consumer (`pkg/router`), not the implementer (`pkg/executor`). Concrete implementations in `pkg/executor` satisfy this interface via duck typing — they don't import `pkg/router`.
+
+Keep the router-facing admission contract deliberately small: `Run(ctx,
+prompt)` is the fixed 512-token JSON probe. The executor package separately
+defines `TaskExecutor.Execute(ctx, prompt, ExecutionOptions)` for full task
+execution. `ExecutionOptions.MaxOutputTokens` is bounded (8192 by default),
+and `Result` carries provider usage and truncation metadata when available.
+This prevents a long task response from inheriting the admission limit while
+preserving the router's provider-neutral interface.
 
 The wiring happens at the CLI layer (`cmd/veto/main.go`) via `providerRegistry`, a concrete `ExecutorFactory` that maps model names to executors. This is the only place that imports both packages.
 
 ```
 pkg/router/admission.go     Executor interface (defined here)
                                 ↑ duck-typed by
-pkg/executor/               AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor
+pkg/executor/               AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor,
+                            CLIExecutor, OpenAICompatibleExecutor
                                 ↑ wired by
 cmd/veto/main.go            providerRegistry (ExecutorFactory)
 ```
@@ -45,7 +54,8 @@ Rejected: couples routing logic to provider implementations. Adding a new provid
 
 ## Consequences
 
-- `pkg/router` has no external dependencies beyond stdlib (easy to test with a mock executor)
+- `pkg/router` owns only the admission-facing interface; it does not know provider transports or full-execution options
 - New providers require a new file in `pkg/executor` and one entry in `buildProviderRegistry()` — no changes to the router package
+- Every production provider must implement both the admission `Run` path and the full-task `TaskExecutor` path; HTTP transports remain text-only until a real tool loop is added
 - `cmd/veto/main.go` is the only place with full knowledge of the wiring; it acts as a composition root
 - Tests for the admission gate use `pkg/router/mocks/executor.go` (generated via moq) — the mock satisfies the interface defined in `pkg/router`, not one imported from elsewhere

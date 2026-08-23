@@ -79,6 +79,10 @@ func (g *AdmissionGate) Ask(ctx context.Context, task TaskSpec, model ModelCapab
 	}
 
 	if decision, ok := parseAdmissionJSON(result.Output); ok {
+		if decision.Accept && task.MaxCostUSD > 0 && decision.EstimatedCostUSD > task.MaxCostUSD {
+			return AdmissionDecision{Accept: false, Confidence: decision.Confidence,
+				ReasonCodes: []string{ReasonCostCeiling}, EstimatedCostUSD: decision.EstimatedCostUSD}, nil
+		}
 		if decision.Accept && decision.Confidence < 0.7 {
 			return AdmissionDecision{Accept: false, ReasonCodes: []string{ReasonLowConfidence}}, nil
 		}

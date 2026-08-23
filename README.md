@@ -32,7 +32,28 @@ veto takes a different approach: **let the models decide**. Each candidate is se
 
 The result: you get the cheapest model that's genuinely confident it can do the work, with machine-readable rejection reasons when nothing fits.
 
+## License
+
+Veto is released under the [Apache License 2.0](LICENSE). See the license
+file for the permissions, conditions, and disclaimer.
+
 ## Install
+
+### Release binary (recommended)
+
+Download the archive for your operating system and CPU from the [GitHub Releases](https://github.com/oleg-koval/veto/releases) page, extract `veto`, and put it on your `PATH` (for example, `~/.local/bin`). Release archives are named `veto_<version>_<os>_<arch>` and include Darwin amd64/arm64, Linux amd64/arm64, and Windows amd64/arm64 builds. Verify the download before installing:
+
+```bash
+sha256sum -c SHA256SUMS
+install -m 0755 veto ~/.local/bin/veto
+veto version
+```
+
+On macOS, use `shasum -a 256 -c SHA256SUMS` when `sha256sum` is unavailable.
+
+### Build with Go
+
+Go 1.26.4 or newer is required:
 
 ```bash
 go install github.com/oleg-koval/veto/cmd/veto@latest
@@ -45,6 +66,12 @@ git clone https://github.com/oleg-koval/veto
 cd veto
 go build ./cmd/veto
 ```
+
+### Upgrade and uninstall
+
+To upgrade a release install, download and verify the newer archive, then replace the binary in the same `PATH` directory. Your provider credentials, local-model definitions, skills, plans, checkpoints, and logs under `~/.veto/` are retained.
+
+To uninstall, remove only the binary first (`rm "$(command -v veto)"`). To also remove veto's local state, back up anything you need and then remove `~/.veto/`; this deletes stored credentials, models, skills, plans, checkpoints, and logs.
 
 ## Quick start
 
@@ -63,11 +90,11 @@ For subscription mode, veto verifies the `claude` CLI is present and saves a `CL
 
 For local / self-hosted models, choose option 5. veto guides you through three paths:
 
-- **Ollama** — veto checks if Ollama is installed (and installs it via Homebrew/curl if not), lets you pick a model from a curated list (Qwen 2.5 Coder, Llama 3.2, Mistral), pulls it, and registers the model automatically. At inference time, if `ollama serve` isn't running, veto starts it in the background and waits up to 5s for it to become ready — no manual server management needed.
+- **Ollama** — veto checks if Ollama is installed, lets you pick a model from a curated list (Qwen 2.5 Coder, Llama 3.2, Mistral), pulls it, and registers the model automatically. At inference time, if `ollama serve` isn't running, veto starts it in the background and waits up to 5s for it to become ready — no manual server management needed. Install Ollama from its official distribution instructions; veto does not execute a remote install script.
 - **LM Studio** — walks you through starting the server manually, then collects the model id.
 - **Manual** — enter endpoint URL and model id directly (works with any OpenAI-compatible server: vLLM, llama.cpp, etc).
 
-The model is stored in `~/.veto/models.json` and participates in all routing calls at $0 cost. After each local model is added, veto asks if you want to add another — you can register as many as you like in a single `veto login` session.
+The model is stored in `~/.veto/models.json` and participates in all routing calls at $0 inference cost. Local/OpenAI-compatible HTTP transports are text-only: they can return content but cannot read files, write files, run commands, or invoke tools through veto. After each local model is added, veto asks if you want to add another — you can register as many as you like in a single `veto login` session.
 
 To remove a provider or local model: `veto logout` (interactive) or `veto logout <name>` (non-interactive).
 
@@ -101,6 +128,23 @@ OpenRouter      not set         run 'veto login'
 xAI (Grok)      not set         run 'veto login'
 ```
 
+To verify that an account can actually use every catalog ID for one provider,
+run the opt-in account check (it makes one model-list request and saves the raw
+response under `artifacts/http/`):
+
+```bash
+veto verify-models --provider openai
+veto verify-models --provider anthropic
+veto verify-models --provider openrouter
+veto verify-models --provider xai
+```
+
+Use `--json` in automation. A nonzero exit status means the request failed or
+at least one catalog ID was not returned by the account. The command never
+prints or stores the API key; saved metadata contains only the endpoint,
+status, timestamp, and response size. Claude subscription mode cannot be
+verified through this API check because it uses the local `claude` CLI.
+
 **3. Run a task:**
 
 ```bash
@@ -124,6 +168,8 @@ veto route "extract all TODO comments from the codebase" --kind extract
 | `veto enable <model...>` | Re-include a previously disabled model |
 | `veto setup` | Discover and approve skill files from your skill directories |
 | `veto providers` | Show which providers are configured and how |
+| `veto benchmark` | Replay the offline routing corpus and emit JSON metrics |
+| `veto verify-models` | Verify catalog IDs against one provider account |
 | `veto version` | Print veto version |
 | `veto install-git-hook` | Add veto to your git workflow |
 
@@ -135,9 +181,12 @@ Route and execute in one step. The winning model's response is printed to stdout
 |------|---------|-------------|
 | `--kind` | *(auto-detected)* | Task type (see below) |
 | `--risk` | `medium` | Impact level: `low`, `medium`, `high` |
-| `--max-cost` | `0` (no limit) | Maximum spend in USD |
+| `--max-cost` | `0` (no limit) | Estimated preflight cost ceiling in USD |
 | `--timeout` | `120s` | Total timeout (routing + execution) |
 | `--quiet` | `false` | Suppress routing animation — print model output only |
+| `--max-output-tokens` | `8192` | Bounded output budget for the execution response |
+| `--output` | *(none)* | Explicit relative file path for saving output |
+| `--force` | `false` | Allow `--output` to replace an existing file |
 | `--criteria` | *(none)* | Comma-separated acceptance criteria; a review pass runs after execution |
 
 ```bash
@@ -147,10 +196,20 @@ veto run "summarize the last 10 git commits"
 # scriptable: just the output, no routing UI
 veto run --quiet "extract all TODO comments" > todos.txt
 
+# save explicitly; paths must stay inside the current directory
+veto run --output todos-output.txt "extract all TODO comments"
+
+# increase the bounded response budget and explicitly allow replacement
+veto run --max-output-tokens 16000 --output summary.md --force "summarize this PR"
+
 # auto-review the output against criteria (exits 1 if any criterion fails)
 veto run "refactor the auth middleware" \
   --criteria "no third-party JWT dep,all existing tests pass,function names unchanged"
 ```
+
+`veto run` makes two distinct calls when needed. Admission is a short JSON-only probe capped at 512 output tokens. Execution is a separate bounded response, defaulting to 8192 output tokens and controlled by `--max-output-tokens`; the admission limit never truncates the task result. A provider may report that execution ended at its output limit, and veto preserves that truncation signal.
+
+`--output` is the only way for `veto run` to write a file. The path must be relative to the current directory, cannot traverse upward or target hidden files/directories, and is created with mode `0600`. Existing files are protected; pass `--force` to replace one. Objective text such as “save as report.md” does not write a file by itself.
 
 ### `veto exec` flags
 
@@ -161,6 +220,7 @@ Execute a multi-step plan file. Each step is routed independently to the best mo
 | `--dry-run` | `false` | Print steps without executing |
 | `--quiet` | `false` | Suppress routing animation — print model output only |
 | `--timeout` | `60s` | Per-step timeout (routing + execution) |
+| `--max-output-tokens` | `8192` | Bounded output budget for each step |
 | `--on-failure` | `abort-ask` | What to do when a step fails: `abort-ask` (prompt), `abort`, or `continue` |
 
 ```bash
@@ -206,7 +266,7 @@ Route only — select the best model without executing the task. Useful when you
 |------|---------|-------------|
 | `--kind` | *(auto-detected)* | Task type (see below) |
 | `--risk` | `medium` | Impact level: `low`, `medium`, `high` |
-| `--max-cost` | `0` (no limit) | Maximum spend in USD |
+| `--max-cost` | `0` (no limit) | Estimated preflight cost ceiling in USD |
 | `--timeout` | `30s` | Per-model admission timeout |
 | `--quiet` | `false` | Print selected model name only (machine-readable) |
 | `--json` | `false` | Print one JSON result line; implies `--quiet` and `--no-resume` |
@@ -232,15 +292,15 @@ veto route --json "summarize this PR"
 
 ## Superpowers
 
-**Automatic cost control** — set `--max-cost 0.01` and veto will never route to a model whose estimated cost exceeds your ceiling. Models that would exceed it are filtered before they're even asked.
+**Automatic cost preflight** — set `--max-cost 0.01` and veto filters out models whose estimated cost exceeds your ceiling before they're asked. This is a preflight estimate, not an absolute billing guarantee: admission and execution usage can differ, and some providers do not report usage. Veto reports unknown actual usage/cost as unknown rather than silently treating it as zero.
 
 **Checkpoint resume** — if routing is interrupted (Ctrl+C, timeout, network blip), veto saves which models already responded. Re-run the same command to pick up where you left off. Use `--no-resume` to start fresh.
 
-**End-to-end execution** — `veto run` routes and then calls the winning model with your task, printing the response to stdout. Streaming output is used automatically when the executor supports it (subscription mode via `claude -p` streams tokens as they arrive).
+**End-to-end execution** — `veto run` routes and then calls the winning model with your task using the separate execution budget, printing the response to stdout. Streaming output is used automatically when the executor supports it (subscription mode via `claude -p` streams tokens as they arrive). HTTP/API and local OpenAI-compatible transports return text only; they do not get the Claude CLI's file, shell, or edit tools.
 
 **Skill injection** — before executing, veto looks up reusable instruction snippets that match the task kind. Skills in `~/.veto/skills/` are always available (hand-written or previously generated via `generateSkill`). Skills from other directories (e.g. `~/.claude/skills/`) can be approved via `veto setup`. At startup, veto silently checks for unapproved skill files and reminds you to run `veto setup` if any are found. Kind-specific skills are preferred over generic ones; cap is 2 per execution. Skills are never auto-generated during a routing call — only pre-existing approved files are used, so there is no hidden warm-up cost at the start of each invocation.
 
-**Acceptance-criteria review** — `--criteria "..."` on `veto run` triggers a second routing call after execution. A different model (not the one that did the work) grades the output against each criterion and returns a structured pass/fail. Exits 1 if any criterion fails — making it scriptable as a quality gate.
+**Acceptance-criteria review** — `--criteria "..."` on `veto run` triggers a second routing call after execution. A different model (not the one that did the work) grades the output against each criterion and returns a structured pass/fail. Exits 1 if any criterion fails, or if the review is unavailable, malformed, incomplete, or internally inconsistent — making a requested review a fail-closed quality gate.
 
 **Multi-step plan execution** — `veto exec plan.md` runs a sequenced plan where each step is routed to the best model. If a step fails, you're asked whether to continue. Plans are just Markdown files with YAML frontmatter — write them by hand, or let veto convert any existing task list automatically. Use `--dry-run` to preview what will run before committing.
 
@@ -273,6 +333,8 @@ If no model accepts, the command exits non-zero and emits:
 
 **Confidence gating** — any model that accepts but reports less than 70% confidence is treated as a rejection. You only get models that are genuinely sure.
 
+**Offline evaluation** — `veto benchmark --corpus internal/eval/testdata/routing_corpus.json` replays cheapest, strongest, static, and adaptive policies without credentials or network access. It emits success, quality, cost, latency, admission-attempt, budget-violation, and confidence-calibration metrics. The checked-in corpus validates router mechanics; real-provider outcomes are required before making claims about production calibration.
+
 **Multi-provider fallback** — if your primary provider is down or all its models reject, veto continues down the ranked list across providers automatically.
 
 **Structured rejection reasons** — when nothing accepts, you get machine-readable reason codes (`COST_CEILING_EXCEEDED`, `COMPLEXITY_TOO_HIGH`, `TASK_KIND_OUTSIDE_STRENGTHS`, etc.) in both the UI and the log, so you know exactly what to adjust.
@@ -287,12 +349,12 @@ If no model accepts, the command exits non-zero and emits:
 |----------|--------|-------------|
 | Anthropic (subscription) | `haiku`, `sonnet`, `opus` | `CLAUDE_SUBSCRIPTION=true` + `claude` CLI logged in |
 | Anthropic (API key) | `haiku`, `sonnet`, `opus` | `ANTHROPIC_API_KEY` |
-| OpenAI | `gpt-4.1`, `gpt-4.1-mini` | `OPENAI_API_KEY` |
+| OpenAI | `gpt-4.1`, `gpt-4.1-mini`, `sol`, `terra`, `luna` | `OPENAI_API_KEY` |
 | OpenRouter | `meta-llama/llama-4-maverick` (and 100+ more via API) | `OPENROUTER_API_KEY` |
 | xAI (Grok) | `grok-4.5`, `grok-4.3`, `grok-3`, `grok-3-mini` | `XAI_API_KEY` |
 | Local / self-hosted | any name you choose | `veto login` → option 5 (guided Ollama install, LM Studio, or manual) |
 
-Subscription mode takes precedence over API key when both are configured. Local models use an OpenAI-compatible executor — any server that speaks the chat-completions API works. Cost is $0 — local inference has no per-token billing. `veto providers` shows which mode is active and lists all local models.
+Subscription mode takes precedence over API key when both are configured. Claude subscription mode uses the `claude` CLI and is the only current transport with executable tools (`bash`, `read`, `write`, and `edit`). Anthropic/OpenAI/OpenRouter APIs and local OpenAI-compatible servers are text-only through veto, even when the underlying model advertises function calling; they cannot inspect or modify your files. Local inference has $0 provider billing, but still consumes your machine's resources. `veto providers` shows which mode is active and lists all local models.
 
 **Ollama models curated for routing:**
 
@@ -324,6 +386,7 @@ make lint     # go vet ./...
 make release  # run tests, then print tagging instructions
 ```
 
-The binary embeds the current git tag as the version string (`veto version`). CI runs on every push and PR to `main`. Releasing: tag with `git tag v<version> && git push origin v<version>` — GitHub Actions builds binaries for darwin/linux/windows (amd64 + arm64) and creates a GitHub Release automatically.
+The binary embeds the normalized version without the leading `v` (`veto version`). CI runs on every push and PR to `main`. A release is prepared by tagging `vMAJOR.MINOR.PATCH` and pushing the tag; GitHub Actions then runs race tests, vet, and a build before creating archives for Darwin/Linux/Windows amd64 and arm64. It publishes `SHA256SUMS` alongside the archives. Nothing is published unless all gates and checksum verification pass.
 
 See [`docs/architecture.md`](docs/architecture.md) for how the routing pipeline works internally.
+See [`docs/release-readiness.md`](docs/release-readiness.md) for the automated gates and the owner-run provider, trial, license, and publish checklist.
