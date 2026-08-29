@@ -74,7 +74,7 @@ mismatches; they are not cryptographic signatures.
 
 ### Build with Go
 
-Go 1.26.4 or newer is required:
+Go 1.26.6 or newer is required:
 
 ```bash
 go install github.com/oleg-koval/veto/cmd/veto@v0.1.0

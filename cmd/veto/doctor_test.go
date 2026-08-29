@@ -164,6 +164,14 @@ func TestDoctorHumanOutputUsesResultLabels(t *testing.T) {
 	}
 }
 
+func TestDoctorHelpExitsSuccessfully(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := runDoctorCommand([]string{"--help"}, &stdout, &stderr, defaultDoctorDeps())
+	assert.Zero(t, code)
+	assert.Contains(t, stderr.String(), "-offline")
+}
+
 func assertDoctorCheck(t *testing.T, report doctorReport, id string, status doctorStatus) {
 	t.Helper()
 	for _, check := range report.Checks {

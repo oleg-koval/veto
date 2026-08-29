@@ -140,6 +140,9 @@ func runDoctorCommand(args []string, stdout, stderr io.Writer, deps doctorDeps) 
 	jsonOutput := flags.Bool("json", false, "emit a machine-readable diagnostic report")
 	offline := flags.Bool("offline", false, "skip GitHub release-integrity checks")
 	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	if flags.NArg() != 0 {
