@@ -103,6 +103,26 @@ func TestRootHelpRequested(t *testing.T) {
 	}
 }
 
+func TestEffectiveVersion(t *testing.T) {
+	tests := []struct {
+		name          string
+		linkedVersion string
+		moduleVersion string
+		want          string
+	}{
+		{name: "release binary", linkedVersion: "0.2.0", moduleVersion: "(devel)", want: "0.2.0"},
+		{name: "linked tag", linkedVersion: "v0.2.0", moduleVersion: "v0.1.0", want: "0.2.0"},
+		{name: "go install", linkedVersion: "dev", moduleVersion: "v0.1.0", want: "0.1.0"},
+		{name: "local build", linkedVersion: "dev", moduleVersion: "(devel)", want: "dev"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, effectiveVersion(tt.linkedVersion, tt.moduleVersion))
+		})
+	}
+}
+
 func TestPrintUsageContainsRootHelpContent(t *testing.T) {
 	var out bytes.Buffer
 	printUsage(&out)
