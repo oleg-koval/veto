@@ -39,4 +39,4 @@ jobs:
             echo "Unexpected release tag: $TAG_NAME" >&2
             exit 1
           fi
-          gh workflow run release.yml --ref "$TAG_NAME" -f tag="$TAG_NAME"
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG_NAME" -f tag="$TAG_NAME"
