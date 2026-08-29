@@ -1,11 +1,11 @@
+<h1 align="center">veto</h1>
+
 <p align="center">
   <a href="https://github.com/oleg-koval/veto/actions/workflows/ci.yml"><img src="https://github.com/oleg-koval/veto/actions/workflows/ci.yml/badge.svg" alt="Build and test status"></a>
   <a href="https://goreportcard.com/report/github.com/oleg-koval/veto"><img src="https://goreportcard.com/badge/github.com/oleg-koval/veto" alt="Go Report Card"></a>
   <a href="https://github.com/oleg-koval/veto/releases/latest"><img src="https://img.shields.io/github/v/release/oleg-koval/veto" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" alt="Apache-2.0 license"></a>
 </p>
-
-<h1 align="center">veto</h1>
 
 <p align="center">
   Cost-aware AI model routing with explicit model admission.<br>
@@ -528,9 +528,11 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening an issue or pull request
 
 Veto is a public beta. CI exercises the router, race detector, onboarding smoke
 test, offline benchmark, release packaging, and Homebrew formula rendering.
-Published releases include checksum manifests, and the Homebrew tap updates from
-those verified artifacts. Real-provider availability, pricing, and routing
-quality still depend on the configured accounts and workloads.
+Published releases include checksum manifests. When `HOMEBREW_TAP_TOKEN` is
+configured, the release workflow updates the Homebrew tap from those verified
+artifacts; otherwise it skips the tap update. Real-provider availability,
+pricing, and routing quality still depend on the configured accounts and
+workloads.
 
 See the [latest release](https://github.com/oleg-koval/veto/releases/latest) and
 [`CHANGELOG.md`](CHANGELOG.md) for shipped changes.
