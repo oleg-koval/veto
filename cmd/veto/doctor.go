@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -61,6 +62,10 @@ type doctorFilesystem interface {
 	MkdirAll(string, os.FileMode) error
 	Chmod(string, os.FileMode) error
 	EvalSymlinks(string) (string, error)
+	CreateTemp(string, string) (*os.File, error)
+	Open(string) (*os.File, error)
+	Rename(string, string) error
+	Remove(string) error
 }
 
 type osDoctorFilesystem struct{}
@@ -78,32 +83,44 @@ func (osDoctorFilesystem) Chmod(path string, mode os.FileMode) error { return os
 func (osDoctorFilesystem) EvalSymlinks(path string) (string, error) {
 	return filepath.EvalSymlinks(path)
 }
+func (osDoctorFilesystem) CreateTemp(dir, pattern string) (*os.File, error) {
+	return os.CreateTemp(dir, pattern)
+}
+func (osDoctorFilesystem) Open(path string) (*os.File, error) { return os.Open(path) }
+func (osDoctorFilesystem) Rename(oldPath, newPath string) error {
+	return os.Rename(oldPath, newPath)
+}
+func (osDoctorFilesystem) Remove(path string) error { return os.Remove(path) }
 
 type doctorDeps struct {
-	fs              doctorFilesystem
-	userHome        func() (string, error)
-	executable      func() (string, error)
-	pathEnv         func() string
-	lookPath        func(string) (string, error)
-	readBuildInfo   func() (*debug.BuildInfo, bool)
-	linkerVersion   string
-	buildProvenance string
-	goos            string
-	goarch          string
+	fs                doctorFilesystem
+	userHome          func() (string, error)
+	executable        func() (string, error)
+	pathEnv           func() string
+	lookPath          func(string) (string, error)
+	readBuildInfo     func() (*debug.BuildInfo, bool)
+	linkerVersion     string
+	buildProvenance   string
+	goos              string
+	goarch            string
+	httpDo            func(*http.Request) (*http.Response, error)
+	validateCandidate func(string, string) error
 }
 
 func defaultDoctorDeps() doctorDeps {
 	return doctorDeps{
-		fs:              osDoctorFilesystem{},
-		userHome:        os.UserHomeDir,
-		executable:      os.Executable,
-		pathEnv:         func() string { return os.Getenv("PATH") },
-		lookPath:        exec.LookPath,
-		readBuildInfo:   debug.ReadBuildInfo,
-		linkerVersion:   version,
-		buildProvenance: buildProvenance,
-		goos:            runtime.GOOS,
-		goarch:          runtime.GOARCH,
+		fs:                osDoctorFilesystem{},
+		userHome:          os.UserHomeDir,
+		executable:        os.Executable,
+		pathEnv:           func() string { return os.Getenv("PATH") },
+		lookPath:          exec.LookPath,
+		readBuildInfo:     debug.ReadBuildInfo,
+		linkerVersion:     version,
+		buildProvenance:   buildProvenance,
+		goos:              runtime.GOOS,
+		goarch:            runtime.GOARCH,
+		httpDo:            newDoctorReleaseHTTPClient().Do,
+		validateCandidate: validateDoctorCandidateVersion,
 	}
 }
 
@@ -631,14 +648,4 @@ func pluralY(count int) string {
 		return "y is"
 	}
 	return "ies are"
-}
-
-func checkDoctorReleaseIntegrity(options doctorOptions, deps doctorDeps) doctorCheck {
-	if options.offline {
-		return doctorCheck{ID: "release.integrity", Status: doctorWarn, Message: "offline mode; official checksum verification was skipped"}
-	}
-	if deps.buildProvenance != "official" {
-		return doctorCheck{ID: "release.integrity", Status: doctorWarn, Message: "source/go-install build; official checksum verification is not applicable"}
-	}
-	return doctorCheck{ID: "release.integrity", Status: doctorWarn, Message: "official checksum lookup is not yet available"}
 }
