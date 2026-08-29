@@ -1,11 +1,23 @@
-# veto
+<h1 align="center">veto</h1>
 
-[![Build & Test](https://github.com/oleg-koval/veto/actions/workflows/ci.yml/badge.svg)](https://github.com/oleg-koval/veto/actions/workflows/ci.yml)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+<p align="center">
+  <a href="https://github.com/oleg-koval/veto/actions/workflows/ci.yml"><img src="https://github.com/oleg-koval/veto/actions/workflows/ci.yml/badge.svg" alt="Build and test status"></a>
+  <a href="https://goreportcard.com/report/github.com/oleg-koval/veto"><img src="https://goreportcard.com/badge/github.com/oleg-koval/veto" alt="Go Report Card"></a>
+  <a href="https://github.com/oleg-koval/veto/releases/latest"><img src="https://img.shields.io/github/v/release/oleg-koval/veto" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-blue.svg" alt="Apache-2.0 license"></a>
+</p>
 
-**Stop hardcoding which AI model gets every task.**
+<p align="center">
+  Cost-aware AI model routing with explicit model admission.<br>
+  <strong>Stop hardcoding which AI model gets every task.</strong>
+</p>
 
-Veto is a scriptable model router for developers using multiple AI providers. It filters candidates by tool access, context, task complexity, and estimated cost, then asks the remaining models for a structured accept/reject decision. The first model to accept with at least 70% confidence is selected.
+---
+
+Veto is a scriptable model router for developers using multiple AI providers.
+It filters candidates by tool access, context, task complexity, and estimated
+cost, then asks the remaining models for a structured accept/reject decision.
+The first model to accept with at least 70% confidence is selected.
 
 Example routing trace (values depend on the configured providers and their responses):
 
@@ -30,11 +42,26 @@ $ veto route "refactor the auth middleware to use JWT" --kind refactor --risk me
 ```
 
 ```bash
-# Install the checksum-verified archive from GitHub Releases, then:
+brew install oleg-koval/tap/veto
 veto doctor
 veto login
 veto route --json "summarize this pull request"
 ```
+
+## Features
+
+- **Cheapest viable model first** — deterministic capability, complexity, and
+  cost filters run before model admission.
+- **Explicit admission** — candidates return structured accept/reject decisions,
+  confidence, estimated usage, and rejection reasons.
+- **Multi-provider routing** — Anthropic, OpenAI, OpenRouter, xAI, Ollama, LM
+  Studio, and other OpenAI-compatible endpoints can participate.
+- **Route or execute** — select a model with `veto route`, run a task with
+  `veto run`, or route each step of a plan with `veto exec`.
+- **Automation-friendly output** — quiet and JSON modes support scripts and
+  agent infrastructure.
+- **Fail-closed review** — optional acceptance criteria reject unavailable,
+  malformed, incomplete, or inconsistent reviews.
 
 ## Why veto exists
 
@@ -49,9 +76,19 @@ Candidates are ranked cheapest-viable-first, but self-reported confidence and co
 Veto is released under the [Apache License 2.0](LICENSE). See the license
 file for the permissions, conditions, and disclaimer.
 
-## Install
+## Installation
 
-### Release binary (recommended)
+### Homebrew (recommended)
+
+Homebrew installs the checksum-pinned release on macOS or Linux:
+
+```bash
+brew install oleg-koval/tap/veto
+veto version
+veto doctor
+```
+
+### Release archive
 
 Veto is currently a public beta. Download the latest archive for your operating system and CPU from [GitHub Releases](https://github.com/oleg-koval/veto/releases), extract `veto`, and put it on your `PATH` (for example, `~/.local/bin`). Archives cover Darwin, Linux, and Windows on amd64 and arm64.
 
@@ -94,12 +131,6 @@ go build ./cmd/veto
 `go install` and local builds are supported source-build paths. They report the
 module version when available, but `veto doctor` does not present them as
 checksum-verified official release binaries.
-
-### Homebrew
-
-```bash
-brew install oleg-koval/tap/veto
-```
 
 ### Upgrade and uninstall
 
@@ -492,3 +523,16 @@ See [`docs/architecture.md`](docs/architecture.md) for how the routing pipeline 
 See [`docs/release-readiness.md`](docs/release-readiness.md) for the automated gates and the owner-run provider, trial, license, and publish checklist.
 See [`docs/launch.md`](docs/launch.md) for the launch angle, channel-ready copy, share loops, measurement plan, and launch gates.
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening an issue or pull request.
+
+## Project status
+
+Veto is a public beta. CI exercises the router, race detector, onboarding smoke
+test, offline benchmark, release packaging, and Homebrew formula rendering.
+Published releases include checksum manifests. When `HOMEBREW_TAP_TOKEN` is
+configured, the release workflow updates the Homebrew tap from those verified
+artifacts; otherwise it skips the tap update. Real-provider availability,
+pricing, and routing quality still depend on the configured accounts and
+workloads.
+
+See the [latest release](https://github.com/oleg-koval/veto/releases/latest) and
+[`CHANGELOG.md`](CHANGELOG.md) for shipped changes.
