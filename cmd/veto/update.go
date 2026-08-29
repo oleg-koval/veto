@@ -37,8 +37,8 @@ func shouldOfferAutomaticUpdate(args []string, stdinTTY, stderrTTY bool) bool {
 		return false
 	}
 	for _, arg := range args {
-		name := strings.SplitN(arg, "=", 2)[0]
-		if name == "--json" || name == "--quiet" {
+		name := strings.TrimLeft(strings.SplitN(arg, "=", 2)[0], "-")
+		if name == "json" || name == "quiet" {
 			return false
 		}
 	}

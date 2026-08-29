@@ -30,7 +30,9 @@ func TestShouldOfferAutomaticUpdateOnlyForInteractiveHumanOutput(t *testing.T) {
 		{name: "piped input", args: []string{"route", "task"}, stderrTTY: true},
 		{name: "piped errors", args: []string{"route", "task"}, stdinTTY: true},
 		{name: "json", args: []string{"route", "--json", "task"}, stdinTTY: true, stderrTTY: true},
+		{name: "single-dash json", args: []string{"route", "-json", "task"}, stdinTTY: true, stderrTTY: true},
 		{name: "quiet", args: []string{"run", "--quiet", "task"}, stdinTTY: true, stderrTTY: true},
+		{name: "single-dash quiet", args: []string{"run", "-quiet", "task"}, stdinTTY: true, stderrTTY: true},
 	}
 
 	for _, test := range tests {
@@ -146,22 +148,70 @@ func TestRunAutomaticUpdateSkipsDevelopmentBuildWithoutFetching(t *testing.T) {
 func TestNewerStableVersion(t *testing.T) {
 	for _, test := range []struct {
 		current, latest string
-		want            bool
+		want, wantErr   bool
 	}{
 		{current: "0.1.0", latest: "0.1.1", want: true},
 		{current: "0.9.9", latest: "1.0.0", want: true},
 		{current: "0.2.0", latest: "0.1.9"},
 		{current: "0.1.1", latest: "0.1.1"},
-		{current: "dev", latest: "0.1.1"},
-		{current: "0.1.0", latest: "../../latest"},
+		{current: "dev", latest: "0.1.1", wantErr: true},
+		{current: "0.1.0", latest: "../../latest", wantErr: true},
 	} {
 		t.Run(test.current+"-to-"+test.latest, func(t *testing.T) {
 			got, err := newerStableVersion(test.current, test.latest)
-			if test.current == "dev" || test.latest == "../../latest" {
+			if test.wantErr {
 				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.want, got)
+		})
+	}
+}
+
+type updateTestRoundTripper struct{}
+
+func (updateTestRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("not implemented")
+}
+
+func TestNewUpdateHTTPClientHandlesReplacedDefaultTransport(t *testing.T) {
+	original := http.DefaultTransport
+	http.DefaultTransport = updateTestRoundTripper{}
+	t.Cleanup(func() { http.DefaultTransport = original })
+
+	assert.NotPanics(t, func() {
+		client := newUpdateHTTPClient()
+		_, ok := client.Transport.(*http.Transport)
+		assert.True(t, ok)
+	})
+}
+
+func TestNewUpdateHTTPClientRejectsUntrustedRedirects(t *testing.T) {
+	client := newUpdateHTTPClient()
+	tests := []struct {
+		name    string
+		url     string
+		via     int
+		wantErr bool
+	}{
+		{name: "GitHub HTTPS", url: "https://github.com/oleg-koval/veto", wantErr: false},
+		{name: "off allowlist", url: "https://example.com/release", wantErr: true},
+		{name: "plain HTTP", url: "http://github.com/oleg-koval/veto", wantErr: true},
+		{name: "userinfo", url: "https://user@github.com/oleg-koval/veto", wantErr: true},
+		{name: "three redirects", url: "https://github.com/oleg-koval/veto", via: 3, wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request, err := http.NewRequest(http.MethodGet, test.url, nil)
+			require.NoError(t, err)
+			via := make([]*http.Request, test.via)
+			err = client.CheckRedirect(request, via)
+			if test.wantErr {
+				assert.Error(t, err)
 			} else {
-				require.NoError(t, err)
-				assert.Equal(t, test.want, got)
+				assert.NoError(t, err)
 			}
 		})
 	}

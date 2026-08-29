@@ -148,7 +148,12 @@ func fetchLatestReleaseVersion(ctx context.Context, httpDo func(*http.Request) (
 }
 
 func newUpdateHTTPClient() *http.Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if ok {
+		transport = transport.Clone()
+	} else {
+		transport = &http.Transport{Proxy: http.ProxyFromEnvironment}
+	}
 	if transport.TLSClientConfig == nil {
 		transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	} else {
@@ -249,7 +254,7 @@ func installUpdate(ctx context.Context, version string, deps updateInstallDeps) 
 	if homebrewManagedPath(executablePath) {
 		brew, err := deps.lookPath("brew")
 		if err != nil {
-			return errors.New("Homebrew installation detected, but brew is not on PATH")
+			return errors.New("homebrew installation detected, but brew is not on PATH")
 		}
 		if err := deps.runCommand(ctx, brew, "upgrade", "oleg-koval/tap/veto"); err != nil {
 			return fmt.Errorf("brew upgrade failed: %w", err)

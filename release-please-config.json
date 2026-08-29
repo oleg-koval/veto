@@ -7,7 +7,6 @@
       "changelog-path": "CHANGELOG.md",
       "include-v-in-tag": true,
       "include-component-in-tag": false,
-      "release-name-pattern": "Veto v${version} beta",
       "pull-request-title-pattern": "chore: release v${version}"
     }
   }

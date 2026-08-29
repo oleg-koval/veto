@@ -58,12 +58,13 @@ Veto is currently a public beta. Download the latest archive for your operating 
 Download the matching `SHA256SUMS` file and verify the archive before extracting:
 
 ```bash
-asset=veto_0.1.0_linux_amd64.tar.gz
+version=VERSION # replace VERSION with the latest release number, without "v"
+asset="veto_${version}_linux_amd64.tar.gz"
 awk -v asset="${asset}" '$2 == asset {print}' SHA256SUMS > "${asset}.sha256"
 test -s "${asset}.sha256"
 sha256sum -c "${asset}.sha256"
 tar -xzf "${asset}"
-install -m 0755 veto_0.1.0_linux_amd64/veto ~/.local/bin/veto
+install -m 0755 "veto_${version}_linux_amd64/veto" ~/.local/bin/veto
 veto version
 veto doctor --json
 ```
