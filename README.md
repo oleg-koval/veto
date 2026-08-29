@@ -168,6 +168,19 @@ veto run "extract all TODO comments from the codebase"
 veto route "extract all TODO comments from the codebase" --kind extract
 ```
 
+## Use Veto from coding agents
+
+Compatible coding agents can discover the repository-local
+[`$veto-routing`](.agents/skills/veto-routing/SKILL.md) skill. It teaches agents
+when to use `route`, `run`, `exec`, and acceptance criteria while preserving
+provider privacy, cost, transport, output, and authorization boundaries.
+
+[`AGENTS.md`](AGENTS.md) contains the repository-wide engineering invariants and
+points agents to the skill. Within this checkout, agents with project-skill
+discovery can select it automatically or invoke it explicitly as
+`$veto-routing`. To use the skill from other repositories, copy or install the
+`veto-routing` folder into that agent's user-level skills directory.
+
 ## Commands
 
 | Command | What it does |
