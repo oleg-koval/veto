@@ -9,7 +9,7 @@ Veto is a scriptable model router for developers using multiple AI providers. It
 
 Example routing trace (values depend on the configured providers and their responses):
 
-```
+```console
 $ veto route "refactor the auth middleware to use JWT" --kind refactor --risk medium
 
   Routing: "refactor the auth middleware to use JWT"
@@ -70,7 +70,7 @@ go build ./cmd/veto
 
 No versioned release has been published yet. Use the Go install path above for pre-release testing.
 
-Download the archive for your operating system and CPU from the [GitHub Releases](https://github.com/oleg-koval/veto/releases) page, extract `veto`, and put it on your `PATH` (for example, `~/.local/bin`). Release archives are named `veto_<version>_<os>_<arch>` and include Darwin amd64/arm64, Linux amd64/arm64, and Windows amd64/arm64 builds. Verify the download before installing:
+After a versioned release is published, download the archive for your operating system and CPU from the [GitHub Releases](https://github.com/oleg-koval/veto/releases) page, extract `veto`, and put it on your `PATH` (for example, `~/.local/bin`). Release archives are named `veto_<version>_<os>_<arch>` and include Darwin amd64/arm64, Linux amd64/arm64, and Windows amd64/arm64 builds. Verify the download before installing:
 
 ```bash
 sha256sum -c SHA256SUMS
