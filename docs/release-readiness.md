@@ -17,20 +17,22 @@ go run ./cmd/veto benchmark --corpus internal/eval/testdata/routing_corpus.json 
 python3 -m json.tool /tmp/veto-benchmark.json >/dev/null
 release_dist=$(mktemp -d)
 ./scripts/package-release.sh v0.1.0 "${release_dist}"
+./scripts/render-homebrew-formula.sh v0.1.0 "${release_dist}/SHA256SUMS" "${release_dist}/veto.rb"
 ```
 
 The CI and release workflows run the same gates before artifacts are created.
 The onboarding smoke test is deterministic and does not claim that a human
 completed onboarding. The packaging dry run must produce exactly six platform
 archives, `SHA256SUMS`, and `BINARY_SHA256SUMS`, then validate the native
-artifact's version and offline doctor result.
+artifact's version and offline doctor result. CI also renders the Homebrew
+formula from the archive checksum manifest.
 
 ## One-time release setup
 
 Create a fine-grained GitHub token with read/write access to **Contents** for
 only `oleg-koval/homebrew-tap`, then save it in the Veto repository as the
 Actions secret `HOMEBREW_TAP_TOKEN`. The built-in `GITHUB_TOKEN` publishes the
-Veto release; the separate token is used only for the cross-repository cask
+Veto release; the separate token is used only for the cross-repository formula
 update. When the tap token is missing, the workflow skips Homebrew publication
 without weakening the GitHub release gates.
 
@@ -55,8 +57,8 @@ without weakening the GitHub release gates.
 
 Verified on 2026-08-29 against the published
 [`v0.1.0` beta](https://github.com/oleg-koval/veto/releases/tag/v0.1.0).
-Homebrew publication was skipped because `HOMEBREW_TAP_TOKEN` was not
-configured; no Homebrew availability claim is made.
+The Homebrew formula was backfilled and verified separately after publication.
+Future automatic tap updates still require `HOMEBREW_TAP_TOKEN`.
 
 ## Provider verification
 
@@ -101,5 +103,5 @@ git push origin v0.1.0
 
 Keep the resulting claims separate: verify the GitHub Actions run and eight
 release assets first. If `HOMEBREW_TAP_TOKEN` was configured, separately verify
-the `Casks/veto.rb` update in `homebrew-tap` before claiming that distribution
+the `Formula/veto.rb` update in `homebrew-tap` before claiming that distribution
 path is available.
