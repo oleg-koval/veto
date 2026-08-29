@@ -16,7 +16,7 @@ Notable user-facing changes are documented here. Veto follows
   with explicit safe repair through `--fix`.
 - Six-platform release archives plus archive and extracted-binary SHA-256
   manifests.
-- Versioned Go installation and Homebrew tap publication.
+- Versioned Go installation and optional Homebrew tap publication support.
 
 ### Security
 

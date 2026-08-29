@@ -96,7 +96,7 @@ checksum-verified official release binaries.
 
 ### Homebrew
 
-After the first versioned release:
+After the generated cask has been published to the tap:
 
 ```bash
 brew install --cask oleg-koval/tap/veto
@@ -470,7 +470,7 @@ release_dist=$(mktemp -d)
 ./scripts/package-release.sh v0.1.0 "${release_dist}"  # local release dry run
 ```
 
-The binary embeds the normalized version without the leading `v` (`veto version`). A versioned `go install` resolves the same public version through Go build metadata while remaining honestly labeled as a source build. CI runs on every push and PR to `main`, including a local release-packaging dry run. A release is prepared by tagging `vMAJOR.MINOR.PATCH` and pushing the tag; GitHub Actions then runs the offline gates and the same packaging script used locally before GoReleaser publishes the Homebrew cask and six Darwin/Linux/Windows amd64/arm64 archives plus `SHA256SUMS` and `BINARY_SHA256SUMS`. Every GoReleaser binary is checked against the binary manifest before publication. Nothing is published unless all gates and checksum verification pass.
+The binary embeds the normalized version without the leading `v` (`veto version`). A versioned `go install` resolves the same public version through Go build metadata while remaining honestly labeled as a source build. CI runs on every push and PR to `main`, including a local release-packaging dry run. A release is prepared by tagging `vMAJOR.MINOR.PATCH` and pushing the tag; GitHub Actions then runs the offline gates and the same packaging script used locally before GoReleaser publishes six Darwin/Linux/Windows amd64/arm64 archives plus `SHA256SUMS` and `BINARY_SHA256SUMS`. When `HOMEBREW_TAP_TOKEN` is configured, the same workflow also publishes the Homebrew cask. Every GoReleaser binary is checked against the binary manifest before publication. Nothing is published unless all applicable gates and checksum verification pass.
 
 See [`docs/architecture.md`](docs/architecture.md) for how the routing pipeline works internally.
 See [`docs/release-readiness.md`](docs/release-readiness.md) for the automated gates and the owner-run provider, trial, license, and publish checklist.
