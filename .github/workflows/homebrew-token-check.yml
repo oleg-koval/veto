@@ -1,0 +1,33 @@
+name: Homebrew Token Check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homebrew-token-check
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify tap read/write access
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out Homebrew tap
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: oleg-koval/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Verify write access without changing the tap
+        working-directory: homebrew-tap
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "verify Homebrew tap token"
+          git push --dry-run origin HEAD:refs/heads/veto-token-check
