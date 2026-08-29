@@ -1,0 +1,47 @@
+version: 2
+
+builds:
+  - id: veto
+    main: ./cmd/veto
+    binary: veto
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: veto
+    ids:
+      - veto
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: SHA256SUMS
+
+homebrew_casks:
+  - name: veto
+    ids:
+      - veto
+    repository:
+      owner: oleg-koval
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Casks
+    skip_upload: auto
+    homepage: https://github.com/oleg-koval/veto
+    description: Cost-aware AI model router with structured admission decisions
+    license: Apache-2.0

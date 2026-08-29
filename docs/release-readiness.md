@@ -21,6 +21,24 @@ The CI and release workflows run the same gates before artifacts are created.
 The onboarding smoke test is deterministic and does not claim that a human
 completed onboarding.
 
+Run the packaging dry run for the intended version:
+
+```bash
+make release-check RELEASE_VERSION=0.1.0
+```
+
+This validates the matching [`CHANGELOG.md`](../CHANGELOG.md) section and
+builds every release archive without publishing it.
+
+## One-time release setup
+
+Create a fine-grained GitHub token with read/write access to **Contents** for
+only `oleg-koval/homebrew-tap`, then save it in the Veto repository as the
+Actions secret `HOMEBREW_TAP_TOKEN`. The built-in `GITHUB_TOKEN` publishes the
+Veto release; the separate token is used only for the cross-repository cask
+update. The release workflow fails before building or publishing when the tap
+token is missing.
+
 ## Provider verification
 
 For each provider intended for release, run the account-level check with a
@@ -51,6 +69,28 @@ only if its account-visible model inventory may be shared safely.
 - Confirm the exact provider model IDs and pricing visible to the release
   account. Catalog entries are configuration, not proof of account access or
   current pricing.
-- Tag and publish only after the preceding gates are signed off. The release
-  workflow creates checksummed archives and refuses malformed tags, but it
+- Add the intended version and user-facing notes to `CHANGELOG.md`, then tag and
+  publish only after the preceding gates are signed off. The release workflow
+  publishes those notes, checksummed archives, and the Homebrew cask, but it
   cannot make the owner decisions above.
+
+## Publish and verify
+
+After explicit owner approval:
+
+```bash
+make release RELEASE_VERSION=0.1.0
+git tag -a v0.1.0 -m 'v0.1.0'
+git push origin v0.1.0
+```
+
+Keep the resulting claims separate: verify the GitHub Actions run and release
+assets first, then the `Casks/veto.rb` update in `homebrew-tap`, and finally
+fresh installs through both distribution paths:
+
+```bash
+GOPROXY=https://proxy.golang.org go install github.com/oleg-koval/veto/cmd/veto@v0.1.0
+brew update
+brew install --cask oleg-koval/tap/veto
+veto version
+```

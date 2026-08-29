@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -59,7 +60,7 @@ func main() {
 	case "enable":
 		cmdEnable(os.Args[2:])
 	case "version", "--version", "-v":
-		fmt.Println("veto " + version)
+		fmt.Println("veto " + resolvedVersion())
 	case "install-git-hook":
 		cmdInstallGitHook(os.Args[2:])
 	default:
@@ -417,8 +418,26 @@ func historyPath() string {
 // can safely overwrite our own hook but never someone else's.
 const hookMarker = "installed by veto install-git-hook"
 
-// version is set at build time via -ldflags "-X main.version=<tag>".
+// version is set at build time via -ldflags "-X main.version=<version>".
 var version = "dev"
+
+func resolvedVersion() string {
+	moduleVersion := ""
+	if info, ok := debug.ReadBuildInfo(); ok {
+		moduleVersion = info.Main.Version
+	}
+	return effectiveVersion(version, moduleVersion)
+}
+
+func effectiveVersion(linkedVersion, moduleVersion string) string {
+	if linkedVersion != "" && linkedVersion != "dev" {
+		return strings.TrimPrefix(linkedVersion, "v")
+	}
+	if moduleVersion != "" && moduleVersion != "(devel)" {
+		return strings.TrimPrefix(moduleVersion, "v")
+	}
+	return "dev"
+}
 
 // cmdInstallGitHook writes a prepare-commit-msg hook that runs veto route before each commit.
 func cmdInstallGitHook(args []string) {

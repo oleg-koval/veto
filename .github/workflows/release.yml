@@ -13,12 +13,26 @@ jobs:
     name: Build & Release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Validate release metadata
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$HOMEBREW_TAP_TOKEN" || {
+            echo "HOMEBREW_TAP_TOKEN is required to update oleg-koval/homebrew-tap" >&2
+            exit 1
+          }
+          ./scripts/release-notes.sh "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
 
       # A release must be at least as healthy as a pull request before any
       # artifacts are created or the GitHub Release is published.
@@ -27,67 +41,19 @@ jobs:
           set -euo pipefail
           go test -race -timeout 120s ./...
           go vet ./...
-          go build ./...
+          go build ./cmd/veto
+          go build -o "$RUNNER_TEMP/veto-onboarding" ./cmd/veto
+          VETO_BINARY="$RUNNER_TEMP/veto-onboarding" ./scripts/onboarding-smoke.sh
+          go run ./cmd/veto benchmark \
+            --corpus internal/eval/testdata/routing_corpus.json \
+            > "$RUNNER_TEMP/veto-benchmark.json"
+          python3 -m json.tool "$RUNNER_TEMP/veto-benchmark.json" >/dev/null
 
-      - name: Build archives and checksums
-        env:
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-
-          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "release tag must be vMAJOR.MINOR.PATCH (got $TAG_NAME)" >&2
-            exit 1
-          fi
-
-          VERSION="${TAG_NAME#v}"
-          DIST="$GITHUB_WORKSPACE/dist"
-          STAGE="$(mktemp -d)"
-          trap 'rm -rf "$STAGE"' EXIT
-          mkdir -p "$DIST"
-
-          LDFLAGS="-s -w -X main.version=$VERSION"
-          while IFS=' ' read -r GOOS GOARCH; do
-            ARTIFACT="veto_${VERSION}_${GOOS}_${GOARCH}"
-            ROOT="$STAGE/$ARTIFACT"
-            mkdir -p "$ROOT"
-
-            BINARY="$ROOT/veto"
-            if [[ "$GOOS" == "windows" ]]; then
-              BINARY="$ROOT/veto.exe"
-            fi
-
-            GOOS="$GOOS" GOARCH="$GOARCH" go build \
-              -trimpath -ldflags "$LDFLAGS" -o "$BINARY" ./cmd/veto
-
-            if [[ "$GOOS" == "windows" ]]; then
-              (cd "$STAGE" && zip -q -r "$DIST/$ARTIFACT.zip" "$ARTIFACT")
-            else
-              tar -C "$STAGE" -czf "$DIST/$ARTIFACT.tar.gz" "$ARTIFACT"
-            fi
-          done <<'TARGETS'
-          darwin arm64
-          darwin amd64
-          linux amd64
-          linux arm64
-          windows amd64
-          windows arm64
-          TARGETS
-
-          (cd "$DIST" && sha256sum veto_* > SHA256SUMS)
-
-          # Verify the exact files that will be uploaded and reject an empty
-          # or malformed artifact set before the publish step can run.
-          test "$(find "$DIST" -maxdepth 1 -type f -name 'veto_*' | wc -l)" -eq 6
-          (cd "$DIST" && sha256sum -c SHA256SUMS)
-          grep -q "veto_${VERSION}_linux_arm64.tar.gz" "$DIST/SHA256SUMS"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Build and publish release
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
         with:
-          tag_name: ${{ github.ref_name }}
-          files: |
-            dist/*.tar.gz
-            dist/*.zip
-            dist/SHA256SUMS
-          generate_release_notes: true
+          version: "~> v2"
+          args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

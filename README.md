@@ -58,12 +58,22 @@ Go 1.26.4 or newer is required:
 go install github.com/oleg-koval/veto/cmd/veto@latest
 ```
 
+Tagged versions are standard Go module releases, so a specific version can be
+installed with `@vMAJOR.MINOR.PATCH`. There is no separate Go registry upload;
+the Go proxy discovers the pushed semantic-version tag.
+
 Or clone and build:
 
 ```bash
 git clone https://github.com/oleg-koval/veto
 cd veto
 go build ./cmd/veto
+```
+
+### Homebrew (after the first versioned release)
+
+```bash
+brew install --cask oleg-koval/tap/veto
 ```
 
 ### Release binary
@@ -82,7 +92,10 @@ On macOS, use `shasum -a 256 -c SHA256SUMS` when `sha256sum` is unavailable.
 
 ### Upgrade and uninstall
 
-To upgrade a release install, download and verify the newer archive, then replace the binary in the same `PATH` directory. Your provider credentials, local-model definitions, skills, plans, checkpoints, and logs under `~/.veto/` are retained.
+To upgrade a Homebrew install, run `brew upgrade --cask veto`. For a manual
+release install, download and verify the newer archive, then replace the binary
+in the same `PATH` directory. Your provider credentials, local-model
+definitions, skills, plans, checkpoints, and logs under `~/.veto/` are retained.
 
 To uninstall, remove only the binary first (`rm "$(command -v veto)"`). To also remove veto's local state, back up anything you need and then remove `~/.veto/`; this deletes stored credentials, models, skills, plans, checkpoints, and logs.
 
@@ -422,10 +435,18 @@ Subscription mode takes precedence over API key when both are configured. Claude
 make test     # go test -race -timeout 120s ./...
 make build    # build with version injected from git tag (or "dev")
 make lint     # go vet ./...
-make release  # run tests, then print tagging instructions
+make release RELEASE_VERSION=0.1.0  # validate a complete release locally
 ```
 
-The binary embeds the normalized version without the leading `v` (`veto version`). CI runs on every push and PR to `main`. A release is prepared by tagging `vMAJOR.MINOR.PATCH` and pushing the tag; GitHub Actions then runs race tests, vet, and a build before creating archives for Darwin/Linux/Windows amd64 and arm64. It publishes `SHA256SUMS` alongside the archives. Nothing is published unless all gates and checksum verification pass.
+The binary reports the normalized version without the leading `v` (`veto
+version`), including binaries installed with `go install ...@version`. CI runs
+on every push and PR to `main`. A release is prepared by adding its section to
+[`CHANGELOG.md`](CHANGELOG.md), tagging `vMAJOR.MINOR.PATCH`, and pushing the
+tag. GitHub Actions runs the full offline gates, then GoReleaser publishes the
+curated release notes, Darwin/Linux/Windows amd64 and arm64 archives,
+`SHA256SUMS`, and an updated cask in
+[`oleg-koval/homebrew-tap`](https://github.com/oleg-koval/homebrew-tap).
+Nothing is published unless the gates and release metadata pass.
 
 See [`docs/architecture.md`](docs/architecture.md) for how the routing pipeline works internally.
 See [`docs/release-readiness.md`](docs/release-readiness.md) for the automated gates and the owner-run provider, trial, license, and publish checklist.

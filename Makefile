@@ -3,7 +3,7 @@ CMD     := ./cmd/veto
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 
-.PHONY: build install test lint clean release benchmark
+.PHONY: build install test lint clean release release-check benchmark
 
 build:
 	go build $(LDFLAGS) -o $(BIN) $(CMD)
@@ -23,5 +23,13 @@ lint:
 clean:
 	rm -f $(BIN)
 
-release: test
-	@echo "Tag with: git tag v<version> && git push origin v<version>"
+release-check: test lint
+	@test -n "$(RELEASE_VERSION)" || { echo "RELEASE_VERSION is required (for example, 0.1.0)" >&2; exit 1; }
+	@./scripts/release-notes.sh "v$(RELEASE_VERSION)" >/dev/null
+	goreleaser check
+	goreleaser release --snapshot --clean
+
+release: release-check
+	@echo "Ready to tag after owner approval:"
+	@echo "  git tag -a v$(RELEASE_VERSION) -m 'v$(RELEASE_VERSION)'"
+	@echo "  git push origin v$(RELEASE_VERSION)"
