@@ -41,6 +41,7 @@ homebrew_casks:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Casks
+    skip_upload: auto
     homepage: https://github.com/oleg-koval/veto
     description: Cost-aware AI model router with structured admission decisions
     license: Apache-2.0
