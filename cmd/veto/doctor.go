@@ -59,14 +59,11 @@ type doctorOptions struct {
 type doctorFilesystem interface {
 	Lstat(string) (os.FileInfo, error)
 	Stat(string) (os.FileInfo, error)
-	ReadFile(string) ([]byte, error)
 	ReadDir(string) ([]os.DirEntry, error)
 	MkdirAll(string, os.FileMode) error
 	Chmod(string, os.FileMode) error
-	EvalSymlinks(string) (string, error)
 	CreateTemp(string, string) (*os.File, error)
 	Open(string) (*os.File, error)
-	Rename(string, string) error
 	Remove(string) error
 }
 
@@ -74,7 +71,6 @@ type osDoctorFilesystem struct{}
 
 func (osDoctorFilesystem) Lstat(path string) (os.FileInfo, error) { return os.Lstat(path) }
 func (osDoctorFilesystem) Stat(path string) (os.FileInfo, error)  { return os.Stat(path) }
-func (osDoctorFilesystem) ReadFile(path string) ([]byte, error)   { return os.ReadFile(path) }
 func (osDoctorFilesystem) ReadDir(path string) ([]os.DirEntry, error) {
 	return os.ReadDir(path)
 }
@@ -82,23 +78,18 @@ func (osDoctorFilesystem) MkdirAll(path string, mode os.FileMode) error {
 	return os.MkdirAll(path, mode)
 }
 func (osDoctorFilesystem) Chmod(path string, mode os.FileMode) error { return os.Chmod(path, mode) }
-func (osDoctorFilesystem) EvalSymlinks(path string) (string, error) {
-	return filepath.EvalSymlinks(path)
-}
 func (osDoctorFilesystem) CreateTemp(dir, pattern string) (*os.File, error) {
 	return os.CreateTemp(dir, pattern)
 }
 func (osDoctorFilesystem) Open(path string) (*os.File, error) { return os.Open(path) }
-func (osDoctorFilesystem) Rename(oldPath, newPath string) error {
-	return os.Rename(oldPath, newPath)
-}
-func (osDoctorFilesystem) Remove(path string) error { return os.Remove(path) }
+func (osDoctorFilesystem) Remove(path string) error           { return os.Remove(path) }
 
 type doctorDeps struct {
 	fs                doctorFilesystem
 	userHome          func() (string, error)
 	executable        func() (string, error)
 	pathEnv           func() string
+	getenv            func(string) string
 	lookPath          func(string) (string, error)
 	readBuildInfo     func() (*debug.BuildInfo, bool)
 	linkerVersion     string
@@ -115,6 +106,7 @@ func defaultDoctorDeps() doctorDeps {
 		userHome:          os.UserHomeDir,
 		executable:        os.Executable,
 		pathEnv:           func() string { return os.Getenv("PATH") },
+		getenv:            os.Getenv,
 		lookPath:          exec.LookPath,
 		readBuildInfo:     debug.ReadBuildInfo,
 		linkerVersion:     version,
@@ -235,7 +227,7 @@ func checkDoctorExecutable(deps doctorDeps) doctorCheck {
 	if info.Mode()&os.ModeSymlink != 0 {
 		return doctorCheck{ID: "install.executable", Status: doctorWarn, Message: "running executable is a symlink; automatic replacement is disabled"}
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+	if !info.Mode().IsRegular() || (deps.goos != "windows" && info.Mode().Perm()&0111 == 0) {
 		return doctorCheck{ID: "install.executable", Status: doctorFail, Message: "running executable is not a regular executable file"}
 	}
 	return doctorCheck{ID: "install.executable", Status: doctorPass, Message: "running executable is a regular file"}
@@ -448,7 +440,8 @@ func inspectDoctorStateEntry(path string, info os.FileInfo, inspection *doctorSt
 	if info.IsDir() {
 		want = 0700
 	}
-	if info.Mode().Perm() != want {
+	unsafeSpecialBits := info.Mode() & (os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
+	if info.Mode().Perm() != want || unsafeSpecialBits != 0 {
 		inspection.badPermissions = append(inspection.badPermissions, doctorStateEntry{path: path, mode: want})
 	}
 }
@@ -628,6 +621,9 @@ func doctorPathHasSymlink(path string, filesystem doctorFilesystem) bool {
 
 func checkDoctorDependencies(root string, models []LocalModel, modelsErr error, deps doctorDeps) doctorCheck {
 	required := make(map[string]bool)
+	if deps.getenv("CLAUDE_SUBSCRIPTION") == "true" {
+		required["claude"] = true
+	}
 	credentialsPath := filepath.Join(root, "credentials.json")
 	if info, err := deps.fs.Lstat(credentialsPath); err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
 		data, readErr := readDoctorFileLimited(deps.fs, credentialsPath, doctorStateFileMaxBytes)
@@ -638,8 +634,7 @@ func checkDoctorDependencies(root string, models []LocalModel, modelsErr error, 
 	}
 	if modelsErr == nil {
 		for _, model := range models {
-			parsed, _ := url.Parse(model.Endpoint)
-			if strings.HasPrefix(model.Name, "ollama-") || (parsed != nil && parsed.Port() == "11434") {
+			if doctorModelNeedsOllama(model) {
 				required["ollama"] = true
 			}
 		}
@@ -655,6 +650,18 @@ func checkDoctorDependencies(root string, models []LocalModel, modelsErr error, 
 		return doctorCheck{ID: "dependencies.cli", Status: doctorFail, Message: fmt.Sprintf("%d configured CLI dependenc%s missing from PATH", len(missing), pluralY(len(missing)))}
 	}
 	return doctorCheck{ID: "dependencies.cli", Status: doctorPass, Message: fmt.Sprintf("%d configured CLI dependenc%s available", len(required), pluralY(len(required)))}
+}
+
+func doctorModelNeedsOllama(model LocalModel) bool {
+	if strings.HasPrefix(model.Name, "ollama-") {
+		return true
+	}
+	parsed, err := url.Parse(model.Endpoint)
+	if err != nil || parsed.Port() != "11434" {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return host == "localhost" || host == "127.0.0.1"
 }
 
 func pluralY(count int) string {

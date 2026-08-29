@@ -59,7 +59,9 @@ Download the matching `SHA256SUMS` file and verify the archive before extracting
 
 ```bash
 asset=veto_0.1.0_linux_amd64.tar.gz
-grep "  ${asset}$" SHA256SUMS | sha256sum -c -
+awk -v asset="${asset}" '$2 == asset {print}' SHA256SUMS > "${asset}.sha256"
+test -s "${asset}.sha256"
+sha256sum -c "${asset}.sha256"
 tar -xzf "${asset}"
 install -m 0755 veto_0.1.0_linux_amd64/veto ~/.local/bin/veto
 veto version

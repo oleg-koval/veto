@@ -51,7 +51,7 @@ func TestDoctorOfflineHealthyState(t *testing.T) {
 func TestDoctorFixesSafePermissionsWithoutRewritingJSON(t *testing.T) {
 	home := t.TempDir()
 	root := filepath.Join(home, ".veto")
-	require.NoError(t, os.Mkdir(root, 0755))
+	require.NoError(t, os.Mkdir(root, os.ModeSticky|0755))
 	configPath := filepath.Join(root, "config.json")
 	writeDoctorTestFile(t, configPath, `{}`)
 	require.NoError(t, os.Chmod(configPath, 0644))
@@ -188,6 +188,7 @@ func newDoctorTestDeps(home, executable string) doctorDeps {
 	deps.userHome = func() (string, error) { return home, nil }
 	deps.executable = func() (string, error) { return executable, nil }
 	deps.pathEnv = func() string { return filepath.Dir(executable) }
+	deps.getenv = func(string) string { return "" }
 	deps.linkerVersion = "dev"
 	deps.buildProvenance = "source"
 	deps.readBuildInfo = func() (*debug.BuildInfo, bool) { return nil, false }
@@ -220,6 +221,29 @@ func TestDoctorMessagesDoNotContainCredentialKeysOrValues(t *testing.T) {
 	joined := strings.Join(messages, " ")
 	assert.NotContains(t, joined, "sk-secret-value")
 	assert.NotContains(t, joined, "OPENAI_API_KEY")
+}
+
+func TestDoctorChecksEnvironmentConfiguredCLIDependencies(t *testing.T) {
+	home := t.TempDir()
+	executable := writeDoctorTestExecutable(t, t.TempDir(), "veto")
+	deps := newDoctorTestDeps(home, executable)
+	deps.getenv = func(name string) string {
+		if name == "CLAUDE_SUBSCRIPTION" {
+			return "true"
+		}
+		return ""
+	}
+	deps.lookPath = func(string) (string, error) { return "", os.ErrNotExist }
+
+	report := runDoctor(doctorOptions{offline: true}, deps)
+	assert.False(t, report.OK)
+	assertDoctorCheck(t, report, "dependencies.cli", doctorFail)
+}
+
+func TestDoctorOnlyRequiresOllamaForLocalOllamaEndpoints(t *testing.T) {
+	assert.True(t, doctorModelNeedsOllama(LocalModel{Name: "custom", Endpoint: "http://localhost:11434/v1/chat/completions"}))
+	assert.True(t, doctorModelNeedsOllama(LocalModel{Name: "ollama-custom", Endpoint: "https://models.example/v1"}))
+	assert.False(t, doctorModelNeedsOllama(LocalModel{Name: "custom", Endpoint: "https://models.example:11434/v1"}))
 }
 
 func TestDoctorProcess(t *testing.T) {

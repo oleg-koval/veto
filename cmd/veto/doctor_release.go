@@ -247,6 +247,11 @@ func repairDoctorExecutable(ctx context.Context, deps doctorDeps, executablePath
 	if sha256.Sum256(candidate) != binaryChecksum {
 		return "", errors.New("archive binary checksum mismatch")
 	}
+	currentInfo, err := deps.fs.Lstat(executablePath)
+	if err != nil || currentInfo.Mode()&os.ModeSymlink != 0 || !currentInfo.Mode().IsRegular() {
+		return "", errors.New("executable changed while the replacement was downloaded")
+	}
+	currentMode := currentInfo.Mode().Perm()
 
 	dir := filepath.Dir(executablePath)
 	tempFile, err := deps.fs.CreateTemp(dir, ".veto-candidate-*")
@@ -261,7 +266,7 @@ func repairDoctorExecutable(ctx context.Context, deps doctorDeps, executablePath
 			_ = deps.fs.Remove(tempPath)
 		}
 	}()
-	if err := tempFile.Chmod(0755); err != nil {
+	if err := tempFile.Chmod(currentMode); err != nil {
 		return "", errors.New("cannot set replacement permissions")
 	}
 	if _, err := tempFile.Write(candidate); err != nil {
@@ -277,21 +282,13 @@ func repairDoctorExecutable(ctx context.Context, deps doctorDeps, executablePath
 		return "", errors.New("replacement binary reports the wrong version")
 	}
 	if deps.goos == "windows" {
-		stagedPath := executablePath + ".v" + version + ".new"
-		if _, err := deps.fs.Lstat(stagedPath); err == nil {
-			return "", errors.New("verified Windows staging path already exists")
-		}
-		if err := deps.fs.Rename(tempPath, stagedPath); err != nil {
-			return "", errors.New("cannot preserve verified Windows replacement")
-		}
 		keepTemp = true
-		return stagedPath, nil
+		return tempPath, nil
 	}
-	currentInfo, err := deps.fs.Lstat(executablePath)
-	if err != nil {
-		return "", errors.New("cannot re-inspect executable before replacement")
+	if allowed, _ := doctorReplacementAllowed(executablePath, deps.fs); !allowed {
+		return "", errors.New("executable became unsafe to replace while downloading")
 	}
-	if err := atomicReplaceDoctorExecutable(executablePath, tempPath, original, currentInfo.Mode().Perm(), defaultDoctorReplaceOps()); err != nil {
+	if err := atomicReplaceDoctorExecutable(executablePath, tempPath, original, currentMode, defaultDoctorReplaceOps()); err != nil {
 		return "", fmt.Errorf("atomic executable replacement failed: %w", err)
 	}
 	keepTemp = true
@@ -339,7 +336,7 @@ func extractDoctorTarEntries(reader *tar.Reader, expectedMember string) ([]byte,
 		if header.Typeflag == tar.TypeDir && name == expectedDir {
 			continue
 		}
-		if header.Typeflag != tar.TypeReg || name != expectedMember || candidate != nil {
+		if (header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA) || name != expectedMember || candidate != nil {
 			return nil, errors.New("archive contains unexpected or non-regular content")
 		}
 		if header.Size <= 0 || header.Size > doctorBinaryMaxBytes {
@@ -371,7 +368,7 @@ func extractDoctorZip(archive []byte, expectedMember string) ([]byte, error) {
 		if file.FileInfo().IsDir() && name == expectedDir {
 			continue
 		}
-		if file.FileInfo().IsDir() || name != expectedMember || candidate != nil || file.UncompressedSize64 == 0 || file.UncompressedSize64 > doctorBinaryMaxBytes {
+		if !file.Mode().IsRegular() || name != expectedMember || candidate != nil || file.UncompressedSize64 == 0 || file.UncompressedSize64 > doctorBinaryMaxBytes {
 			return nil, errors.New("archive contains unexpected content")
 		}
 		entry, err := file.Open()
@@ -409,9 +406,18 @@ func doctorReplacementAllowed(executablePath string, filesystem doctorFilesystem
 	if owned, supported := doctorFileOwnedByCurrentUser(info); supported && !owned {
 		return false, "executable is owned by another user"
 	}
+	if doctorStatePermissionsSupported() && info.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
+		return false, "executable has special permission bits"
+	}
 	dirInfo, err := filesystem.Stat(filepath.Dir(executablePath))
 	if err != nil || !dirInfo.IsDir() || dirInfo.Mode().Perm()&0200 == 0 {
 		return false, "executable directory is not writable"
+	}
+	if doctorStatePermissionsSupported() && dirInfo.Mode().Perm()&0022 != 0 {
+		return false, "executable directory is writable by another user or group"
+	}
+	if doctorStatePermissionsSupported() && dirInfo.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
+		return false, "executable directory has special permission bits"
 	}
 	if owned, supported := doctorFileOwnedByCurrentUser(dirInfo); supported && !owned {
 		return false, "executable directory is owned by another user"
@@ -421,19 +427,28 @@ func doctorReplacementAllowed(executablePath string, filesystem doctorFilesystem
 
 func doctorPackageManagedPath(executablePath string) bool {
 	clean := strings.ToLower(filepath.ToSlash(filepath.Clean(executablePath)))
+	clean = strings.ReplaceAll(clean, "\\", "/")
 	prefixes := []string{
+		"/bin/",
+		"/sbin/",
 		"/opt/homebrew/",
+		"/opt/local/",
 		"/home/linuxbrew/.linuxbrew/",
+		"/usr/bin/",
+		"/usr/sbin/",
 		"/usr/local/homebrew/",
 		"/nix/store/",
 		"/snap/",
+		"c:/program files/",
+		"c:/program files (x86)/",
+		"c:/programdata/chocolatey/",
 	}
 	for _, prefix := range prefixes {
 		if strings.HasPrefix(clean, prefix) {
 			return true
 		}
 	}
-	return strings.Contains(clean, "/cellar/")
+	return strings.Contains(clean, "/cellar/") || strings.Contains(clean, "/scoop/apps/")
 }
 
 func validateDoctorCandidateVersion(candidatePath, wantVersion string) error {

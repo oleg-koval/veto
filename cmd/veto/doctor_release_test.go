@@ -79,6 +79,27 @@ func TestDoctorFixReinstallsChecksumValidSameVersionArchive(t *testing.T) {
 	assert.Equal(t, candidate, got)
 }
 
+func TestDoctorFixPreservesExecutablePermissions(t *testing.T) {
+	home := t.TempDir()
+	current := writeDoctorTestExecutable(t, t.TempDir(), "veto")
+	require.NoError(t, os.Chmod(current, 0700))
+	candidate := []byte("veto 0.1.0 candidate")
+	archiveName := "veto_0.1.0_darwin_arm64.tar.gz"
+	member := "veto_0.1.0_darwin_arm64/veto"
+	archive := doctorTestTarArchive(t, member, candidate, tar.TypeReg)
+	deps := newOfficialDoctorTestDeps(home, current, map[string][]byte{
+		"BINARY_SHA256SUMS": []byte(fmt.Sprintf("%x  %s\n", sha256.Sum256(candidate), member)),
+		"SHA256SUMS":        []byte(fmt.Sprintf("%x  %s\n", sha256.Sum256(archive), archiveName)),
+		archiveName:         archive,
+	})
+
+	report := runDoctor(doctorOptions{fix: true}, deps)
+	assert.True(t, report.OK, report.Checks)
+	info, err := os.Stat(current)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0700), info.Mode().Perm())
+}
+
 func TestDoctorFixRejectsHostileOrChecksumInvalidArchives(t *testing.T) {
 	candidate := []byte("#!/bin/sh\necho 'veto 0.1.0'\n")
 	archiveName := "veto_0.1.0_darwin_arm64.tar.gz"
@@ -158,8 +179,10 @@ func TestDoctorFixStagesWindowsReplacementAndLeavesFailureUnresolved(t *testing.
 	check := findDoctorCheck(t, report, "release.integrity")
 	assert.Equal(t, doctorFail, check.Status)
 	assert.Contains(t, check.Message, "close veto and replace")
-	staged := current + ".v0.1.0.new"
-	got, err := os.ReadFile(staged)
+	staged, err := filepath.Glob(filepath.Join(filepath.Dir(current), ".veto-candidate-*"))
+	require.NoError(t, err)
+	require.Len(t, staged, 1)
+	got, err := os.ReadFile(staged[0])
 	require.NoError(t, err)
 	assert.Equal(t, candidate, got)
 }
@@ -257,6 +280,8 @@ func TestDoctorReplacementRollsBackAfterPostRenameFailure(t *testing.T) {
 func TestDoctorRefusesManagedAndUnwritableReplacementTargets(t *testing.T) {
 	assert.True(t, doctorPackageManagedPath("/opt/homebrew/bin/veto"))
 	assert.True(t, doctorPackageManagedPath("/usr/local/Cellar/veto/0.1.0/bin/veto"))
+	assert.True(t, doctorPackageManagedPath(`C:\Users\test\scoop\apps\veto\current\veto.exe`))
+	assert.True(t, doctorPackageManagedPath(`C:\ProgramData\chocolatey\bin\veto.exe`))
 	assert.False(t, doctorPackageManagedPath("/Users/test/.local/bin/veto"))
 
 	dir := t.TempDir()
@@ -265,6 +290,14 @@ func TestDoctorRefusesManagedAndUnwritableReplacementTargets(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(dir, 0700) })
 	allowed, _ := doctorReplacementAllowed(current, osDoctorFilesystem{})
 	assert.False(t, allowed)
+	require.NoError(t, os.Chmod(dir, 0722))
+	allowed, _ = doctorReplacementAllowed(current, osDoctorFilesystem{})
+	assert.False(t, allowed)
+	if doctorStatePermissionsSupported() {
+		require.NoError(t, os.Chmod(dir, os.ModeSticky|0700))
+		allowed, _ = doctorReplacementAllowed(current, osDoctorFilesystem{})
+		assert.False(t, allowed)
+	}
 }
 
 func newOfficialDoctorTestDeps(home, current string, assets map[string][]byte) doctorDeps {
