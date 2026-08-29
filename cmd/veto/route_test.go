@@ -84,7 +84,9 @@ func TestPrintRouteJSONSuccess(t *testing.T) {
 
 func TestPrintRouteJSONError(t *testing.T) {
 	var out bytes.Buffer
-	printRouteJSONError(&out, "no_candidate", "review", "high", "complex")
+	printRouteJSONError(&out, "no_candidate", "review", "high", "complex", []routeJSONProviderError{
+		{Model: "sol", Detail: "openai api: unsupported parameter"},
+	})
 
 	var got routeJSONError
 	require.NoError(t, json.Unmarshal(out.Bytes(), &got))
@@ -93,6 +95,9 @@ func TestPrintRouteJSONError(t *testing.T) {
 		Kind:       "review",
 		Risk:       "high",
 		Complexity: "complex",
+		ProviderErrors: []routeJSONProviderError{
+			{Model: "sol", Detail: "openai api: unsupported parameter"},
+		},
 	}, got)
 	assert.Equal(t, byte('\n'), out.Bytes()[out.Len()-1])
 }

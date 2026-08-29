@@ -181,6 +181,78 @@ func TestOpenAIExecutor_Success(t *testing.T) {
 	assert.Equal(t, "gpt says hi", res.Output)
 }
 
+func TestOpenAIExecutor_GPT56UsesResponsesAPI(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "Bearer sk-openai", r.Header.Get("Authorization"))
+
+		var req map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		assert.Equal(t, "gpt-5.6-sol", req["model"])
+		assert.Equal(t, "admit this task", req["input"])
+		assert.Equal(t, float64(admissionMaxTokens), req["max_output_tokens"])
+		assert.Equal(t, false, req["store"])
+		assert.Equal(t, map[string]any{"effort": "none"}, req["reasoning"])
+		assert.NotContains(t, req, "messages")
+		assert.NotContains(t, req, "max_tokens")
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "completed",
+			"output": []any{map[string]any{
+				"type": "message",
+				"content": []any{map[string]any{
+					"type": "output_text",
+					"text": "{\"accept\":true,\"confidence\":0.9,\"reason_codes\":[]}",
+				}},
+			}},
+			"usage": map[string]any{
+				"input_tokens":  21,
+				"output_tokens": 17,
+				"total_tokens":  38,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	exec := NewOpenAIExecutor("sk-openai", "gpt-5.6-sol")
+	assert.Equal(t, "https://api.openai.com/v1/responses", exec.endpoint)
+	exec.endpoint = srv.URL
+	exec.client = srv.Client()
+
+	res := exec.Run(t.Context(), "admit this task")
+	require.NoError(t, res.Error)
+	assert.Contains(t, res.Output, `"accept":true`)
+	assert.Equal(t, Usage{InputTokens: 21, OutputTokens: 17, TotalTokens: 38, Known: true}, res.Usage)
+}
+
+func TestOpenAIExecutor_GPT56ReportsIncompleteOutput(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		assert.Equal(t, map[string]any{"effort": "medium"}, req["reasoning"])
+		assert.Equal(t, float64(2048), req["max_output_tokens"])
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":             "incomplete",
+			"incomplete_details": map[string]any{"reason": "max_output_tokens"},
+			"output": []any{map[string]any{
+				"type":    "message",
+				"content": []any{map[string]any{"type": "output_text", "text": "partial"}},
+			}},
+		})
+	}))
+	defer srv.Close()
+
+	exec := NewOpenAIExecutor("sk-openai", "gpt-5.6-terra")
+	exec.endpoint = srv.URL
+	exec.client = srv.Client()
+
+	res := exec.Execute(t.Context(), "task", ExecutionOptions{MaxOutputTokens: 2048})
+	require.NoError(t, res.Error)
+	assert.Equal(t, "partial", res.Output)
+	assert.True(t, res.Truncated)
+	assert.Equal(t, "max_output_tokens", res.FinishReason)
+}
+
 func TestOpenAIExecutor_ExecuteUsesRequestedOutputLimitAndMetadata(t *testing.T) {
 	const requested = 4096
 	const output = "a long task result"
@@ -253,9 +325,7 @@ func TestOpenAIExecutor_APIError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		resp := openAIResponse{
-			Error: &struct {
-				Message string `json:"message"`
-			}{Message: "invalid request payload"},
+			Error: &openAIError{Message: "invalid request payload"},
 		}
 		json.NewEncoder(w).Encode(resp)
 	}))

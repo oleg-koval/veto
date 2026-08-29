@@ -87,6 +87,32 @@ func TestManager_Route_NoCandidateError(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNoCandidate)
 }
 
+func TestManager_Route_TransportErrorsDoNotExhaustAdmissionLimit(t *testing.T) {
+	models := []ModelCapabilities{
+		{Name: "broken-1", Provider: "one", Tier: tierMid, MaxContextTokens: 10_000, CostPer1kInputUSD: 0.001},
+		{Name: "broken-2", Provider: "two", Tier: tierMid, MaxContextTokens: 10_000, CostPer1kInputUSD: 0.002},
+		{Name: "broken-3", Provider: "three", Tier: tierMid, MaxContextTokens: 10_000, CostPer1kInputUSD: 0.003},
+		{Name: "healthy", Provider: "four", Tier: tierMid, MaxContextTokens: 10_000, CostPer1kInputUSD: 0.004},
+	}
+	calls := 0
+	exec := &mocks.ExecutorMock{
+		RunFunc: func(_ context.Context, _ string) executor.Result {
+			calls++
+			if calls <= 3 {
+				return executor.Result{Error: errors.New("transport unavailable")}
+			}
+			return executor.Result{Output: acceptJSON()}
+		},
+	}
+	mgr := NewManager(NewRegistryFromModels(models), NewAdmissionGate(exec), NewMemoryStore())
+
+	model, decision, err := mgr.Route(t.Context(), TaskSpec{ID: "fallback", Kind: KindPlan})
+	require.NoError(t, err)
+	assert.Equal(t, "healthy", model.Name)
+	assert.True(t, decision.Accept)
+	assert.Equal(t, 4, calls)
+}
+
 func TestManager_Route_ExecErrorIsSkipped(t *testing.T) {
 	n := 0
 	exec := &mocks.ExecutorMock{

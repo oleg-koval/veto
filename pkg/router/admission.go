@@ -30,17 +30,26 @@ type ExecutorFactory interface {
 // The model must respond with JSON only — any other format is treated as rejection.
 type AdmissionGate struct {
 	factory ExecutorFactory
+	timeout time.Duration
 }
 
 // NewAdmissionGate creates a gate using the same executor for all models.
 // ponytail: single-executor path for tests and single-provider setups.
 func NewAdmissionGate(exec Executor) *AdmissionGate {
-	return &AdmissionGate{factory: singleFactory{exec: exec}}
+	return &AdmissionGate{factory: singleFactory{exec: exec}, timeout: admissionModelTimeout}
 }
 
 // NewAdmissionGateWithFactory creates a gate that selects executors per model name.
 func NewAdmissionGateWithFactory(factory ExecutorFactory) *AdmissionGate {
-	return &AdmissionGate{factory: factory}
+	return &AdmissionGate{factory: factory, timeout: admissionModelTimeout}
+}
+
+// SetTimeout changes the per-model admission deadline. Non-positive values
+// retain the default deadline.
+func (g *AdmissionGate) SetTimeout(timeout time.Duration) {
+	if timeout > 0 {
+		g.timeout = timeout
+	}
 }
 
 type singleFactory struct{ exec Executor }
@@ -57,7 +66,11 @@ func (g *AdmissionGate) Ask(ctx context.Context, task TaskSpec, model ModelCapab
 			fmt.Errorf("no executor registered for model %q", model.Name)
 	}
 	// per-model cap: a hung model shouldn't block routing indefinitely
-	mCtx, cancel := context.WithTimeout(ctx, admissionModelTimeout)
+	timeout := g.timeout
+	if timeout <= 0 {
+		timeout = admissionModelTimeout
+	}
+	mCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	// use the executor's actual tool list, not the model's theoretical capability.
