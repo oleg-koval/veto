@@ -1,11 +1,16 @@
 # veto
 
-**Model router with self-admitting receivers.**
+[![Build & Test](https://github.com/oleg-koval/veto/actions/workflows/ci.yml/badge.svg)](https://github.com/oleg-koval/veto/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 
-Instead of guessing which AI model to use, veto asks each candidate model whether it *wants* the task. Models respond with structured JSON — accept/reject, confidence score, estimated cost, and a reason if they decline. The first model that accepts wins.
+**Stop hardcoding which AI model gets every task.**
+
+Veto is a scriptable model router for developers using multiple AI providers. It filters candidates by tool access, context, task complexity, and estimated cost, then asks the remaining models for a structured accept/reject decision. The first model to accept with at least 70% confidence is selected.
+
+Example routing trace (values depend on the configured providers and their responses):
 
 ```
-$ veto route --task "refactor the auth middleware to use JWT" --kind refactor --risk medium
+$ veto route "refactor the auth middleware to use JWT" --kind refactor --risk medium
 
   Routing: "refactor the auth middleware to use JWT"
   kind: refactor  ·  risk: medium  ·  complexity: simple
@@ -24,13 +29,19 @@ $ veto route --task "refactor the auth middleware to use JWT" --kind refactor --
   → Selected: sonnet (mid tier)
 ```
 
+```bash
+go install github.com/oleg-koval/veto/cmd/veto@latest
+veto login
+veto route --json "summarize this pull request"
+```
+
 ## Why veto exists
 
-Every AI-assisted workflow faces the same problem: you have multiple models at different price/capability points, and picking the wrong one wastes money or produces bad output. The common solutions — hardcoded rules, manual selection, or routing by keyword — all break down as soon as the task gets subtle.
+As model rosters multiply, every multi-model workflow faces the same decision: which model should get this task? Hardcoded rules, manual selection, and keyword routing miss context that matters, while sending everything to the largest model wastes capacity and money.
 
-veto takes a different approach: **let the models decide**. Each candidate is sent the task spec and asked to self-assess. A model that knows it's weak at planning will say so. A model that sees its cost ceiling exceeded will reject. The router only needs to filter obviously impossible candidates (wrong tools, context too large) and rank the rest — the models handle the nuanced judgment.
+Veto combines deterministic filters and ranking with model self-assessment. Each surviving candidate receives the task spec and returns structured admission data: accept/reject, confidence, estimated tokens and cost, and rejection reasons. Veto records the decision trail and can emit it as JSON for scripts and agent infrastructure.
 
-The result: you get the cheapest model that's genuinely confident it can do the work, with machine-readable rejection reasons when nothing fits.
+Candidates are ranked cheapest-viable-first, but self-reported confidence and cost are estimates rather than guarantees. Use the offline benchmark to inspect routing mechanics and real-provider trials to evaluate quality for your own workloads.
 
 ## License
 
@@ -39,19 +50,7 @@ file for the permissions, conditions, and disclaimer.
 
 ## Install
 
-### Release binary (recommended)
-
-Download the archive for your operating system and CPU from the [GitHub Releases](https://github.com/oleg-koval/veto/releases) page, extract `veto`, and put it on your `PATH` (for example, `~/.local/bin`). Release archives are named `veto_<version>_<os>_<arch>` and include Darwin amd64/arm64, Linux amd64/arm64, and Windows amd64/arm64 builds. Verify the download before installing:
-
-```bash
-sha256sum -c SHA256SUMS
-install -m 0755 veto ~/.local/bin/veto
-veto version
-```
-
-On macOS, use `shasum -a 256 -c SHA256SUMS` when `sha256sum` is unavailable.
-
-### Build with Go
+### Build with Go (available now)
 
 Go 1.26.4 or newer is required:
 
@@ -66,6 +65,20 @@ git clone https://github.com/oleg-koval/veto
 cd veto
 go build ./cmd/veto
 ```
+
+### Release binary
+
+No versioned release has been published yet. Use the Go install path above for pre-release testing.
+
+Download the archive for your operating system and CPU from the [GitHub Releases](https://github.com/oleg-koval/veto/releases) page, extract `veto`, and put it on your `PATH` (for example, `~/.local/bin`). Release archives are named `veto_<version>_<os>_<arch>` and include Darwin amd64/arm64, Linux amd64/arm64, and Windows amd64/arm64 builds. Verify the download before installing:
+
+```bash
+sha256sum -c SHA256SUMS
+install -m 0755 veto ~/.local/bin/veto
+veto version
+```
+
+On macOS, use `shasum -a 256 -c SHA256SUMS` when `sha256sum` is unavailable.
 
 ### Upgrade and uninstall
 
@@ -117,7 +130,7 @@ export CLAUDE_SUBSCRIPTION=true
 veto providers
 ```
 
-(After adding XAI support, `veto providers` will also show Grok status when `XAI_API_KEY` is set. Currently includes grok-4.5, grok-4.3, grok-3, and grok-3-mini.)
+`veto providers` also shows Grok status when `XAI_API_KEY` is set.
 
 ```
 provider        status          models
@@ -390,3 +403,5 @@ The binary embeds the normalized version without the leading `v` (`veto version`
 
 See [`docs/architecture.md`](docs/architecture.md) for how the routing pipeline works internally.
 See [`docs/release-readiness.md`](docs/release-readiness.md) for the automated gates and the owner-run provider, trial, license, and publish checklist.
+See [`docs/launch.md`](docs/launch.md) for the launch angle, channel-ready copy, share loops, measurement plan, and launch gates.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening an issue or pull request.
