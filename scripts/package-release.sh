@@ -2,6 +2,45 @@
 
 set -euo pipefail
 
+sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
+if [[ "${1:-}" == --verify-binary ]]; then
+    if [[ $# -ne 6 ]]; then
+        printf 'usage: %s --verify-binary manifest binary version os arch\n' "$0" >&2
+        exit 2
+    fi
+    manifest=$2
+    binary=$3
+    version=$4
+    target_os=$5
+    target_arch=$6
+    if [[ -z "${manifest}" ]]; then
+        exit 0
+    fi
+    binary_name=veto
+    if [[ "${target_os}" == windows ]]; then
+        binary_name=veto.exe
+    fi
+    member="veto_${version}_${target_os}_${target_arch}/${binary_name}"
+    expected=$(awk -v member="${member}" '$2 == member {print $1}' "${manifest}")
+    if [[ ! "${expected}" =~ ^[0-9a-fA-F]{64}$ ]]; then
+        printf 'binary manifest has no unique checksum for %s\n' "${member}" >&2
+        exit 1
+    fi
+    actual=$(sha256_file "${binary}")
+    if [[ "${actual}" != "${expected}" ]]; then
+        printf 'GoReleaser binary differs from package manifest: %s\n' "${member}" >&2
+        exit 1
+    fi
+    exit 0
+fi
+
 for required_command in go python3 tar zip unzip; do
     if ! command -v "${required_command}" >/dev/null 2>&1; then
         printf 'release packaging requires %s\n' "${required_command}" >&2
@@ -43,14 +82,6 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
-
-sha256_file() {
-    if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "$1" | awk '{print $1}'
-    else
-        shasum -a 256 "$1" | awk '{print $1}'
-    fi
-}
 
 sha256_stream() {
     if command -v sha256sum >/dev/null 2>&1; then
