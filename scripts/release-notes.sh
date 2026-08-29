@@ -12,7 +12,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 changelog="$repo_root/CHANGELOG.md"
 
 awk -v version="$version" '
-  $0 ~ "^## \\[" version "\\]( |$)" {
+  $0 ~ "^## \\[" version "\\](\\(| |$)" {
     found = 1
     next
   }

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "packages": {
+    ".": {
+      "release-type": "go",
+      "package-name": "veto",
+      "changelog-path": "CHANGELOG.md",
+      "include-v-in-tag": true,
+      "include-component-in-tag": false,
+      "release-name-pattern": "Veto v${version} beta",
+      "pull-request-title-pattern": "chore: release v${version}"
+    }
+  }
+}

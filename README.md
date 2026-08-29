@@ -53,7 +53,7 @@ file for the permissions, conditions, and disclaimer.
 
 ### Release binary (recommended)
 
-Veto v0.1.0 is the first public beta. Download the archive for your operating system and CPU from [GitHub Releases](https://github.com/oleg-koval/veto/releases), extract `veto`, and put it on your `PATH` (for example, `~/.local/bin`). Archives cover Darwin, Linux, and Windows on amd64 and arm64.
+Veto is currently a public beta. Download the latest archive for your operating system and CPU from [GitHub Releases](https://github.com/oleg-koval/veto/releases), extract `veto`, and put it on your `PATH` (for example, `~/.local/bin`). Archives cover Darwin, Linux, and Windows on amd64 and arm64.
 
 Download the matching `SHA256SUMS` file and verify the archive before extracting:
 
@@ -79,7 +79,7 @@ mismatches; they are not cryptographic signatures.
 Go 1.26.6 or newer is required:
 
 ```bash
-go install github.com/oleg-koval/veto/cmd/veto@v0.1.0
+go install github.com/oleg-koval/veto/cmd/veto@latest
 ```
 
 Or clone and build:
@@ -102,7 +102,24 @@ brew install oleg-koval/tap/veto
 
 ### Upgrade and uninstall
 
-To upgrade a Homebrew install, run `brew upgrade veto`. For a manual release install, download and verify the newer archive, then replace the binary in the same `PATH` directory. For corruption of an official release binary, `veto doctor --fix` can reinstall that exact version when the executable is a writable, unmanaged regular file. It refuses symlinks, package-manager paths, source/Go-install builds, and unwritable targets. On Windows it leaves a verified staged replacement and prints the exact manual replacement step. Your provider credentials, local-model definitions, skills, plans, checkpoints, and logs under `~/.veto/` are retained.
+On every interactive launch, veto consults its update state and refreshes the
+latest complete GitHub release at most once every 24 hours. When a newer stable
+version exists, it asks before changing anything. Homebrew installs run
+`brew upgrade oleg-koval/tap/veto`; versioned Go installs use the exact
+`go install` version; official standalone binaries require both checksum
+manifests before an atomic replacement. The original command does not continue
+after an accepted update, so re-run it with the new binary. JSON, quiet,
+non-interactive, development, and offline-failed checks never prompt or block.
+
+To upgrade manually, run `brew upgrade oleg-koval/tap/veto` for Homebrew. For a
+release archive, download and verify the newer archive, then replace the binary
+in the same `PATH` directory. For corruption of an official release binary,
+`veto doctor --fix` can reinstall that exact version when the executable is a
+writable, unmanaged regular file. It refuses symlinks, package-manager paths,
+source/Go-install builds, and unwritable targets. On Windows it leaves a
+verified staged replacement and prints the exact manual replacement step. Your
+provider credentials, local-model definitions, skills, plans, checkpoints, and
+logs under `~/.veto/` are retained.
 
 To uninstall, remove only the binary first (`rm "$(command -v veto)"`). To also remove veto's local state, back up anything you need and then remove `~/.veto/`; this deletes stored credentials, models, skills, plans, checkpoints, and logs.
 
@@ -468,7 +485,7 @@ release_dist=$(mktemp -d)
 ./scripts/package-release.sh v0.1.0 "${release_dist}"  # local release dry run
 ```
 
-The binary embeds the normalized version without the leading `v` (`veto version`). A versioned `go install` resolves the same public version through Go build metadata while remaining honestly labeled as a source build. CI runs on every push and PR to `main`, including local release-packaging and Homebrew-formula dry runs. A release is prepared by tagging `vMAJOR.MINOR.PATCH` and pushing the tag; GitHub Actions then runs the offline gates and the same packaging script used locally before GoReleaser publishes six Darwin/Linux/Windows amd64/arm64 archives plus `SHA256SUMS` and `BINARY_SHA256SUMS`. When `HOMEBREW_TAP_TOKEN` is configured, the same workflow renders and publishes a checksum-pinned Homebrew formula. Every GoReleaser binary is checked against the binary manifest before publication. Nothing is published unless all applicable gates and checksum verification pass.
+The binary embeds the normalized version without the leading `v` (`veto version`). A versioned `go install` resolves the same public version through Go build metadata while remaining honestly labeled as a source build. CI runs on every push and PR to `main`, including local release-packaging and Homebrew-formula dry runs. Conventional commits on `main` maintain a Release Please pull request (`fix` increments patch, `feat` increments minor, and a breaking change increments major). Merging that release PR creates the tag and GitHub release, then explicitly starts the existing release workflow. That workflow runs the offline gates before GoReleaser publishes six Darwin/Linux/Windows amd64/arm64 archives plus `SHA256SUMS` and `BINARY_SHA256SUMS`. When `HOMEBREW_TAP_TOKEN` is configured, it also publishes the checksum-pinned Homebrew formula. Every GoReleaser binary is checked against the binary manifest before publication. Nothing is published unless all applicable gates and checksum verification pass.
 
 See [`docs/architecture.md`](docs/architecture.md) for how the routing pipeline works internally.
 See [`docs/release-readiness.md`](docs/release-readiness.md) for the automated gates and the owner-run provider, trial, license, and publish checklist.

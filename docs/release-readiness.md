@@ -27,6 +27,15 @@ archives, `SHA256SUMS`, and `BINARY_SHA256SUMS`, then validate the native
 artifact's version and offline doctor result. CI also renders the Homebrew
 formula from the archive checksum manifest.
 
+## Automated release flow
+
+Conventional commits merged to `main` create or update the Release Please pull
+request. Review its generated version and `CHANGELOG.md`; merging it creates the
+tag and GitHub release and dispatches the artifact workflow. The workflow adds
+six archives and both checksum manifests to that existing release. `fix:`
+increments patch, `feat:` increments minor, and a breaking change increments
+major.
+
 ## One-time release setup
 
 Create a fine-grained GitHub token with read/write access to **Contents** for
@@ -93,7 +102,9 @@ only if its account-visible model inventory may be shared safely.
 
 ## Publish and verify
 
-After explicit owner approval:
+For the bootstrap release only, publication used an owner-created tag. Future
+publication is approved by merging the generated release pull request. The
+equivalent manual fallback is:
 
 ```bash
 make release RELEASE_VERSION=0.1.0

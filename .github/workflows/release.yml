@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -19,6 +25,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -26,9 +33,16 @@ jobs:
           cache: true
 
       - name: Validate release metadata
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          ./scripts/release-notes.sh "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Unexpected release tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          test "$(git describe --tags --exact-match HEAD)" = "$RELEASE_TAG"
+          ./scripts/release-notes.sh "$RELEASE_TAG" > "$RUNNER_TEMP/release-notes.md"
 
       # A release must be at least as healthy as a pull request before any
       # artifacts are created or the GitHub Release is published.
@@ -46,7 +60,9 @@ jobs:
           python3 -m json.tool "$RUNNER_TEMP/veto-benchmark.json" >/dev/null
 
       - name: Build and validate release artifacts
-        run: ./scripts/package-release.sh "$GITHUB_REF_NAME" "$GITHUB_WORKSPACE/.release-preflight"
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: ./scripts/package-release.sh "$RELEASE_TAG" "$GITHUB_WORKSPACE/.release-preflight"
 
       - name: Build and publish GitHub release
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
@@ -59,9 +75,11 @@ jobs:
 
       - name: Render Homebrew formula
         if: env.HOMEBREW_TAP_TOKEN != ''
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: >-
           ./scripts/render-homebrew-formula.sh
-          "$GITHUB_REF_NAME" dist/SHA256SUMS
+          "$RELEASE_TAG" dist/SHA256SUMS
           "$RUNNER_TEMP/veto.rb"
 
       - name: Check out Homebrew tap
@@ -74,6 +92,8 @@ jobs:
 
       - name: Publish Homebrew formula
         if: env.HOMEBREW_TAP_TOKEN != ''
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
           install -m 0644 "$RUNNER_TEMP/veto.rb" homebrew-tap/Formula/veto.rb
@@ -82,10 +102,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Formula/veto.rb
           if git diff --cached --quiet; then
-            echo "Homebrew formula already matches $GITHUB_REF_NAME"
+            echo "Homebrew formula already matches $RELEASE_TAG"
             exit 0
           fi
-          git commit -m "veto $GITHUB_REF_NAME"
+          git commit -m "veto $RELEASE_TAG"
           git push origin HEAD:main
 
       - name: Report skipped Homebrew publication
