@@ -20,6 +20,9 @@ import (
 )
 
 func main() {
+	if maybeOfferAutomaticUpdate(os.Args[1:]) {
+		return
+	}
 	if len(os.Args) < 2 {
 		printUsage(os.Stdout)
 		os.Exit(0)

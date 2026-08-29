@@ -3,18 +3,6 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Fixed
-
-- Homebrew now uses an installable checksum-pinned formula, with deterministic
-  formula generation available to the tag release workflow.
-- GPT-5.6 routing now uses the OpenAI Responses API, honors the documented
-  per-model admission timeout, falls back past transport errors, and exposes
-  normalized provider failures in JSON and structured logs.
-- Buffered execution now fails when a provider reports output truncation,
-  preventing partial results from being saved or accepted as successful.
-
 ## [0.1.0] - 2026-08-29
 
 ### Added
@@ -42,5 +30,4 @@ Notable user-facing changes are documented here. Veto follows
   calibration, routing quality, and savings require account-specific and human
   validation. Checksums are not signatures.
 
-[Unreleased]: https://github.com/oleg-koval/veto/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/oleg-koval/veto/releases/tag/v0.1.0

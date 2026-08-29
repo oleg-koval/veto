@@ -46,6 +46,7 @@ checksum:
 release:
   name_template: "Veto {{ .Tag }} beta"
   prerelease: "false"
+  mode: keep-existing
   extra_files:
     - glob: .release-preflight/BINARY_SHA256SUMS
       name_template: BINARY_SHA256SUMS

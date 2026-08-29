@@ -373,6 +373,22 @@ a rollback-protected same-directory replacement. See
 [ADR-003](decisions/ADR-003-release-provenance-and-repair.md) for the trust and
 ownership boundaries.
 
+## Interactive release updates (`cmd/veto/update*.go`)
+
+Before normal command dispatch, an interactive build with a stable version
+consults `~/.veto/update.json`. The private cache limits GitHub's unauthenticated
+latest-release API check to once per 24 hours; a bad clock, malformed cache,
+network failure, or incomplete release fails open and never blocks the command.
+JSON, quiet, piped, and development invocations bypass the updater.
+
+Only a stable tag with all six platform archives plus `SHA256SUMS` and
+`BINARY_SHA256SUMS` is offered. Installation always requires an explicit `y`.
+Homebrew owns Homebrew paths, source builds use an exact versioned `go install`,
+and other package-manager paths are refused. Official standalone replacement
+reuses the doctor trust path: both manifests, archive containment, binary hash,
+candidate version, path ownership, permissions, and rollback behavior must all
+pass. See [ADR-004](decisions/ADR-004-automated-releases-and-consented-updates.md).
+
 ## Credential storage
 
 `veto login` stores API keys in `~/.veto/credentials.json` (mode 0600, JSON object of `ENV_KEY → value`). At runtime, environment variables take precedence — the credentials file is only consulted when the env var is absent.
