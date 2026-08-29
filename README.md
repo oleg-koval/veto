@@ -96,15 +96,13 @@ checksum-verified official release binaries.
 
 ### Homebrew
 
-After the generated cask has been published to the tap:
-
 ```bash
-brew install --cask oleg-koval/tap/veto
+brew install oleg-koval/tap/veto
 ```
 
 ### Upgrade and uninstall
 
-To upgrade a Homebrew install, run `brew upgrade --cask veto`. For a manual release install, download and verify the newer archive, then replace the binary in the same `PATH` directory. For corruption of an official release binary, `veto doctor --fix` can reinstall that exact version when the executable is a writable, unmanaged regular file. It refuses symlinks, package-manager paths, source/Go-install builds, and unwritable targets. On Windows it leaves a verified staged replacement and prints the exact manual replacement step. Your provider credentials, local-model definitions, skills, plans, checkpoints, and logs under `~/.veto/` are retained.
+To upgrade a Homebrew install, run `brew upgrade veto`. For a manual release install, download and verify the newer archive, then replace the binary in the same `PATH` directory. For corruption of an official release binary, `veto doctor --fix` can reinstall that exact version when the executable is a writable, unmanaged regular file. It refuses symlinks, package-manager paths, source/Go-install builds, and unwritable targets. On Windows it leaves a verified staged replacement and prints the exact manual replacement step. Your provider credentials, local-model definitions, skills, plans, checkpoints, and logs under `~/.veto/` are retained.
 
 To uninstall, remove only the binary first (`rm "$(command -v veto)"`). To also remove veto's local state, back up anything you need and then remove `~/.veto/`; this deletes stored credentials, models, skills, plans, checkpoints, and logs.
 
@@ -470,7 +468,7 @@ release_dist=$(mktemp -d)
 ./scripts/package-release.sh v0.1.0 "${release_dist}"  # local release dry run
 ```
 
-The binary embeds the normalized version without the leading `v` (`veto version`). A versioned `go install` resolves the same public version through Go build metadata while remaining honestly labeled as a source build. CI runs on every push and PR to `main`, including a local release-packaging dry run. A release is prepared by tagging `vMAJOR.MINOR.PATCH` and pushing the tag; GitHub Actions then runs the offline gates and the same packaging script used locally before GoReleaser publishes six Darwin/Linux/Windows amd64/arm64 archives plus `SHA256SUMS` and `BINARY_SHA256SUMS`. When `HOMEBREW_TAP_TOKEN` is configured, the same workflow also publishes the Homebrew cask. Every GoReleaser binary is checked against the binary manifest before publication. Nothing is published unless all applicable gates and checksum verification pass.
+The binary embeds the normalized version without the leading `v` (`veto version`). A versioned `go install` resolves the same public version through Go build metadata while remaining honestly labeled as a source build. CI runs on every push and PR to `main`, including local release-packaging and Homebrew-formula dry runs. A release is prepared by tagging `vMAJOR.MINOR.PATCH` and pushing the tag; GitHub Actions then runs the offline gates and the same packaging script used locally before GoReleaser publishes six Darwin/Linux/Windows amd64/arm64 archives plus `SHA256SUMS` and `BINARY_SHA256SUMS`. When `HOMEBREW_TAP_TOKEN` is configured, the same workflow renders and publishes a checksum-pinned Homebrew formula. Every GoReleaser binary is checked against the binary manifest before publication. Nothing is published unless all applicable gates and checksum verification pass.
 
 See [`docs/architecture.md`](docs/architecture.md) for how the routing pipeline works internally.
 See [`docs/release-readiness.md`](docs/release-readiness.md) for the automated gates and the owner-run provider, trial, license, and publish checklist.

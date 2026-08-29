@@ -49,17 +49,3 @@ release:
   extra_files:
     - glob: .release-preflight/BINARY_SHA256SUMS
       name_template: BINARY_SHA256SUMS
-
-homebrew_casks:
-  - name: veto
-    ids:
-      - veto
-    repository:
-      owner: oleg-koval
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Casks
-    skip_upload: auto
-    homepage: https://github.com/oleg-koval/veto
-    description: Cost-aware AI model router with structured admission decisions
-    license: Apache-2.0

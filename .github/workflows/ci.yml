@@ -42,3 +42,11 @@ jobs:
 
       - name: Release packaging dry run
         run: ./scripts/package-release.sh v0.0.0 "$RUNNER_TEMP/veto-release-dist"
+
+      - name: Homebrew formula rendering smoke
+        run: |
+          ./scripts/render-homebrew-formula.sh \
+            v0.0.0 \
+            "$RUNNER_TEMP/veto-release-dist/SHA256SUMS" \
+            "$RUNNER_TEMP/veto.rb"
+          grep -Fq '/v0.0.0/veto_0.0.0_darwin_arm64.tar.gz' "$RUNNER_TEMP/veto.rb"

@@ -174,7 +174,8 @@ successful routes into one vanity metric.
 
 The `v0.1.0` beta was published and its six archives, `SHA256SUMS`,
 `BINARY_SHA256SUMS`, native official binary, online doctor result, and tagged
-Go installation were verified on 2026-08-29. Homebrew was not published.
+Go installation were verified on 2026-08-29. The Homebrew formula was
+backfilled and its install and version test were verified the same day.
 
 1. Complete provider-account verification and review current model IDs and
    pricing without committing raw account inventories.

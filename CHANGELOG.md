@@ -3,6 +3,13 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Homebrew now uses an installable checksum-pinned formula, with deterministic
+  formula generation available to the tag release workflow.
+
 ## [0.1.0] - 2026-08-29
 
 ### Added
@@ -30,4 +37,5 @@ Notable user-facing changes are documented here. Veto follows
   calibration, routing quality, and savings require account-specific and human
   validation. Checksums are not signatures.
 
+[Unreleased]: https://github.com/oleg-koval/veto/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/oleg-koval/veto/releases/tag/v0.1.0
