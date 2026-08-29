@@ -47,7 +47,7 @@ release:
   name_template: "Veto {{ .Tag }} beta"
   prerelease: "false"
   extra_files:
-    - glob: '{{ index .Env "VETO_BINARY_MANIFEST" }}'
+    - glob: .release-preflight/BINARY_SHA256SUMS
       name_template: BINARY_SHA256SUMS
 
 homebrew_casks:

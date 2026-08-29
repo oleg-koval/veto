@@ -46,7 +46,7 @@ jobs:
           python3 -m json.tool "$RUNNER_TEMP/veto-benchmark.json" >/dev/null
 
       - name: Build and validate release artifacts
-        run: ./scripts/package-release.sh "$GITHUB_REF_NAME" "$RUNNER_TEMP/veto-release-preflight"
+        run: ./scripts/package-release.sh "$GITHUB_REF_NAME" "$GITHUB_WORKSPACE/.release-preflight"
 
       - name: Build and publish release with Homebrew cask
         if: env.HOMEBREW_TAP_TOKEN != ''
@@ -56,7 +56,7 @@ jobs:
           args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VETO_BINARY_MANIFEST: ${{ runner.temp }}/veto-release-preflight/BINARY_SHA256SUMS
+          VETO_BINARY_MANIFEST: .release-preflight/BINARY_SHA256SUMS
 
       - name: Build and publish release without Homebrew cask
         if: env.HOMEBREW_TAP_TOKEN == ''
@@ -66,4 +66,4 @@ jobs:
           args: release --clean --skip=homebrew --release-notes=${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VETO_BINARY_MANIFEST: ${{ runner.temp }}/veto-release-preflight/BINARY_SHA256SUMS
+          VETO_BINARY_MANIFEST: .release-preflight/BINARY_SHA256SUMS
