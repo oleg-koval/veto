@@ -1,0 +1,6 @@
+interface:
+  display_name: "Veto Routing"
+  short_description: "Route AI tasks through configured Veto providers"
+  default_prompt: "Use $veto-routing to select or execute the best configured model for this task."
+policy:
+  allow_implicit_invocation: true
