@@ -30,7 +30,8 @@ $ veto route "refactor the auth middleware to use JWT" --kind refactor --risk me
 ```
 
 ```bash
-go install github.com/oleg-koval/veto/cmd/veto@latest
+# Install the checksum-verified archive from GitHub Releases, then:
+veto doctor
 veto login
 veto route --json "summarize this pull request"
 ```
@@ -50,17 +51,36 @@ file for the permissions, conditions, and disclaimer.
 
 ## Install
 
-### Build with Go (available now)
+### Release binary (recommended)
 
-Go 1.26.4 or newer is required:
+Veto v0.1.0 is the first public beta. Download the archive for your operating system and CPU from [GitHub Releases](https://github.com/oleg-koval/veto/releases), extract `veto`, and put it on your `PATH` (for example, `~/.local/bin`). Archives cover Darwin, Linux, and Windows on amd64 and arm64.
+
+Download the matching `SHA256SUMS` file and verify the archive before extracting:
 
 ```bash
-go install github.com/oleg-koval/veto/cmd/veto@latest
+asset=veto_0.1.0_linux_amd64.tar.gz
+awk -v asset="${asset}" '$2 == asset {print}' SHA256SUMS > "${asset}.sha256"
+test -s "${asset}.sha256"
+sha256sum -c "${asset}.sha256"
+tar -xzf "${asset}"
+install -m 0755 veto_0.1.0_linux_amd64/veto ~/.local/bin/veto
+veto version
+veto doctor --json
 ```
 
-Tagged versions are standard Go module releases, so a specific version can be
-installed with `@vMAJOR.MINOR.PATCH`. There is no separate Go registry upload;
-the Go proxy discovers the pushed semantic-version tag.
+On macOS, select the matching Darwin archive and pipe the checksum line to
+`shasum -a 256 -c -` instead.
+`SHA256SUMS` covers release archives; `BINARY_SHA256SUMS` lets `veto doctor`
+verify an extracted official binary. These hashes detect corruption and release
+mismatches; they are not cryptographic signatures.
+
+### Build with Go
+
+Go 1.26.6 or newer is required:
+
+```bash
+go install github.com/oleg-koval/veto/cmd/veto@v0.1.0
+```
 
 Or clone and build:
 
@@ -70,32 +90,21 @@ cd veto
 go build ./cmd/veto
 ```
 
-### Homebrew (after the first versioned release)
+`go install` and local builds are supported source-build paths. They report the
+module version when available, but `veto doctor` does not present them as
+checksum-verified official release binaries.
+
+### Homebrew
+
+After the first versioned release:
 
 ```bash
 brew install --cask oleg-koval/tap/veto
 ```
 
-### Release binary
-
-No versioned release has been published yet. Use the Go install path above for pre-release testing.
-
-After a versioned release is published, download the archive for your operating system and CPU from the [GitHub Releases](https://github.com/oleg-koval/veto/releases) page, extract `veto`, and put it on your `PATH` (for example, `~/.local/bin`). Release archives are named `veto_<version>_<os>_<arch>` and include Darwin amd64/arm64, Linux amd64/arm64, and Windows amd64/arm64 builds. Verify the download before installing:
-
-```bash
-sha256sum -c SHA256SUMS
-install -m 0755 veto ~/.local/bin/veto
-veto version
-```
-
-On macOS, use `shasum -a 256 -c SHA256SUMS` when `sha256sum` is unavailable.
-
 ### Upgrade and uninstall
 
-To upgrade a Homebrew install, run `brew upgrade --cask veto`. For a manual
-release install, download and verify the newer archive, then replace the binary
-in the same `PATH` directory. Your provider credentials, local-model
-definitions, skills, plans, checkpoints, and logs under `~/.veto/` are retained.
+To upgrade a Homebrew install, run `brew upgrade --cask veto`. For a manual release install, download and verify the newer archive, then replace the binary in the same `PATH` directory. For corruption of an official release binary, `veto doctor --fix` can reinstall that exact version when the executable is a writable, unmanaged regular file. It refuses symlinks, package-manager paths, source/Go-install builds, and unwritable targets. On Windows it leaves a verified staged replacement and prints the exact manual replacement step. Your provider credentials, local-model definitions, skills, plans, checkpoints, and logs under `~/.veto/` are retained.
 
 To uninstall, remove only the binary first (`rm "$(command -v veto)"`). To also remove veto's local state, back up anything you need and then remove `~/.veto/`; this deletes stored credentials, models, skills, plans, checkpoints, and logs.
 
@@ -171,7 +180,27 @@ prints or stores the API key; saved metadata contains only the endpoint,
 status, timestamp, and response size. Claude subscription mode cannot be
 verified through this API check because it uses the local `claude` CLI.
 
-**3. Run a task:**
+**3. Diagnose the installation:**
+
+```bash
+veto doctor
+veto doctor --json
+veto doctor --offline
+veto doctor --fix
+```
+
+`veto doctor` checks the executable, PATH precedence, build version and
+provenance, official release checksum, `~/.veto` ownership/permissions and
+symlink shape, managed JSON, local-model definitions, approved skill paths,
+and configured `claude`/`ollama` dependencies. It does not load providers,
+contact models, validate credentials, or print credential values. `--offline`
+skips GitHub integrity lookup. `--fix` creates missing managed directories,
+corrects safe permissions, and can reinstall a corrupted official binary; it
+never rewrites malformed configuration, changes login state or skill
+approvals, or removes PATH duplicates. Warnings do not fail the command;
+unresolved failures exit 1.
+
+**4. Run a task:**
 
 ```bash
 # route and execute — prints the model's response
@@ -222,6 +251,7 @@ depending on the agent's skill lookup convention.
 | `veto providers` | Show which providers are configured and how |
 | `veto benchmark` | Replay the offline routing corpus and emit JSON metrics |
 | `veto verify-models` | Verify catalog IDs against one provider account |
+| `veto doctor` | Diagnose installation and local-state integrity; optionally repair safe problems |
 | `veto version` | Print veto version |
 | `veto install-git-hook` | Add veto to your git workflow |
 
@@ -435,18 +465,12 @@ Subscription mode takes precedence over API key when both are configured. Claude
 make test     # go test -race -timeout 120s ./...
 make build    # build with version injected from git tag (or "dev")
 make lint     # go vet ./...
-make release RELEASE_VERSION=0.1.0  # validate a complete release locally
+make release RELEASE_VERSION=0.1.0  # validate release, then print tagging instructions
+release_dist=$(mktemp -d)
+./scripts/package-release.sh v0.1.0 "${release_dist}"  # local release dry run
 ```
 
-The binary reports the normalized version without the leading `v` (`veto
-version`), including binaries installed with `go install ...@version`. CI runs
-on every push and PR to `main`. A release is prepared by adding its section to
-[`CHANGELOG.md`](CHANGELOG.md), tagging `vMAJOR.MINOR.PATCH`, and pushing the
-tag. GitHub Actions runs the full offline gates, then GoReleaser publishes the
-curated release notes, Darwin/Linux/Windows amd64 and arm64 archives,
-`SHA256SUMS`, and an updated cask in
-[`oleg-koval/homebrew-tap`](https://github.com/oleg-koval/homebrew-tap).
-Nothing is published unless the gates and release metadata pass.
+The binary embeds the normalized version without the leading `v` (`veto version`). A versioned `go install` resolves the same public version through Go build metadata while remaining honestly labeled as a source build. CI runs on every push and PR to `main`, including a local release-packaging dry run. A release is prepared by tagging `vMAJOR.MINOR.PATCH` and pushing the tag; GitHub Actions then runs the offline gates and the same packaging script used locally before GoReleaser publishes the Homebrew cask and six Darwin/Linux/Windows amd64/arm64 archives plus `SHA256SUMS` and `BINARY_SHA256SUMS`. Every GoReleaser binary is checked against the binary manifest before publication. Nothing is published unless all gates and checksum verification pass.
 
 See [`docs/architecture.md`](docs/architecture.md) for how the routing pipeline works internally.
 See [`docs/release-readiness.md`](docs/release-readiness.md) for the automated gates and the owner-run provider, trial, license, and publish checklist.

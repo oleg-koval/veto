@@ -13,8 +13,16 @@ builds:
     goarch:
       - amd64
       - arm64
+    flags:
+      - -trimpath
     ldflags:
-      - -s -w -X main.version={{ .Version }}
+      - -s -w -X main.version={{ .Version }} -X main.buildProvenance=official
+    hooks:
+      post:
+        - cmd: >-
+            ./scripts/package-release.sh --verify-binary
+            "{{ index .Env "VETO_BINARY_MANIFEST" }}" "{{ .Path }}"
+            "{{ .Version }}" "{{ .Os }}" "{{ .Arch }}"
 
 archives:
   - id: veto
@@ -24,6 +32,9 @@ archives:
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     formats:
       - tar.gz
+    files:
+      - no-extra-files-match-this-pattern*
+    wrap_in_directory: true
     format_overrides:
       - goos: windows
         formats:
@@ -31,6 +42,13 @@ archives:
 
 checksum:
   name_template: SHA256SUMS
+
+release:
+  name_template: "Veto {{ .Tag }} beta"
+  prerelease: "false"
+  extra_files:
+    - glob: '{{ index .Env "VETO_BINARY_MANIFEST" }}'
+      name_template: BINARY_SHA256SUMS
 
 homebrew_casks:
   - name: veto

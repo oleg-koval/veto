@@ -58,7 +58,24 @@ assert_contains() {
 
 assert_contains "$(veto --help)" 'USAGE'
 assert_contains "$(veto --help)" 'COMMANDS'
+assert_contains "$(veto --help)" 'doctor'
 assert_contains "$(veto version)" 'veto '
+
+doctor_json=$(veto doctor --json --offline)
+python3 - "${doctor_json}" <<'PY'
+import json
+import sys
+
+report = json.loads(sys.argv[1])
+assert report["ok"] is True, report
+assert report["summary"]["fail"] == 0, report
+assert any(check["id"] == "release.integrity" and check["status"] == "WARN" for check in report["checks"]), report
+PY
+if [[ -e "${smoke_home}/.veto" ]]; then
+    printf '%s\n' 'doctor unexpectedly created ~/.veto without --fix' >&2
+    exit 1
+fi
+
 assert_contains "$(veto providers)" 'No providers configured'
 
 if [[ -e "${smoke_home}/.veto/credentials.json" ]]; then
@@ -106,13 +123,25 @@ with open(path, "w", encoding="utf-8") as models:
 os.chmod(path, 0o600)
 PY
 
+chmod 0755 "${smoke_home}/.veto"
+chmod 0644 "${smoke_home}/.veto/models.json"
+if veto doctor --offline >"${tmp_dir}/doctor-damaged.log" 2>&1; then
+    printf '%s\n' 'doctor unexpectedly accepted unsafe permissions' >&2
+    exit 1
+fi
+veto doctor --fix --offline >"${tmp_dir}/doctor-fixed.log"
+
 python3 - "${smoke_home}/.veto/models.json" <<'PY'
 import os
 import sys
 
-mode = os.stat(sys.argv[1]).st_mode & 0o777
-if mode != 0o600:
-    raise SystemExit(f"models.json mode is {mode:o}, want 600")
+models_path = sys.argv[1]
+root_mode = os.stat(os.path.dirname(models_path)).st_mode & 0o777
+models_mode = os.stat(models_path).st_mode & 0o777
+if root_mode != 0o700:
+    raise SystemExit(f".veto mode is {root_mode:o}, want 700")
+if models_mode != 0o600:
+    raise SystemExit(f"models.json mode is {models_mode:o}, want 600")
 PY
 
 providers_output=$(veto providers)

@@ -7,17 +7,27 @@ Notable user-facing changes are documented here. Veto follows
 
 ### Added
 
-- Cost-aware routing across Anthropic, OpenAI, OpenRouter, xAI, and local
-  OpenAI-compatible models.
-- Structured model admission with capability, context, complexity, confidence,
-  and estimated-cost gates.
-- `route`, `run`, and multi-step `exec` workflows with JSON output, checkpoints,
-  explicit output files, and optional acceptance-criteria review.
-- Interactive provider onboarding, account-level model catalog verification,
-  persisted routing history, and per-model enable/disable controls.
-- Deterministic offline routing benchmarks and a discoverable agent routing
-  skill.
-- Versioned binaries for macOS, Linux, and Windows, checksum verification,
-  standard Go module installation, and Homebrew tap publication.
+- Multi-provider filtering, adaptive ranking, structured admission, route-only
+  JSON output, bounded task execution, multi-step plans, and fail-closed
+  acceptance review.
+- Anthropic, OpenAI, OpenRouter, xAI, Claude subscription CLI, and local
+  OpenAI-compatible model transports with transport-derived tool capabilities.
+- `veto doctor` for side-effect-free installation and local-state diagnostics,
+  with explicit safe repair through `--fix`.
+- Six-platform release archives plus archive and extracted-binary SHA-256
+  manifests.
+- Versioned Go installation and Homebrew tap publication.
+
+### Security
+
+- Explicit traversal-safe output files, approved skill-source boundaries,
+  restrictive local-state permissions, bounded release downloads, hostile
+  archive rejection, and rollback-protected official-binary replacement.
+
+### Known limitations
+
+- This is a beta. Provider availability, model IDs and pricing, confidence
+  calibration, routing quality, and savings require account-specific and human
+  validation. Checksums are not signatures.
 
 [0.1.0]: https://github.com/oleg-koval/veto/releases/tag/v0.1.0

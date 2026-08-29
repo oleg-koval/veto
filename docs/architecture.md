@@ -345,6 +345,27 @@ unavailable.
 
 `TaskSpec.SkipModels` is a general mechanism: it causes the Manager to skip those model names in the admission loop. It is also used by checkpoint resume (already-tried models are skipped on re-entry).
 
+## Installation diagnostics (`cmd/veto/doctor.go`)
+
+`veto doctor` is a separate, provider-free command path. Dispatch bypasses the
+pending-skill scan, and the diagnostic engine never builds a provider registry
+or performs credential/provider connectivity checks. Filesystem, executable,
+PATH, build-metadata, command lookup, and HTTP boundaries are injectable for
+tests.
+
+Checks return stable IDs with `PASS`, `WARN`, `FAIL`, or `FIXED`, a message, and
+a repairability flag. JSON adds summary counts and a final `ok`; warnings such
+as source builds or `--offline` checksum skips do not change the exit code, but
+unresolved failures do.
+
+The release integrity path is enabled only for artifacts marked `official` by
+the packaging script. It fetches `BINARY_SHA256SUMS` for the exact embedded
+version. `--fix` additionally verifies `SHA256SUMS`, constrains archive content
+to the expected platform binary, checks the candidate's version, and performs
+a rollback-protected same-directory replacement. See
+[ADR-003](decisions/ADR-003-release-provenance-and-repair.md) for the trust and
+ownership boundaries.
+
 ## Credential storage
 
 `veto login` stores API keys in `~/.veto/credentials.json` (mode 0600, JSON object of `ENV_KEY → value`). At runtime, environment variables take precedence — the credentials file is only consulted when the env var is absent.

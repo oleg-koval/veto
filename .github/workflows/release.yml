@@ -49,6 +49,9 @@ jobs:
             > "$RUNNER_TEMP/veto-benchmark.json"
           python3 -m json.tool "$RUNNER_TEMP/veto-benchmark.json" >/dev/null
 
+      - name: Build and validate release artifacts
+        run: ./scripts/package-release.sh "$GITHUB_REF_NAME" "$RUNNER_TEMP/veto-release-preflight"
+
       - name: Build and publish release
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
         with:
@@ -57,3 +60,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VETO_BINARY_MANIFEST: ${{ runner.temp }}/veto-release-preflight/BINARY_SHA256SUMS

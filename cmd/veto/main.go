@@ -29,7 +29,7 @@ func main() {
 		return
 	}
 	// Notify once if new skills are pending approval (non-blocking).
-	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" {
+	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" {
 		checkPendingSkills()
 	}
 	switch os.Args[1] {
@@ -39,6 +39,8 @@ func main() {
 		cmdBenchmark(os.Args[2:])
 	case "verify-models":
 		cmdVerifyModels(os.Args[2:])
+	case "doctor":
+		cmdDoctor(os.Args[2:])
 	case "run":
 		cmdRun(os.Args[2:])
 	case "providers":
@@ -98,6 +100,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  route              route a task to the best available model (no execution)")
 	fmt.Fprintln(o, "  benchmark          replay an offline routing corpus and emit JSON metrics")
 	fmt.Fprintln(o, "  verify-models      verify catalog IDs against one provider account")
+	fmt.Fprintln(o, "  doctor             diagnose installation and ~/.veto integrity")
 	fmt.Fprintln(o, "  providers          show which providers are configured")
 	fmt.Fprintln(o, "  version            print veto version")
 	fmt.Fprintln(o, "  install-git-hook   add veto to your git workflow")

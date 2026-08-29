@@ -26,6 +26,7 @@ clean:
 release-check: test lint
 	@test -n "$(RELEASE_VERSION)" || { echo "RELEASE_VERSION is required (for example, 0.1.0)" >&2; exit 1; }
 	@./scripts/release-notes.sh "v$(RELEASE_VERSION)" >/dev/null
+	@release_dist=$$(mktemp -d); trap 'rm -rf "$$release_dist"' EXIT; ./scripts/package-release.sh "v$(RELEASE_VERSION)" "$$release_dist"
 	goreleaser check
 	goreleaser release --snapshot --clean
 
