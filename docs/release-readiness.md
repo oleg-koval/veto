@@ -31,8 +31,8 @@ Create a fine-grained GitHub token with read/write access to **Contents** for
 only `oleg-koval/homebrew-tap`, then save it in the Veto repository as the
 Actions secret `HOMEBREW_TAP_TOKEN`. The built-in `GITHUB_TOKEN` publishes the
 Veto release; the separate token is used only for the cross-repository cask
-update. The release workflow fails before building or publishing when the tap
-token is missing.
+update. When the tap token is missing, the workflow skips Homebrew publication
+without weakening the GitHub release gates.
 
 ## v0.1.0 beta publication gates
 
@@ -95,5 +95,6 @@ git push origin v0.1.0
 ```
 
 Keep the resulting claims separate: verify the GitHub Actions run and eight
-release assets first, then the `Casks/veto.rb` update in `homebrew-tap`, and
-finally fresh installs through both distribution paths.
+release assets first. If `HOMEBREW_TAP_TOKEN` was configured, separately verify
+the `Casks/veto.rb` update in `homebrew-tap` before claiming that distribution
+path is available.

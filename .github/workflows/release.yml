@@ -12,6 +12,8 @@ jobs:
   release:
     name: Build & Release
     runs-on: ubuntu-latest
+    env:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -24,14 +26,8 @@ jobs:
           cache: true
 
       - name: Validate release metadata
-        env:
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "$HOMEBREW_TAP_TOKEN" || {
-            echo "HOMEBREW_TAP_TOKEN is required to update oleg-koval/homebrew-tap" >&2
-            exit 1
-          }
           ./scripts/release-notes.sh "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
 
       # A release must be at least as healthy as a pull request before any
@@ -52,12 +48,22 @@ jobs:
       - name: Build and validate release artifacts
         run: ./scripts/package-release.sh "$GITHUB_REF_NAME" "$RUNNER_TEMP/veto-release-preflight"
 
-      - name: Build and publish release
+      - name: Build and publish release with Homebrew cask
+        if: env.HOMEBREW_TAP_TOKEN != ''
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
         with:
           version: "~> v2"
           args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VETO_BINARY_MANIFEST: ${{ runner.temp }}/veto-release-preflight/BINARY_SHA256SUMS
+
+      - name: Build and publish release without Homebrew cask
+        if: env.HOMEBREW_TAP_TOKEN == ''
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
+        with:
+          version: "~> v2"
+          args: release --clean --skip=homebrew --release-notes=${{ runner.temp }}/release-notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VETO_BINARY_MANIFEST: ${{ runner.temp }}/veto-release-preflight/BINARY_SHA256SUMS
