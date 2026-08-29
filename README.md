@@ -287,7 +287,7 @@ veto run "refactor the auth middleware" \
   --criteria "no third-party JWT dep,all existing tests pass,function names unchanged"
 ```
 
-`veto run` makes two distinct calls when needed. Admission is a short JSON-only probe capped at 512 output tokens. Execution is a separate bounded response, defaulting to 8192 output tokens and controlled by `--max-output-tokens`; the admission limit never truncates the task result. A provider may report that execution ended at its output limit, and veto preserves that truncation signal.
+`veto run` makes two distinct calls when needed. Admission is a short JSON-only probe capped at 512 output tokens. Execution is a separate bounded response, defaulting to 8192 output tokens and controlled by `--max-output-tokens`; the admission limit never truncates the task result. If a provider reports that execution reached its output limit, Veto exits non-zero and does not save or review the partial output. Increase `--max-output-tokens` and retry.
 
 `--output` is the only way for `veto run` to write a file. The path must be relative to the current directory, cannot traverse upward or target hidden files/directories, and is created with mode `0600`. Existing files are protected; pass `--force` to replace one. Objective text such as “save as report.md” does not write a file by itself.
 

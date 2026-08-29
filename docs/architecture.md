@@ -176,7 +176,7 @@ pkg/executor/             AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor,
 | Executor | Transport | When used |
 |----------|-----------|-----------|
 | `AnthropicExecutor` | Anthropic API (HTTP) | `ANTHROPIC_API_KEY` set, no subscription |
-| `OpenAIExecutor` | OpenAI API (HTTP) | `OPENAI_API_KEY` set |
+| `OpenAIExecutor` | OpenAI Responses for GPT-5.6; Chat Completions for GPT-4.1 (HTTP) | `OPENAI_API_KEY` set |
 | `OpenRouterExecutor` | OpenRouter API (HTTP) | `OPENROUTER_API_KEY` set |
 | `CLIExecutor` | `claude -p` subprocess | `CLAUDE_SUBSCRIPTION=true` |
 | `OpenAICompatibleExecutor` | any OpenAI-compatible endpoint (HTTP) | local model configured via `veto login` |
@@ -184,12 +184,15 @@ pkg/executor/             AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor,
 **Subscription mode** (`CLIExecutor`) shells out to the `claude` CLI with `-p` (print mode) and `--output-format text`. This bypasses the Anthropic API entirely — cost is $0 per route because it runs under the user's flat Claude Max / Pro subscription. Subscription takes precedence over API key when both are configured.
 
 All concrete transports implement the short `Run` admission path and the
-separate `Execute` task path. HTTP executors send the configured
-`max_tokens` value for execution (default 8192, or `--max-output-tokens`) and
-parse provider usage plus finish/stop reasons. `length` and `max_tokens`
-termination is exposed as truncation metadata. The Claude CLI owns its own
-output controls and reports usage/truncation as unknown through this contract;
-its execution path retains the real shell/read/write/edit tools.
+separate `Execute` task path. HTTP executors send the provider-specific bounded
+output field (`max_output_tokens` for OpenAI Responses, `max_tokens` for the
+other transports), defaulting to 8192 for execution. GPT-5.6 admission disables
+reasoning for predictable latency; full execution uses medium reasoning.
+Provider length termination is exposed as truncation metadata. Buffered task
+execution fails closed on that signal, so partial output is not saved or sent
+to acceptance review. The Claude CLI
+owns its own output controls and reports usage/truncation as unknown through
+this contract; its execution path retains the real shell/read/write/edit tools.
 
 **Local / self-hosted models** (`OpenAICompatibleExecutor`) target any server that speaks the OpenAI chat-completions API: Ollama, LM Studio, vLLM, llama.cpp. They are configured via `veto login` → option 4 and stored in `~/.veto/models.json` as `LocalModel` entries. At build time, `buildProviderRegistry` loads these and calls `lm.capabilities()` which converts them to `router.ModelCapabilities` with defaults (tier `small`, 8192-token context, no executable tools, `CostPer1k*USD = 0`). OpenAI-compatible HTTP is text-only in veto: it returns content but does not read files, write files, run commands, or invoke tools. The resulting capability list, including both built-ins and locals, is passed to `router.NewRegistryFromModels` so the scorer and filter treat local models honestly.
 
@@ -271,7 +274,11 @@ If it does (currently `CLIExecutor` via subscription mode), tokens are piped dir
 
 `--quiet` on `veto run` suppresses the routing animation entirely and prints only the model's output — making `veto run --quiet "..." > file` scriptable.
 
-`--json` on `veto route` is the stricter scripting mode for agent infrastructure. It implies `--quiet` and `--no-resume`, suppresses checkpoint prompts, and emits a single JSON object on stdout. Successful routes include `model`, `tier`, `kind`, `risk`, `complexity`, `confidence`, and `saved_usd`; no-candidate routes exit non-zero with `{"error":"no_candidate",...}`.
+`--json` on `veto route` is the stricter scripting mode for agent infrastructure. It implies `--quiet` and `--no-resume`, suppresses checkpoint prompts, and emits a single JSON object on stdout. Successful routes include `model`, `tier`, `kind`, `risk`, `complexity`, `confidence`, and `saved_usd`; no-candidate routes exit non-zero with `{"error":"no_candidate",...}` and include `provider_errors` when transports failed. Legitimate model rejections and hard-filter exhaustion omit that field.
+
+The `veto route --timeout` value is a per-model admission deadline. A transport
+failure is logged with its normalized detail and does not consume the three
+completed-admission budget, allowing fallback to later healthy candidates.
 
 The timeout on `veto run` (default 120s) covers both routing and execution, unlike `veto route` which only times out the admission phase. When the `CLIExecutor` (`claude -p`) is killed by a timeout, it reports `"claude cli: timed out (use --timeout to increase)"` rather than the raw `"signal: killed"` from the subprocess.
 

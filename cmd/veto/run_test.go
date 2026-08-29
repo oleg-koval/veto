@@ -1,13 +1,39 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/oleg-koval/veto/pkg/executor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestValidateExecutionResultRejectsTruncation(t *testing.T) {
+	err := validateExecutionResult(executor.Result{
+		Output:       "partial output",
+		FinishReason: "max_output_tokens",
+		Truncated:    true,
+	})
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "truncated")
+	assert.ErrorContains(t, err, "max_output_tokens")
+	assert.ErrorContains(t, err, "--max-output-tokens")
+}
+
+func TestValidateExecutionResultAcceptsCompleteOutput(t *testing.T) {
+	require.NoError(t, validateExecutionResult(executor.Result{Output: "complete output"}))
+}
+
+func TestValidateExecutionResultPreservesProviderError(t *testing.T) {
+	providerErr := errors.New("provider unavailable")
+	err := validateExecutionResult(executor.Result{Error: providerErr})
+
+	assert.ErrorIs(t, err, providerErr)
+}
 
 func TestWriteOutputFile(t *testing.T) {
 	dir := t.TempDir()

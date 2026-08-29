@@ -64,7 +64,15 @@ func logEvent(task, kind, risk string, e router.ProgressEvent) {
 	if e.EstCost > 0 {
 		attrs = append(attrs, slog.Float64("est_cost_usd", e.EstCost))
 	}
+	if e.Detail != "" {
+		attrs = append(attrs, slog.String("detail", normalizeErrorDetail(e.Detail)))
+	}
 	routeLog.Debug("route_event", attrs...)
+}
+
+func normalizeErrorDetail(detail string) string {
+	detail = strings.Join(strings.Fields(detail), " ")
+	return truncate(detail, 500)
 }
 
 func truncate(s string, n int) string {

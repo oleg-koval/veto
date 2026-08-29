@@ -64,15 +64,16 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 		skipSet[name] = true
 	}
 
-	// when resuming we try all remaining candidates; fresh runs are capped at maxRetries
-	limit := len(ranked)
-	if len(task.SkipModels) == 0 {
-		limit = min(m.maxRetries, len(ranked))
-	}
-
-	for _, model := range ranked[:limit] {
+	// When resuming, try all remaining candidates. Fresh runs cap completed
+	// admission decisions, but transport failures do not consume that budget;
+	// a broken provider must not prevent fallback to a healthy candidate.
+	decisions := 0
+	for _, model := range ranked {
 		if skipSet[model.Name] {
 			continue
+		}
+		if len(task.SkipModels) == 0 && decisions >= m.maxRetries {
+			break
 		}
 		if ctx.Err() != nil {
 			return ModelCapabilities{}, AdmissionDecision{}, fmt.Errorf("routing: %w", ctx.Err())
@@ -93,6 +94,7 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 				Detail: err.Error()})
 			continue
 		}
+		decisions++
 		m.logDecision(task.ID, model.Name, task.Kind, decision)
 		if decision.Accept {
 			m.emit(ProgressEvent{

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/oleg-koval/veto/pkg/executor"
 	"github.com/oleg-koval/veto/pkg/router/mocks"
@@ -70,6 +71,22 @@ func TestAdmissionGate_ExecError_HardReject(t *testing.T) {
 	require.Error(t, err)
 	assert.False(t, decision.Accept)
 	assert.Equal(t, []string{ReasonParseFailure}, decision.ReasonCodes)
+}
+
+func TestAdmissionGate_ConfigurableTimeout(t *testing.T) {
+	exec := &mocks.ExecutorMock{
+		RunFunc: func(ctx context.Context, _ string) executor.Result {
+			<-ctx.Done()
+			return executor.Result{Error: ctx.Err()}
+		},
+	}
+	gate := NewAdmissionGate(exec)
+	gate.SetTimeout(15 * time.Millisecond)
+
+	started := time.Now()
+	_, err := gate.Ask(t.Context(), TaskSpec{}, ModelCapabilities{})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Less(t, time.Since(started), 500*time.Millisecond)
 }
 
 func TestAdmissionGate_JSONWithLeadingText(t *testing.T) {

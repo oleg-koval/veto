@@ -170,9 +170,13 @@ func cmdRun(args []string) {
 			os.Exit(1)
 		}
 		result := taskExec.Execute(ctx, prompt, executor.ExecutionOptions{MaxOutputTokens: *maxOutputTokens})
-		if result.Error != nil {
-			mgr.RecordExecution(spec, model.Name, executionMetrics(model, result, time.Since(started), executionStatus(ctx, "error")))
-			fmt.Fprintf(os.Stderr, "run failed: %v\n", result.Error)
+		if resultErr := validateExecutionResult(result); resultErr != nil {
+			status := executionStatus(ctx, "error")
+			if result.Truncated {
+				status = "truncated"
+			}
+			mgr.RecordExecution(spec, model.Name, executionMetrics(model, result, time.Since(started), status))
+			fmt.Fprintf(os.Stderr, "run failed: %v\n", resultErr)
 			os.Exit(1)
 		}
 		output = result.Output
@@ -358,12 +362,30 @@ func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr 
 	}
 	started := time.Now()
 	result := taskExec.Execute(ctx, prompt, options)
-	if result.Error != nil {
-		mgr.RecordExecution(spec, model.Name, executionMetrics(model, result, time.Since(started), executionStatus(ctx, "error")))
-		return model.Name, "", result.Error
+	if resultErr := validateExecutionResult(result); resultErr != nil {
+		status := executionStatus(ctx, "error")
+		if result.Truncated {
+			status = "truncated"
+		}
+		mgr.RecordExecution(spec, model.Name, executionMetrics(model, result, time.Since(started), status))
+		return model.Name, "", resultErr
 	}
 	mgr.RecordExecution(spec, model.Name, executionMetrics(model, result, time.Since(started), "success"))
 	return model.Name, result.Output, nil
+}
+
+func validateExecutionResult(result executor.Result) error {
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.Truncated {
+		reason := result.FinishReason
+		if reason == "" {
+			reason = "provider output limit"
+		}
+		return fmt.Errorf("execution output truncated (%s); increase --max-output-tokens", reason)
+	}
+	return nil
 }
 
 func executionStatus(ctx context.Context, fallback string) string {

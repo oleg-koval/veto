@@ -207,12 +207,12 @@ func cmdRoute(args []string) {
 	// signal handling: Ctrl+C saves checkpoint instead of losing progress
 	sigCtx, stopSig := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSig()
-	ctx, cancel := context.WithTimeout(sigCtx, *timeout)
-	defer cancel()
+	ctx := sigCtx
 
 	// only route across models whose provider is configured
 	modelReg := router.NewRegistryFromModels(reg.modelCaps())
 	gate := router.NewAdmissionGateWithFactory(reg)
+	gate.SetTimeout(*timeout)
 	// FileStore persists accept/reject history so it compounds across runs and
 	// feeds future ranking — see NewManager wiring below.
 	store := router.NewFileStore(historyPath())
@@ -236,6 +236,7 @@ func cmdRoute(args []string) {
 		}
 	}
 
+	var providerErrors []routeJSONProviderError
 	mgr.OnEvent = func(e router.ProgressEvent) {
 		render.OnEvent(e)
 		logEvent(objective, kind, *risk, e)
@@ -247,8 +248,13 @@ func cmdRoute(args []string) {
 		switch e.Kind {
 		case router.EventAskAccept:
 			cp.add(e.Model, true, nil)
-		case router.EventAskReject, router.EventAskError:
+		case router.EventAskReject:
 			cp.add(e.Model, false, e.Reasons)
+		case router.EventAskError:
+			cp.add(e.Model, false, e.Reasons)
+			providerErrors = append(providerErrors, routeJSONProviderError{
+				Model: e.Model, Detail: normalizeErrorDetail(e.Detail),
+			})
 		}
 	}
 
@@ -279,7 +285,7 @@ func cmdRoute(args []string) {
 	if errors.Is(err, router.ErrNoCandidate) {
 		deleteCheckpoint(hash)
 		if *jsonOut {
-			printRouteJSONError(os.Stdout, "no_candidate", kind, *risk, complexity)
+			printRouteJSONError(os.Stdout, "no_candidate", kind, *risk, complexity, providerErrors)
 			os.Exit(1)
 		}
 		if !*quiet {
@@ -344,10 +350,16 @@ type routeJSONSuccess struct {
 }
 
 type routeJSONError struct {
-	Error      string `json:"error"`
-	Kind       string `json:"kind"`
-	Risk       string `json:"risk"`
-	Complexity string `json:"complexity"`
+	Error          string                   `json:"error"`
+	Kind           string                   `json:"kind"`
+	Risk           string                   `json:"risk"`
+	Complexity     string                   `json:"complexity"`
+	ProviderErrors []routeJSONProviderError `json:"provider_errors,omitempty"`
+}
+
+type routeJSONProviderError struct {
+	Model  string `json:"model"`
+	Detail string `json:"detail"`
 }
 
 func printRouteJSONSuccess(w io.Writer, model router.ModelCapabilities, kind, risk, complexity string, confidence, savedUSD float64) {
@@ -362,12 +374,13 @@ func printRouteJSONSuccess(w io.Writer, model router.ModelCapabilities, kind, ri
 	})
 }
 
-func printRouteJSONError(w io.Writer, code, kind, risk, complexity string) {
+func printRouteJSONError(w io.Writer, code, kind, risk, complexity string, providerErrors []routeJSONProviderError) {
 	_ = json.NewEncoder(w).Encode(routeJSONError{
-		Error:      code,
-		Kind:       kind,
-		Risk:       risk,
-		Complexity: complexity,
+		Error:          code,
+		Kind:           kind,
+		Risk:           risk,
+		Complexity:     complexity,
+		ProviderErrors: providerErrors,
 	})
 }
 
