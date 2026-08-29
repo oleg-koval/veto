@@ -39,19 +39,24 @@ without weakening the GitHub release gates.
 - [x] Apache-2.0 license selected and committed.
 - [x] Repository-authored history contains no third-party commit author; stop
   if contrary ownership or relicensing evidence appears.
-- [ ] Race tests, vet, build, onboarding smoke, benchmark JSON validation, diff
+- [x] Race tests, vet, build, onboarding smoke, benchmark JSON validation, diff
   checks, and the local six-platform packaging dry run pass on the release
   commit.
-- [ ] The pull request is mergeable, required checks pass, and no unresolved
+- [x] The pull request is mergeable, required checks pass, and no unresolved
   review threads remain.
-- [ ] Tag the verified merge commit as `v0.1.0`; the release title and notes
+- [x] Tag the verified merge commit as `v0.1.0`; the release title and notes
   must identify it as beta while GitHub's prerelease flag remains false.
-- [ ] Verify the live release has eight assets, both manifests validate, the
+- [x] Verify the live release has eight assets, both manifests validate, the
   extracted current-platform binary reports `veto 0.1.0`, and online
   `veto doctor --json` passes.
-- [ ] Verify a temporary
+- [x] Verify a temporary
   `go install github.com/oleg-koval/veto/cmd/veto@v0.1.0` reports `0.1.0` and
   identifies itself as a source build.
+
+Verified on 2026-08-29 against the published
+[`v0.1.0` beta](https://github.com/oleg-koval/veto/releases/tag/v0.1.0).
+Homebrew publication was skipped because `HOMEBREW_TAP_TOKEN` was not
+configured; no Homebrew availability claim is made.
 
 ## Provider verification
 

@@ -172,16 +172,18 @@ successful routes into one vanity metric.
 
 ## Next actions
 
+The `v0.1.0` beta was published and its six archives, `SHA256SUMS`,
+`BINARY_SHA256SUMS`, native official binary, online doctor result, and tagged
+Go installation were verified on 2026-08-29. Homebrew was not published.
+
 1. Complete provider-account verification and review current model IDs and
    pricing without committing raw account inventories.
 2. Complete three fresh-user trials across at least two operating systems and
    resolve every blocking onboarding failure.
 3. Run labeled real-provider calibration before publishing quality or savings
    claims.
-4. Verify all six v0.1.0 release archives plus `SHA256SUMS` and
-   `BINARY_SHA256SUMS` on GitHub.
-5. Capture one clean terminal recording from install through `veto doctor` and
+4. Capture one clean terminal recording from install through `veto doctor` and
    the first JSON route;
    redact task text, usernames, paths, keys, and provider account data.
-6. Set repository topics, publish the
+5. Set repository topics, publish the
    channel-native copy, and reserve time to answer feedback on launch day.
