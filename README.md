@@ -178,8 +178,21 @@ provider privacy, cost, transport, output, and authorization boundaries.
 [`AGENTS.md`](AGENTS.md) contains the repository-wide engineering invariants and
 points agents to the skill. Within this checkout, agents with project-skill
 discovery can select it automatically or invoke it explicitly as
-`$veto-routing`. To use the skill from other repositories, copy or install the
-`veto-routing` folder into that agent's user-level skills directory.
+`$veto-routing`.
+
+The same skill is distributed as
+[`olko:veto-routing`](https://github.com/oleg-koval/agent-skills/tree/main/plugins/olko-skill-meta/skills/veto-routing)
+in the `olko-skill-meta` marketplace plugin. For Claude Code:
+
+```text
+/plugin marketplace add oleg-koval/agent-skills
+/plugin install olko-skill-meta@olko-agent-skills
+```
+
+Codex and other supported agents can install the catalog by following the
+[agent-skills installation instructions](https://github.com/oleg-koval/agent-skills#quick-start).
+After installation, invoke the skill as `$veto-routing` or `olko:veto-routing`,
+depending on the agent's skill lookup convention.
 
 ## Commands
 
