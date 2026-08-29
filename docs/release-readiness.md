@@ -45,6 +45,10 @@ Veto release; the separate token is used only for the cross-repository formula
 update. When the tap token is missing, the workflow skips Homebrew publication
 without weakening the GitHub release gates.
 
+After creating or rotating the secret, manually run the **Homebrew Token
+Check** workflow. It verifies tap read access and performs a dry-run push to
+confirm write access without changing the tap.
+
 ## v0.1.0 beta publication gates
 
 - [x] Apache-2.0 license selected and committed.
