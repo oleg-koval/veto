@@ -14,3 +14,5 @@ func doctorFileOwnedByCurrentUser(info os.FileInfo) (bool, bool) {
 	}
 	return stat.Uid == uint32(os.Getuid()), true
 }
+
+func doctorStatePermissionsSupported() bool { return true }

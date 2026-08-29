@@ -41,6 +41,23 @@ func TestDoctorReleaseIntegrityFailsClosedWhenManifestMissing(t *testing.T) {
 	assertDoctorCheck(t, report, "release.integrity", doctorFail)
 }
 
+func TestDoctorOfficialBuildRejectsMalformedVersionWithoutNetwork(t *testing.T) {
+	home := t.TempDir()
+	current := writeDoctorTestExecutable(t, t.TempDir(), "veto")
+	deps := newOfficialDoctorTestDeps(home, current, nil)
+	deps.linkerVersion = "../../latest"
+	requests := 0
+	deps.httpDo = func(*http.Request) (*http.Response, error) {
+		requests++
+		return nil, assert.AnError
+	}
+
+	report := runDoctor(doctorOptions{}, deps)
+	assert.False(t, report.OK)
+	assert.Zero(t, requests)
+	assertDoctorCheck(t, report, "release.integrity", doctorFail)
+}
+
 func TestDoctorFixReinstallsChecksumValidSameVersionArchive(t *testing.T) {
 	home := t.TempDir()
 	current := writeDoctorTestExecutable(t, t.TempDir(), "veto")

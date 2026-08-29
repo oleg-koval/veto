@@ -29,6 +29,8 @@ const (
 	doctorFixed doctorStatus = "FIXED"
 )
 
+const doctorStateFileMaxBytes = 16 << 20
+
 type doctorCheck struct {
 	ID         string       `json:"id"`
 	Status     doctorStatus `json:"status"`
@@ -295,11 +297,12 @@ func checkDoctorProvenance(deps doctorDeps) doctorCheck {
 }
 
 type doctorStateInspection struct {
-	missingManaged int
-	shapeFailures  int
-	badPermissions []doctorStateEntry
-	rootMissing    bool
-	ownershipKnown bool
+	missingManaged   int
+	shapeFailures    int
+	badPermissions   []doctorStateEntry
+	rootMissing      bool
+	ownershipKnown   bool
+	permissionsKnown bool
 }
 
 type doctorStateEntry struct {
@@ -327,17 +330,17 @@ func checkDoctorState(root string, options doctorOptions, deps doctorDeps) []doc
 	shape := doctorCheck{ID: "state.shape", Status: doctorPass, Message: "managed state entries have a safe ownership and file shape"}
 	if inspection.shapeFailures > 0 {
 		shape.Status = doctorFail
-		shape.Message = fmt.Sprintf("%d state entrie(s) have unsafe ownership, symlinks, or file types", inspection.shapeFailures)
+		shape.Message = fmt.Sprintf("%d state entries have unsafe ownership, symlinks, or file types", inspection.shapeFailures)
 	} else if created > 0 {
 		shape.Status = doctorFixed
-		shape.Message = fmt.Sprintf("created %d missing managed directorie(s)", created)
+		shape.Message = fmt.Sprintf("created %d missing managed directories", created)
 	} else if inspection.rootMissing {
 		shape.Status = doctorWarn
 		shape.Message = "~/.veto is not present; no local state to inspect"
 		shape.Repairable = true
 	} else if inspection.missingManaged > 0 {
 		shape.Status = doctorWarn
-		shape.Message = fmt.Sprintf("%d managed directorie(s) are not present", inspection.missingManaged)
+		shape.Message = fmt.Sprintf("%d managed directories are not present", inspection.missingManaged)
 		shape.Repairable = true
 	} else if !inspection.ownershipKnown {
 		shape.Status = doctorWarn
@@ -349,10 +352,13 @@ func checkDoctorState(root string, options doctorOptions, deps doctorDeps) []doc
 		permissions.Status = doctorWarn
 		permissions.Message = "state permissions are not applicable until ~/.veto exists"
 		permissions.Repairable = true
+	} else if !inspection.permissionsKnown {
+		permissions.Status = doctorWarn
+		permissions.Message = "POSIX state-permission verification is unavailable on this platform"
 	} else if len(inspection.badPermissions) > 0 {
 		permissions.Status = doctorFail
 		permissions.Repairable = true
-		permissions.Message = fmt.Sprintf("%d state entrie(s) have permissions other than 0700/0600", len(inspection.badPermissions))
+		permissions.Message = fmt.Sprintf("%d state entries have permissions other than 0700/0600", len(inspection.badPermissions))
 		if options.fix && inspection.shapeFailures == 0 {
 			fixed := 0
 			for _, entry := range inspection.badPermissions {
@@ -363,7 +369,7 @@ func checkDoctorState(root string, options doctorOptions, deps doctorDeps) []doc
 			if fixed == len(inspection.badPermissions) {
 				permissions.Status = doctorFixed
 				permissions.Repairable = false
-				permissions.Message = fmt.Sprintf("corrected permissions on %d state entrie(s)", fixed)
+				permissions.Message = fmt.Sprintf("corrected permissions on %d state entries", fixed)
 			}
 		}
 	}
@@ -379,7 +385,7 @@ func doctorManagedPaths(root string) []string {
 }
 
 func inspectDoctorState(root string, filesystem doctorFilesystem) doctorStateInspection {
-	inspection := doctorStateInspection{ownershipKnown: true}
+	inspection := doctorStateInspection{ownershipKnown: true, permissionsKnown: true}
 	rootInfo, err := filesystem.Lstat(root)
 	if errors.Is(err, fs.ErrNotExist) {
 		inspection.rootMissing = true
@@ -431,6 +437,10 @@ func inspectDoctorStateEntry(path string, info os.FileInfo, inspection *doctorSt
 	} else if !owned {
 		inspection.shapeFailures++
 	}
+	if !doctorStatePermissionsSupported() {
+		inspection.permissionsKnown = false
+		return
+	}
 	want := os.FileMode(0600)
 	if info.IsDir() {
 		want = 0700
@@ -465,7 +475,7 @@ func checkDoctorJSON(root string, deps doctorDeps) doctorCheck {
 		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			continue
 		}
-		data, readErr := deps.fs.ReadFile(path)
+		data, readErr := readDoctorFileLimited(deps.fs, path, doctorStateFileMaxBytes)
 		if readErr != nil || !json.Valid(data) {
 			invalid++
 		} else {
@@ -489,7 +499,7 @@ func readDoctorModels(path string, filesystem doctorFilesystem) ([]LocalModel, e
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return nil, errors.New("models file is not a regular file")
 	}
-	data, err := filesystem.ReadFile(path)
+	data, err := readDoctorFileLimited(filesystem, path, doctorStateFileMaxBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -550,7 +560,7 @@ func checkDoctorSkills(root string, deps doctorDeps) doctorCheck {
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return doctorCheck{ID: "state.skill_approvals", Status: doctorFail, Message: "skill approvals cannot be read safely"}
 	}
-	data, err := deps.fs.ReadFile(configPath)
+	data, err := readDoctorFileLimited(deps.fs, configPath, doctorStateFileMaxBytes)
 	if err != nil {
 		return doctorCheck{ID: "state.skill_approvals", Status: doctorFail, Message: "skill approvals cannot be read safely"}
 	}
@@ -616,9 +626,10 @@ func doctorPathHasSymlink(path string, filesystem doctorFilesystem) bool {
 func checkDoctorDependencies(root string, models []LocalModel, modelsErr error, deps doctorDeps) doctorCheck {
 	required := make(map[string]bool)
 	credentialsPath := filepath.Join(root, "credentials.json")
-	if data, err := deps.fs.ReadFile(credentialsPath); err == nil {
+	if info, err := deps.fs.Lstat(credentialsPath); err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+		data, readErr := readDoctorFileLimited(deps.fs, credentialsPath, doctorStateFileMaxBytes)
 		var credentials map[string]string
-		if json.Unmarshal(data, &credentials) == nil && credentials["CLAUDE_SUBSCRIPTION"] == "true" {
+		if readErr == nil && json.Unmarshal(data, &credentials) == nil && credentials["CLAUDE_SUBSCRIPTION"] == "true" {
 			required["claude"] = true
 		}
 	}

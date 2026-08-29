@@ -18,9 +18,12 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
+
+var doctorReleaseVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:[.-][0-9A-Za-z.-]+)?$`)
 
 const (
 	doctorReleaseBaseURL        = "https://github.com/oleg-koval/veto/releases/download"
@@ -38,8 +41,8 @@ func checkDoctorReleaseIntegrity(options doctorOptions, deps doctorDeps) doctorC
 		return doctorCheck{ID: "release.integrity", Status: doctorWarn, Message: "source/go-install build; official checksum verification is not applicable"}
 	}
 	resolved := resolveBuildVersion(deps.linkerVersion, deps.readBuildInfo)
-	if resolved == "dev" {
-		return doctorCheck{ID: "release.integrity", Status: doctorFail, Message: "official build marker is present but the version is unresolved"}
+	if resolved == "dev" || !doctorReleaseVersionPattern.MatchString(resolved) {
+		return doctorCheck{ID: "release.integrity", Status: doctorFail, Message: "official build marker is present but the version is unresolved or malformed"}
 	}
 	executablePath, err := deps.executable()
 	if err != nil || executablePath == "" {
