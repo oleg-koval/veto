@@ -1,6 +1,6 @@
 # Contributing to Veto
 
-Veto is pre-release. Bug reports, provider compatibility notes, and focused
+Veto is in public beta. Bug reports, provider compatibility notes, and focused
 improvements to routing behavior are welcome.
 
 ## Before opening an issue
@@ -22,7 +22,14 @@ update tests when behavior changes, then run:
 go test -race -timeout 120s ./...
 go vet ./...
 go build ./cmd/veto
+release_dist=$(mktemp -d)
+./scripts/package-release.sh v0.0.0 "${release_dist}"
 ```
+
+Changes to installation, `doctor`, or release packaging should also extend the
+fresh-home onboarding smoke and validate all six archives plus both checksum
+manifests locally. Do not add a second packaging implementation to the GitHub
+workflow; it must reuse `scripts/package-release.sh`.
 
 Changes to model IDs, pricing, or provider behavior need current provider
 evidence. Synthetic benchmark results may demonstrate routing mechanics, but

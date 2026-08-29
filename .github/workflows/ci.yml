@@ -39,3 +39,6 @@ jobs:
 
       - name: Vet
         run: go vet ./...
+
+      - name: Release packaging dry run
+        run: ./scripts/package-release.sh v0.0.0 "$RUNNER_TEMP/veto-release-dist"

@@ -3,6 +3,7 @@
 *.test
 *.out
 coverage.txt
+/dist/
 
 # Provider verification captures are local-only.
 /artifacts/http/
