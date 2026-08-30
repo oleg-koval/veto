@@ -20,6 +20,12 @@
         "head_prefix": "*",
         "same_repository": true,
         "reason": "Repository-owned GitHub Actions are trusted automation"
+      },
+      {
+        "login": "oleg-koval",
+        "head_prefix": "release-please--branches--main--components--",
+        "same_repository": true,
+        "reason": "Release Please uses the dedicated repository maintainer token"
       }
     ]
   }
