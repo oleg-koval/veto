@@ -147,7 +147,7 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 
 .route-demo { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, .6fr); gap: 34px; align-items: start; }
 .route-visual { position: relative; min-height: 442px; overflow: hidden; padding: 26px 24px 24px; border: 1px solid #24505f; border-radius: 16px; background: #050c0f; box-shadow: 0 30px 90px rgba(0, 0, 0, .3); }
-.route-track { position: absolute; top: 108px; left: 9%; right: 9%; height: 1px; background: #25444d; }
+.route-track { position: absolute; top: 160px; left: 9%; right: 9%; height: 1px; background: #25444d; }
 .route-track::before { content: ""; position: absolute; inset: -3px auto -3px 0; width: 100%; background: var(--cyan); opacity: .22; filter: blur(3px); }
 .route-stages { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 0; padding: 0; list-style: none; }
 .route-stage { min-width: 0; min-height: 86px; padding: 13px 10px; border-top: 1px solid #25444d; color: var(--muted); transition: border-color .35s ease, color .35s ease, opacity .35s ease, transform .35s ease; }
@@ -155,13 +155,13 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 .route-stage--execution { border-top-color: #805f2b; }
 .stage-mark { display: block; margin-bottom: 12px; color: var(--cyan); font: 700 11px/1 ui-monospace, monospace; letter-spacing: .08em; }
 .stage-detail { display: block; font: 11px/1.45 ui-monospace, monospace; }
-.route-packet { position: absolute; z-index: 2; top: 101px; left: 4%; display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid var(--cyan); border-radius: 7px; background: #071b21; color: var(--cyan); font: 700 11px/1 ui-monospace, monospace; box-shadow: 0 0 0 4px rgba(61, 231, 255, .08); transition: left .7s cubic-bezier(.16, 1, .3, 1), top .7s cubic-bezier(.16, 1, .3, 1), border-color .35s ease, color .35s ease; }
+.route-packet { position: absolute; z-index: 2; top: 151px; left: 4%; display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid var(--cyan); border-radius: 7px; background: #071b21; color: var(--cyan); font: 700 11px/1 ui-monospace, monospace; box-shadow: 0 0 0 4px rgba(61, 231, 255, .08); transition: left .7s cubic-bezier(.16, 1, .3, 1), top .7s cubic-bezier(.16, 1, .3, 1), border-color .35s ease, color .35s ease; }
 .packet-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .filter-lanes, .admission-readout, .selection-readout, .execution-readout { position: absolute; left: 24px; right: 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid #1a3540; border-radius: 9px; background: #0b171c; color: var(--muted); font: 12px/1.3 ui-monospace, monospace; transition: opacity .45s ease, transform .45s ease, border-color .35s ease; }
-.filter-lanes { top: 175px; }
-.admission-readout { top: 239px; }
-.selection-readout { top: 303px; justify-content: flex-start; color: var(--amber); }
-.execution-readout { top: 367px; border-color: #805f2b; color: var(--amber); }
+.filter-lanes { top: 190px; }
+.admission-readout { top: 254px; }
+.selection-readout { top: 318px; justify-content: flex-start; color: var(--amber); }
+.execution-readout { top: 382px; border-color: #805f2b; color: var(--amber); }
 .lane { display: inline-flex; align-items: center; gap: 7px; }
 .lane b, .admission-readout b { color: #77e8ab; font-size: 11px; font-weight: 700; }
 .lane--drop b, .admission-readout > b { color: #ff8d8d; }
@@ -179,7 +179,7 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 .route-explanation strong { color: var(--text); }
 .route-explanation code { color: var(--amber); font-size: .9em; }
 
-body.js-ready .route-stage { opacity: .42; transform: translateY(5px); }
+body.js-ready .route-stage { opacity: 1; transform: translateY(5px); border-top-color: #163039; }
 body.js-ready .route-readout, body.js-ready .filter-lanes, body.js-ready .admission-readout, body.js-ready .selection-readout, body.js-ready .execution-readout { opacity: 0; transform: translateY(9px); }
 body.js-ready .route-demo[data-route-stage="1"] .route-stage[data-stage="1"],
 body.js-ready .route-demo[data-route-stage="2"] .route-stage[data-stage="2"],
@@ -236,6 +236,7 @@ footer a:hover, footer a:focus-visible { color: var(--cyan); }
   .hero { padding: 60px 0 72px; }
   .install { align-items: stretch; flex-direction: column; gap: 10px; padding: 14px; }
   .install code { width: 100%; }
+  .terminal-body { white-space: pre-wrap; overflow-wrap: anywhere; }
   .copy { align-self: flex-start; }
   .cards { grid-template-columns: 1fr; }
   .section { padding: 76px 0; }
@@ -251,14 +252,15 @@ footer a:hover, footer a:focus-visible { color: var(--cyan); }
   .route-stage:last-child { border-bottom: 0; }
   .route-stage strong { margin-bottom: 5px; }
   .stage-mark { position: absolute; left: -35px; margin-top: 3px; }
-  .route-packet { top: 25px; left: 14px; }
+  .route-packet { top: 0; left: 33px; width: 14px; height: 14px; gap: 0; padding: 3px; justify-content: center; }
+  .route-packet > span:last-child { display: none; }
   .filter-lanes, .admission-readout, .selection-readout, .execution-readout { position: relative; top: auto; left: auto; right: auto; margin-top: 12px; }
   .filter-lanes { flex-wrap: wrap; justify-content: flex-start; gap: 8px 14px; }
   .admission-readout { flex-wrap: wrap; justify-content: flex-start; gap: 8px 14px; }
-  body.js-ready .route-demo[data-route-stage="2"] .route-packet { left: 14px; top: 95px; }
-  body.js-ready .route-demo[data-route-stage="3"] .route-packet { left: 14px; top: 165px; }
-  body.js-ready .route-demo[data-route-stage="4"] .route-packet { left: 14px; top: 235px; }
-  body.js-ready .route-demo[data-route-stage="5"] .route-packet { left: 14px; top: 305px; }
+  body.js-ready .route-demo[data-route-stage="2"] .route-packet { left: 33px; top: 70px; }
+  body.js-ready .route-demo[data-route-stage="3"] .route-packet { left: 33px; top: 143px; }
+  body.js-ready .route-demo[data-route-stage="4"] .route-packet { left: 33px; top: 213px; }
+  body.js-ready .route-demo[data-route-stage="5"] .route-packet { left: 33px; top: 298px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
