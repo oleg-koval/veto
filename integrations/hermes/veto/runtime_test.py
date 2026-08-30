@@ -160,10 +160,37 @@ class RuntimeContractTests(unittest.TestCase):
 
     def test_turn_route_disable_and_pin_are_session_scoped(self):
         runtime = RUNTIME(FakeRunner())
-        self.assertIn("disabled", runtime.command_off("", session_id="session-1"))
-        self.assertIsNone(runtime.turn_route({}, user_message="x", session_id="session-1"))
-        self.assertIn("pin", runtime.command_veto("pin openrouter", session_id="session-2"))
-        self.assertIn("cleared", runtime.command_veto("pin off", session_id="session-2"))
+        self.assertIn(
+            "disabled",
+            runtime.command_off("", session_id="physical-1", session_key="chat-1"),
+        )
+        self.assertIsNone(
+            runtime.turn_route(
+                {}, user_message="x", session_id="physical-2", session_key="chat-1"
+            )
+        )
+        self.assertIn(
+            "pin",
+            runtime.command_veto(
+                "pin openrouter", session_id="physical-1", session_key="chat-2"
+            ),
+        )
+        self.assertIn(
+            "cleared",
+            runtime.command_veto(
+                "pin off", session_id="physical-2", session_key="chat-2"
+            ),
+        )
+
+    def test_status_preserves_physical_id_but_keys_state_by_session_key(self):
+        runtime = RUNTIME(FakeRunner())
+        runtime.command_off("", session_id="physical-1", session_key="chat-1")
+        value = json.loads(
+            runtime.status({}, session_id="physical-rotated", session_key="chat-1")
+        )
+        self.assertEqual(value["session_id"], "physical-rotated")
+        self.assertEqual(value["session_key"], "chat-1")
+        self.assertTrue(value["session_preference"]["disabled"])
 
     def test_registered_handlers_contain_unexpected_failures(self):
         ctx = FakeContext()

@@ -195,14 +195,16 @@ class VetoRuntime:
     def status(self, _args: dict[str, Any], **_kwargs: Any) -> str:
         value = self._invoke_json(["hermes", "api", "--json"], 5)
         session_id = self._session_id(_kwargs)
+        session_key = self._session_identity(_kwargs)
         with self._state_lock:
             preference = self._automatic_routing_preference
-            session = dict(self._session_preferences.get(session_id, {}))
-            last_route = dict(self._last_route.get(session_id, {}))
+            session = dict(self._session_preferences.get(session_key, {}))
+            last_route = dict(self._last_route.get(session_key, {}))
         routing_state = {
             "automatic_routing": preference and not session.get("disabled", False),
             "automatic_routing_preference": preference,
             "session_id": session_id or None,
+            "session_key": session_key or None,
             "session_preference": session,
             "last_route": last_route or None,
         }
@@ -241,6 +243,14 @@ class VetoRuntime:
         value = context.get("session_id")
         return value.strip() if isinstance(value, str) else ""
 
+    @classmethod
+    def _session_identity(cls, context: dict[str, Any]) -> str:
+        """Return the durable route/control identity supplied by Hermes."""
+        value = context.get("session_key")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return cls._session_id(context)
+
     def turn_route(self, route: dict[str, Any], **context: Any) -> dict[str, Any] | None:
         """Route one external user turn through Veto before Hermes builds an agent.
 
@@ -254,7 +264,7 @@ class VetoRuntime:
             return None
         if context.get("is_user_turn") is False:
             return None
-        session_id = self._session_id(context)
+        session_id = self._session_identity(context)
         with self._state_lock:
             preference = dict(self._session_preferences.get(session_id, {}))
             enabled = self._automatic_routing_preference and not preference.get("disabled", False)
@@ -424,7 +434,7 @@ class VetoRuntime:
         return f"Veto provider pin cleared for session {session_id}."
 
     def command_veto(self, raw_args: str, **context: Any) -> str:
-        session_id = self._session_id(context)
+        session_id = self._session_identity(context)
         action = raw_args.strip().lower()
         if action == "off":
             return self._set_automatic(False, session_id)
@@ -503,7 +513,7 @@ class VetoRuntime:
     def command_off(self, raw_args: str, **context: Any) -> str:
         if raw_args.strip():
             return "Usage: /veto-off"
-        return self._set_automatic(False, self._session_id(context))
+        return self._set_automatic(False, self._session_identity(context))
 
     @staticmethod
     def _display(value: Any, limit: int = 96) -> str:
