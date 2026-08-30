@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	osexec "os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
@@ -302,13 +303,14 @@ func cmdRoute(args []string) {
 	}
 
 	spec := router.TaskSpec{
-		ID:         hash,
-		Kind:       router.TaskKind(kind),
-		Complexity: router.Complexity(complexity),
-		Objective:  objective,
-		Risk:       router.Risk(*risk),
-		MaxCostUSD: *maxCost,
-		SkipModels: cp.triedNames(),
+		ID:                      hash,
+		Kind:                    router.TaskKind(kind),
+		Complexity:              router.Complexity(complexity),
+		Objective:               objective,
+		RequiresExecutableTools: requiresExecutableRuntime(objective),
+		Risk:                    router.Risk(*risk),
+		MaxCostUSD:              *maxCost,
+		SkipModels:              cp.triedNames(),
 	}
 
 	model, decision, err := mgr.Route(ctx, spec)
@@ -457,6 +459,41 @@ func inferKind(objective string) string {
 	}
 }
 
+// requiresExecutableRuntime recognizes explicit requests to mutate repository
+// state. Content-only code generation remains eligible for text transports.
+func requiresExecutableRuntime(objective string) bool {
+	s := strings.ToLower(objective)
+	if containsAny(s,
+		"git push", "commit and push", "push when", "push once",
+		"modify the repository", "edit the repository", "update the repository",
+		"modify the repo", "edit the repo", "commit the changes",
+	) {
+		return true
+	}
+
+	prTarget, _, mutation := pullRequestMutationSignals(s)
+	return prTarget && mutation
+}
+
+func pullRequestMutationSignals(objective string) (prTarget, reviewTarget, mutation bool) {
+	s := strings.ToLower(objective)
+	prTarget = containsAny(s, "pull request", "/pull/", "this pr", "the pr") || containsWord(s, "pr")
+	reviewTarget = containsAny(s, "review comment", "review thread", "codex comment", "coderabbit comment", "comments in this pr", "comments on this pr")
+	mutation = containsAny(s, "fix", "resolve", "address", "implement", "modify", "edit", "update", "change", "refactor", "push")
+	return prTarget, reviewTarget, mutation
+}
+
+func containsWord(s, word string) bool {
+	for _, field := range strings.FieldsFunc(s, func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_')
+	}) {
+		if field == word {
+			return true
+		}
+	}
+	return false
+}
+
 func containsAny(s string, subs ...string) bool {
 	for _, sub := range subs {
 		if strings.Contains(s, sub) {
@@ -536,6 +573,16 @@ func cmdProviders() {
 	fmt.Printf("%-14s  %-18s  %s\n", "provider", "status", "models")
 	fmt.Printf("%-14s  %-18s  %s\n", "──────────────", "──────────────────", "──────────────────────")
 	configured := 0
+	if auth := codexCLIAuthentication(); auth != codexAuthNone {
+		status := "authenticated (cli)"
+		if auth == codexAuthChatGPT {
+			status = "ChatGPT (cli)"
+		} else if auth == codexAuthAPIKey {
+			status = "API key (cli)"
+		}
+		fmt.Printf("%-14s  %-18s  %s\n", "Codex", status, "codex")
+		configured++
+	}
 	for _, p := range knownProviders {
 		models := catalogModelDescription(p.provider)
 		// Anthropic: check subscription mode before API key
@@ -712,6 +759,17 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 			addBuiltin(model, modelExecutor)
 		}
 	}
+	if auth := codexCLIAuthentication(); auth != codexAuthNone {
+		if model, ok := catalog.ByName("codex"); ok {
+			if auth == codexAuthChatGPT {
+				addBuiltin(model, executor.NewCodexCLIExecutor())
+			} else {
+				model.CostPer1kInputUnknown = true
+				model.CostPer1kOutputUnknown = true
+				addBuiltin(model, executor.NewCodexCLIExecutorWithUnknownCost())
+			}
+		}
+	}
 	if key := providerKeys["openrouter"]; key != "" {
 		home, homeErr := os.UserHomeDir()
 		if homeErr == nil && home != "" {
@@ -757,6 +815,38 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 		return nil, fmt.Errorf("no providers configured — run 'veto login' or set ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY / XAI_API_KEY")
 	}
 	return reg, nil
+}
+
+type codexAuthMode string
+
+const (
+	codexAuthNone    codexAuthMode = ""
+	codexAuthChatGPT codexAuthMode = "chatgpt"
+	codexAuthAPIKey  codexAuthMode = "api-key"
+	codexAuthUnknown codexAuthMode = "unknown"
+)
+
+func codexCLIAuthentication() codexAuthMode {
+	path, err := osexec.LookPath("codex")
+	if err != nil {
+		return codexAuthNone
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := osexec.CommandContext(ctx, path, "login", "status")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return codexAuthNone
+	}
+	status := strings.ToLower(string(out))
+	switch {
+	case strings.Contains(status, "chatgpt"):
+		return codexAuthChatGPT
+	case strings.Contains(status, "api key"), strings.Contains(status, "api-key"):
+		return codexAuthAPIKey
+	default:
+		return codexAuthUnknown
+	}
 }
 
 // loadDisabledModels reads the "disabled_models" list from ~/.veto/config.json.

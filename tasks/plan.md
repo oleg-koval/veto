@@ -87,6 +87,25 @@ Authoritative catalog -> documentation consistency -> beta release
 - [x] Task 17: Prepare a manual fresh-user trial protocol; record external trials as pending until real users complete them.
 - [x] Task 18: Add an opt-in account-level model verification command with redacted, reproducible response captures.
 
+### Phase 6: Reliable agentic repository execution
+
+- [ ] Task 19: Infer executable-runtime requirements from explicit repository mutation objectives and filter text-only transports before admission.
+- [ ] Task 20: Make Claude subscription admission structured, customization-free, and independently timeout-bounded.
+- [ ] Task 21: Give agentic `run` executions a practical default deadline and cover the exact PR-fix flow with a fake CLI integration test.
+- [ ] Task 22: Require live inline-thread verification for pull-request review-fix executions.
+- [ ] Task 23: Keep batch PR-review remediation off small-model routing after demonstrated false completion.
+- [ ] Task 24: Allow enough wall time for repositories with mandatory test and AI-review push gates.
+- [ ] Task 25: Kill the complete subscription CLI process tree when a run times out.
+- [ ] Task 26: Register an authenticated Codex CLI as a native ChatGPT-subscription agent runtime.
+
+### Checkpoint: Agentic execution
+
+- [ ] The reported PR-fix objective qualifies executable runtimes only.
+- [ ] Claude admission returns schema-valid JSON without project hooks, skills, or tools.
+- [ ] Codex subscription admission is isolated and full execution retains the caller's repository policy.
+- [ ] PR review-fix execution cannot infer zero findings from summary views that omit inline threads.
+- [ ] Focused tests, race suite, vet, build, onboarding smoke, and the exact live command pass.
+
 ### Checkpoint: Complete
 
 - [x] Full race suite, vet, build, offline evaluation, and onboarding smoke tests pass.
@@ -103,6 +122,9 @@ Authoritative catalog -> documentation consistency -> beta release
 | Synthetic benchmark is mistaken for product proof | High | Label it mechanics validation; require real labeled trials for calibration claims. |
 | Historical outcomes poison unrelated task kinds | Medium | Key statistics by model and kind with model-level legacy fallback. |
 | Existing local models lose claimed tools | Medium | Document intentional correction; only advertise tools an executor can invoke. |
+| Mutation inference accidentally excludes content-only tasks | Medium | Require explicit repository side-effect signals and keep ordinary code generation text-capable. |
+| Claude customizations corrupt admission output | High | Use safe mode, disabled tools, no persistence, and native JSON schema only for admission. |
+| Agentic execution exceeds the old two-minute deadline | High | Separate a short admission deadline from a practical total run deadline; keep both user-configurable. |
 | Release workflow creates external state | High | Prepare workflow only; require explicit approval before tag/publish. |
 | User-owned dirty changes are overwritten | High | Avoid reverting or replacing current catalog edits; inspect overlaps before every patch. |
 

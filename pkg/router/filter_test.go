@@ -94,6 +94,19 @@ func TestHasRequiredTools(t *testing.T) {
 	assert.True(t, hasRequiredTools(m, nil))
 }
 
+func TestHardFilterRequiresExecutableRuntime(t *testing.T) {
+	task := TaskSpec{RequiresExecutableTools: true}
+	models := []ModelCapabilities{
+		{Name: "text-only", SupportsTools: []string{}},
+		{Name: "claude-cli", SupportsTools: []string{"bash", "read", "write", "edit"}},
+		{Name: "agent-runtime", SupportsTools: nil},
+	}
+
+	got := HardFilter(task, models)
+	assert.Equal(t, []string{"claude-cli", "agent-runtime"}, []string{got[0].Name, got[1].Name})
+	assert.Equal(t, ReasonMissingTool, FilterReason(models[0], task))
+}
+
 func TestEstimatedCost(t *testing.T) {
 	m := ModelCapabilities{CostPer1kInputUSD: 0.01, CostPer1kOutputUSD: 0.01}
 	// 1000 input tokens * 0.01 + 100 output tokens (10%) * 0.01 = 0.011

@@ -51,8 +51,8 @@ authorization before expanding the task.
 ## Preserve transport and output boundaries
 
 - HTTP API and local OpenAI-compatible transports return text through Veto and
-  cannot inspect files or run shell commands. The Claude CLI transport is the
-  current executable-tool path.
+  cannot inspect files or run shell commands. Authenticated Claude, Codex,
+  OpenCode, and Hermes agent runtimes can expose executable tools.
 - Keep generated content on stdout unless the user requested a file. Use an
   explicit relative `--output` path, and use `--force` only when replacing that
   exact file is authorized.

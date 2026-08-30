@@ -61,6 +61,17 @@ func catalog() []ModelCapabilities {
 			Weaknesses:         []TaskKind{},
 		},
 		{
+			Name:               "codex",
+			Provider:           "codex",
+			APIModel:           "default",
+			Tier:               tierLarge,
+			SupportsTools:      []string{toolBash, toolRead, "write", "edit", "web-search"},
+			CostPer1kInputUSD:  0,
+			CostPer1kOutputUSD: 0,
+			Strengths:          []TaskKind{KindCodeChange, KindReview, KindRefactor, KindDebug, KindPlan},
+			Weaknesses:         []TaskKind{},
+		},
+		{
 			Name:               "gpt-4.1",
 			Provider:           "openai",
 			APIModel:           "gpt-4.1",
