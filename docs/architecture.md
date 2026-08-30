@@ -423,7 +423,7 @@ pass. See [ADR-004](decisions/ADR-004-automated-releases-and-consented-updates.m
 
 ## Credential storage
 
-`veto login` stores API keys in `~/.veto/credentials.json` (mode 0600, JSON object of `ENV_KEY → value`). At runtime, environment variables take precedence — the credentials file is only consulted when the env var is absent.
+`veto login` stores API keys in `~/.veto/credentials.json` (mode 0600, JSON object of `ENV_KEY → value`). At runtime, environment variables take precedence — the credentials file is only consulted when the env var is absent. OpenRouter browser login uses its documented S256 PKCE flow, an ephemeral IPv4 loopback listener, and a random callback-path nonce. Only the exchanged Veto-owned key is persisted; the verifier, authorization code, and callback nonce remain in memory. Manual key entry remains supported.
 
 Local model definitions are stored separately in `~/.veto/models.json` (mode 0600, JSON array of `LocalModel`). `saveLocalModel` replaces by name if the name already exists. `veto logout` removes entries from either file: API keys via `removeCredential`, local models via `removeLocalModel`. Both interactive (menu) and non-interactive (`veto logout <name>`) modes are supported.
 

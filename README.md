@@ -180,6 +180,14 @@ For Anthropic, veto asks whether you use a **subscription** (Claude Max / Pro) o
 
 For subscription mode, veto verifies the `claude` CLI is present and saves a `CLAUDE_SUBSCRIPTION=true` marker. For API key mode, it opens the keys page in your browser and stores the key (masked input) at `~/.veto/credentials.json` (mode 0600).
 
+For OpenRouter, `veto login` recommends browser authorization. Veto binds an
+ephemeral `127.0.0.1` callback, uses S256 PKCE plus an unguessable callback-path
+nonce, exchanges the one-time code, and stores only the returned API key. The
+flow times out after two minutes and can be cancelled safely. Manual API-key
+paste remains available as option 2. `veto logout OPENROUTER_API_KEY` removes
+only Veto's stored credential; it does not alter other keys in your OpenRouter
+account.
+
 For local / self-hosted models, choose option 5. veto guides you through three paths:
 
 - **Ollama** — veto checks if Ollama is installed, lets you pick a model from a curated list (Qwen 2.5 Coder, Llama 3.2, Mistral), pulls it, and registers the model automatically. At inference time, if `ollama serve` isn't running, veto starts it in the background and waits up to 5s for it to become ready — no manual server management needed. Install Ollama from its official distribution instructions; veto does not execute a remote install script.
@@ -549,7 +557,7 @@ automatically. See [the event schema](docs/event-ledger.md).
 | Anthropic (subscription) | `haiku`, `sonnet`, `opus` | `CLAUDE_SUBSCRIPTION=true` + `claude` CLI logged in |
 | Anthropic (API key) | `haiku`, `sonnet`, `opus` | `ANTHROPIC_API_KEY` |
 | OpenAI | `gpt-4.1`, `gpt-4.1-mini`, `sol`, `terra`, `luna` | `OPENAI_API_KEY` |
-| OpenRouter | built-in fallback plus the validated dynamic catalog | `OPENROUTER_API_KEY` |
+| OpenRouter | built-in fallback plus the validated dynamic catalog | `veto login` browser OAuth or `OPENROUTER_API_KEY` |
 | xAI (Grok) | `grok-4.5`, `grok-4.3`, `grok-3`, `grok-3-mini` | `XAI_API_KEY` |
 | Local / self-hosted | any name you choose | `veto login` → option 5 (guided Ollama install, LM Studio, or manual) |
 
