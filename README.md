@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://oleg-koval.github.io/veto/"><img src="./site/assets/logo.svg" width="120" height="120" alt="Veto logo"></a>
+  <a href="https://veto.olegkoval.com/"><img src="./site/assets/logo.svg" width="120" height="120" alt="Veto logo"></a>
 </p>
 
 <p align="center">
@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="https://oleg-koval.github.io/veto/">Website</a> ·
+  <a href="https://veto.olegkoval.com/">Website</a> ·
   <a href="https://github.com/oleg-koval/veto/releases/latest">Latest release</a> ·
   <a href="docs/architecture.md">Architecture</a>
 </p>

@@ -8,7 +8,7 @@
   <meta name="author" content="Oleg Koval">
   <meta name="theme-color" content="#071014">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'">
-  <link rel="canonical" href="https://oleg-koval.github.io/veto/">
+  <link rel="canonical" href="https://veto.olegkoval.com/">
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/logo.png">
   <link rel="stylesheet" href="styles.css">
@@ -16,15 +16,15 @@
   <meta property="og:site_name" content="Veto">
   <meta property="og:title" content="Veto — the model should earn the task">
   <meta property="og:description" content="Cost-aware AI model routing with explicit model admission.">
-  <meta property="og:url" content="https://oleg-koval.github.io/veto/">
-  <meta property="og:image" content="https://oleg-koval.github.io/veto/assets/social-card.png">
+  <meta property="og:url" content="https://veto.olegkoval.com/">
+  <meta property="og:image" content="https://veto.olegkoval.com/assets/social-card.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Veto logo and Homebrew installation command">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Veto — the model should earn the task">
   <meta name="twitter:description" content="Cost-aware AI model routing with explicit model admission.">
-  <meta name="twitter:image" content="https://oleg-koval.github.io/veto/assets/social-card.png">
+  <meta name="twitter:image" content="https://veto.olegkoval.com/assets/social-card.png">
   <title>Veto — cost-aware AI model routing</title>
 </head>
 <body>
@@ -76,11 +76,41 @@
 
     <section class="section" id="how">
       <div class="shell">
-        <div class="section-head"><p class="eyebrow">How it works</p><h2>From roster to one viable route.</h2></div>
-        <div class="steps">
-          <article class="step"><h3>Connect providers</h3><p>Use API-backed providers, Claude subscription mode, or local OpenAI-compatible models.</p></article>
-          <article class="step"><h3>Describe the task</h3><p>Set kind, risk, timeout, and optional cost or acceptance constraints.</p></article>
-          <article class="step"><h3>Inspect the decision</h3><p>Read the terminal trace or consume one JSON result line in automation.</p></article>
+        <div class="section-head"><p class="eyebrow">How it works</p><h2>One task. A rehearsed admission gate.</h2><p>Illustrative route: Veto narrows the roster, asks the survivors, and only then hands execution to the selected model.</p></div>
+        <div class="route-demo" data-route-demo>
+          <div class="route-visual" aria-hidden="true">
+            <div class="route-track"><span></span></div>
+            <ol class="route-stages">
+              <li class="route-stage" data-stage="1"><span class="stage-mark">01</span><strong>Task enters</strong><span class="stage-detail">review this pull request</span></li>
+              <li class="route-stage" data-stage="2"><span class="stage-mark">02</span><strong>Deterministic filters</strong><span class="stage-detail">capability · cost · constraints</span></li>
+              <li class="route-stage" data-stage="3"><span class="stage-mark">03</span><strong>Ask viable models</strong><span class="stage-detail">structured accept / reject</span></li>
+              <li class="route-stage" data-stage="4"><span class="stage-mark">04</span><strong>Choose a model</strong><span class="stage-detail">accepted · sufficient confidence</span></li>
+              <li class="route-stage route-stage--execution" data-stage="5"><span class="stage-mark">05</span><strong>Execute separately</strong><span class="stage-detail">explicit run or exec step</span></li>
+            </ol>
+            <div class="route-packet"><span class="packet-dot"></span><span>task</span></div>
+            <div class="filter-lanes">
+              <span class="lane lane--pass">luna <b>pass</b></span>
+              <span class="lane lane--pass">terra <b>pass</b></span>
+              <span class="lane lane--drop">sol <b>tools</b></span>
+            </div>
+            <div class="admission-readout"><span>luna</span><b>reject</b><span>terra</span><b class="readout-accept">accept · 91%</b></div>
+            <div class="selection-readout"><span class="selection-arrow">→</span><span>selected: <b>terra</b></span></div>
+            <div class="execution-readout"><span>route complete</span><b>run explicitly</b></div>
+          </div>
+          <div class="route-copy">
+            <div class="route-controls">
+              <button class="route-control" type="button" data-route-toggle aria-pressed="false">Pause sequence</button>
+              <button class="route-control route-control--quiet" type="button" data-route-replay>Replay</button>
+              <span class="route-status" data-route-status role="status" aria-live="polite">Sequence playing</span>
+            </div>
+            <ol class="route-explanation">
+              <li><strong>Task enters.</strong> An objective and its constraints become the routing input.</li>
+              <li><strong>Filters run first.</strong> Candidates lacking capability, exceeding the estimated cost ceiling, or violating constraints leave the roster without being asked.</li>
+              <li><strong>Viable models answer.</strong> Each survivor returns a structured accept/reject decision with confidence and reasons.</li>
+              <li><strong>One accepted model wins.</strong> Veto selects the first accepted candidate that clears the configured confidence threshold.</li>
+              <li><strong>Execution is explicit.</strong> Routing ends at the decision; <code>run</code> or <code>exec</code> starts the separate task.</li>
+            </ol>
+          </div>
         </div>
       </div>
     </section>
