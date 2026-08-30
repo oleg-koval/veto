@@ -22,6 +22,7 @@ update tests when behavior changes, then run:
 go test -race -timeout 120s ./...
 go vet ./...
 go build ./cmd/veto
+./scripts/agent-skill-smoke.sh
 release_dist=$(mktemp -d)
 ./scripts/package-release.sh v0.0.0 "${release_dist}"
 ```

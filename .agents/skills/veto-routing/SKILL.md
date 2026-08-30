@@ -1,6 +1,7 @@
 ---
 name: veto-routing
 description: Use the Veto CLI to select or execute AI models when a task needs multi-provider routing, structured accept or reject decisions, cost-aware dispatch, provider fallback, or Veto plan execution. Do not use for ordinary repository commands or generic model advice.
+compatibility: Requires shell access and the Veto CLI; compatible with Codex, Claude Code, OpenCode, and Hermes.
 ---
 
 # Veto routing
@@ -37,6 +38,15 @@ constraints. Treat `--max-cost` as an estimated preflight ceiling, not a billing
 guarantee. Do not retry the same paid route repeatedly. Interactive routing can
 resume checkpoints after interruption; `route --json` intentionally starts
 fresh, so rerun it only deliberately.
+
+## Keep orchestration bounded
+
+Veto is not a durable goal manager or an open-ended autonomous loop. `exec`
+runs a finite plan, `--criteria` performs one independent review after a run,
+and routing tries a bounded candidate set. Veto does not automatically revise a
+failed result until it passes or invent new steps to pursue a goal. Keep any
+outer agent loop bounded, make its stop condition explicit, and require fresh
+authorization before expanding the task.
 
 ## Preserve transport and output boundaries
 
