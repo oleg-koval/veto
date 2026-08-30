@@ -146,9 +146,9 @@ func Read(in io.Reader) ([]Event, int, error) {
 }
 
 var (
-	jsonCredentialPattern = regexp.MustCompile(`(?i)("(?:[a-z0-9_-]*api[_-]?key|authorization|access[_-]?token|token|password|cookie)"\s*:\s*")(?:bearer\s+)?[^"]*(")`)
+	jsonCredentialPattern = regexp.MustCompile(`(?i)("(?:[a-z0-9_-]*api[_-]?key|authorization|access[_-]?token|token|password|cookie)"\s*:\s*")(?:(?:\\.)|[^"\\])*(")`)
 	credentialPattern     = regexp.MustCompile(`(?i)\b([a-z0-9_-]*api[_-]?key|authorization|access[_-]?token|token|password|cookie)\b\s*[:=]\s*(?:bearer\s+)?[^\s,;]+`)
-	urlUserinfoPattern    = regexp.MustCompile(`(?i)(https?://[^:/@\s]+:)[^@\s]+(@)`)
+	urlUserinfoPattern    = regexp.MustCompile(`(?i)(https?://[^:/@\s]*:)[^@\s]+(@)`)
 	bearerPattern         = regexp.MustCompile(`(?i)\bbearer\s+[a-z0-9._~+/=-]+`)
 	knownKeyPattern       = regexp.MustCompile(`(?i)\b(?:sk-(?:ant-|or-)?|xai-)[a-z0-9._-]{4,}`)
 )

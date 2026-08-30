@@ -38,7 +38,9 @@ func TestRedactRemovesStructuredCredentialForms(t *testing.T) {
 	for _, detail := range []string{
 		`provider error: {"api_key":"plain-secret"}`,
 		`provider error: {"password": "plain-secret"}`,
+		`provider error: {"api_key":"prefix\"plain-secret"}`,
 		`request failed for https://user:plain-secret@example.com/v1`,
+		`request failed for https://:plain-secret@example.com/v1`,
 		`Cookie: session=plain-secret`,
 	} {
 		assert.NotContains(t, Redact(detail), "plain-secret", detail)
