@@ -46,6 +46,12 @@ func logoutInteractive() {
 			})
 		}
 	}
+	if _, configured, err := loadOpenCodeConfig(vetoCfgPath()); err == nil && configured {
+		items = append(items, item{
+			label:  "OpenCode runtime",
+			remove: func() error { return removeOpenCodeConfig(vetoCfgPath()) },
+		})
+	}
 	// local models
 	for _, lm := range locals {
 		lm := lm // capture
@@ -100,6 +106,21 @@ func logoutNonInteractive(arg string) {
 	// "subscription" → CLAUDE_SUBSCRIPTION
 	if strings.EqualFold(arg, "subscription") {
 		mustRemoveCredential("CLAUDE_SUBSCRIPTION", "subscription")
+		return
+	}
+	if strings.EqualFold(arg, "opencode") {
+		if _, configured, err := loadOpenCodeConfig(vetoCfgPath()); err != nil {
+			fmt.Fprintf(os.Stderr, "  Error: %v\n", err)
+			os.Exit(1)
+		} else if !configured {
+			fmt.Fprintln(os.Stderr, "  OpenCode is not connected.")
+			os.Exit(1)
+		}
+		if err := removeOpenCodeConfig(vetoCfgPath()); err != nil {
+			fmt.Fprintf(os.Stderr, "  Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("  Removed: OpenCode runtime")
 		return
 	}
 	// known env key → API-key provider

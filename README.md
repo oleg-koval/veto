@@ -188,6 +188,25 @@ paste remains available as option 2. `veto logout OPENROUTER_API_KEY` removes
 only Veto's stored credential; it does not alter other keys in your OpenRouter
 account.
 
+To reuse providers already connected in OpenCode, choose option 6 or run:
+
+```bash
+veto opencode connect                                      # CLI fallback
+veto opencode connect --server http://127.0.0.1:4096       # attach
+veto opencode connect --managed                            # Veto-managed server
+veto opencode status --json
+```
+
+Attach mode accepts only an explicit HTTP loopback URL and never scans ports.
+It obtains connected provider/model metadata from OpenCode's local API. CLI
+fallback uses the exact `opencode` executable found on `PATH` and the documented
+`--version` and `models` commands. Managed mode starts a password-protected
+loopback server to validate compatibility, then records that Veto should own
+the server lifecycle. Veto never reads or copies OpenCode's provider credential
+files. `veto opencode disconnect` (or `veto logout opencode`) removes only the
+Veto connection entry. This release discovers the runtime; routing and session
+execution through OpenCode are delivered in the next integration slice.
+
 For local / self-hosted models, choose option 5. veto guides you through three paths:
 
 - **Ollama** — veto checks if Ollama is installed, lets you pick a model from a curated list (Qwen 2.5 Coder, Llama 3.2, Mistral), pulls it, and registers the model automatically. At inference time, if `ollama serve` isn't running, veto starts it in the background and waits up to 5s for it to become ready — no manual server management needed. Install Ollama from its official distribution instructions; veto does not execute a remote install script.
@@ -258,8 +277,11 @@ veto doctor --fix
 provenance, official release checksum, `~/.veto` ownership/permissions and
 symlink shape, managed JSON, the OpenRouter catalog cache, local-model
 definitions, approved skill paths, and configured `claude`/`ollama`
-dependencies. It does not load providers,
-contact models, validate credentials, or print credential values. `--offline`
+dependencies. It also reports whether an optional OpenCode CLI/runtime is
+configured and compatible; CLI and managed checks run only `opencode
+--version`, while attach mode contacts only its explicit loopback endpoint. It
+does not call provider APIs, run model inference, validate credentials, or
+print credential values. `--offline`
 skips GitHub integrity lookup. `--fix` creates missing managed directories,
 corrects safe permissions, and can reinstall a corrupted official binary; it
 never rewrites malformed configuration, changes login state or skill
@@ -289,6 +311,10 @@ discovery can select it automatically or invoke it explicitly as
 `$veto-routing`.
 
 ### OpenCode
+
+Runtime connection (`veto opencode ...`) and agent-side skill discovery are
+separate. The runtime connection lets Veto discover OpenCode's connected
+models; the skill below teaches OpenCode when to call Veto.
 
 OpenCode discovers the shared `.agents/skills/veto-routing/SKILL.md` directly;
 no duplicate `.opencode/skills` copy or project configuration is required. Run
@@ -350,6 +376,7 @@ stop condition, authorization, and validation.
 | `veto verify-models` | Verify catalog IDs against one provider account |
 | `veto doctor` | Diagnose installation and local-state integrity; optionally repair safe problems |
 | `veto feedback` | Save a redacted report and prepare a GitHub issue |
+| `veto opencode <connect\|status\|disconnect>` | Manage an OpenCode runtime connection without copying credentials |
 | `veto version` | Print veto version |
 | `veto install-git-hook` | Add veto to your git workflow |
 

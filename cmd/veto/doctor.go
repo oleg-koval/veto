@@ -17,7 +17,9 @@ import (
 	"runtime/debug"
 	"sort"
 	"strings"
+	"time"
 
+	opencodert "github.com/oleg-koval/veto/pkg/opencode"
 	"github.com/oleg-koval/veto/pkg/openroutercatalog"
 	"github.com/oleg-koval/veto/pkg/router"
 )
@@ -101,6 +103,7 @@ type doctorDeps struct {
 	httpDo                   func(*http.Request) (*http.Response, error)
 	validateCandidate        func(string, string) error
 	inspectOpenRouterCatalog func(string) (openroutercatalog.Snapshot, error)
+	inspectOpenCode          func(opencodert.Config) (opencodert.Discovery, error)
 }
 
 func defaultDoctorDeps() doctorDeps {
@@ -120,6 +123,14 @@ func defaultDoctorDeps() doctorDeps {
 		validateCandidate: validateDoctorCandidateVersion,
 		inspectOpenRouterCatalog: func(path string) (openroutercatalog.Snapshot, error) {
 			return openroutercatalog.New("", path).Load(context.Background(), true)
+		},
+		inspectOpenCode: func(config opencodert.Config) (opencodert.Discovery, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if config.Mode == opencodert.ModeAttach {
+				return opencodert.Discover(ctx, config, opencodert.DefaultDependencies())
+			}
+			return opencodert.ProbeCLI(ctx, opencodert.DefaultDependencies())
 		},
 	}
 }
@@ -173,6 +184,7 @@ func runDoctor(options doctorOptions, deps doctorDeps) doctorReport {
 			doctorCheck{ID: "state.permissions", Status: doctorFail, Message: "state permissions cannot be inspected"},
 			doctorCheck{ID: "state.json", Status: doctorFail, Message: "state files cannot be inspected"},
 			doctorCheck{ID: "state.openrouter_catalog", Status: doctorFail, Message: "OpenRouter catalog cache cannot be inspected"},
+			doctorCheck{ID: "runtime.opencode", Status: doctorFail, Message: "OpenCode runtime cannot be inspected"},
 			doctorCheck{ID: "state.local_models", Status: doctorFail, Message: "local models cannot be inspected"},
 			doctorCheck{ID: "state.skill_approvals", Status: doctorFail, Message: "skill approvals cannot be inspected"},
 			doctorCheck{ID: "dependencies.cli", Status: doctorFail, Message: "configured CLI dependencies cannot be inspected"},
@@ -182,6 +194,7 @@ func runDoctor(options doctorOptions, deps doctorDeps) doctorReport {
 		checks = append(checks, checkDoctorState(root, options, deps)...)
 		checks = append(checks, checkDoctorJSON(root, deps))
 		checks = append(checks, checkDoctorOpenRouterCatalog(root, deps))
+		checks = append(checks, checkDoctorOpenCode(root, deps))
 		models, modelsErr := readDoctorModels(filepath.Join(root, "models.json"), deps.fs)
 		checks = append(checks, checkDoctorModels(models, modelsErr))
 		checks = append(checks, checkDoctorSkills(root, deps))
@@ -515,6 +528,47 @@ func checkDoctorOpenRouterCatalog(root string, deps doctorDeps) doctorCheck {
 		check.Message = fmt.Sprintf("%d cached OpenRouter model(s) are valid but stale", len(snapshot.Models))
 	}
 	return check
+}
+
+func checkDoctorOpenCode(root string, deps doctorDeps) doctorCheck {
+	path := filepath.Join(root, "config.json")
+	var config opencodert.Config
+	configured := false
+	info, err := deps.fs.Lstat(path)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return doctorCheck{ID: "runtime.opencode", Status: doctorFail, Message: "OpenCode connection config has an unsafe file shape"}
+		}
+		data, readErr := readDoctorFileLimited(deps.fs, path, doctorStateFileMaxBytes)
+		if readErr != nil {
+			err = readErr
+		} else {
+			config, configured, err = decodeOpenCodeConfig(data)
+		}
+	} else if errors.Is(err, fs.ErrNotExist) {
+		err = nil
+	}
+	if err != nil {
+		return doctorCheck{ID: "runtime.opencode", Status: doctorFail, Message: "OpenCode connection config is invalid"}
+	}
+	if !configured {
+		if _, lookErr := deps.lookPath("opencode"); lookErr == nil {
+			return doctorCheck{ID: "runtime.opencode", Status: doctorWarn, Message: "OpenCode CLI is available but not connected to Veto"}
+		}
+		return doctorCheck{ID: "runtime.opencode", Status: doctorPass, Message: "OpenCode runtime is not configured"}
+	}
+	if deps.inspectOpenCode == nil {
+		return doctorCheck{ID: "runtime.opencode", Status: doctorFail, Message: "OpenCode runtime inspection is unavailable"}
+	}
+	discovery, err := deps.inspectOpenCode(config)
+	if err != nil {
+		return doctorCheck{ID: "runtime.opencode", Status: doctorFail, Message: fmt.Sprintf("configured OpenCode %s runtime is unhealthy: %v", config.Mode, err)}
+	}
+	message := fmt.Sprintf("OpenCode %s is available via %s", discovery.Version, config.Mode)
+	if config.Mode == opencodert.ModeAttach {
+		message += fmt.Sprintf(" with %d connected model(s)", len(discovery.Models))
+	}
+	return doctorCheck{ID: "runtime.opencode", Status: doctorPass, Message: message}
 }
 
 func readDoctorModels(path string, filesystem doctorFilesystem) ([]LocalModel, error) {
