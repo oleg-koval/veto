@@ -25,9 +25,12 @@ Every valid line contains:
 }
 ```
 
+`run_id` is unique to one Veto command invocation. `task_id` is the stable
+task correlation and may recur when the same task is routed again.
+
 Optional typed fields carry reason codes, confidence, estimates, known usage,
-known cost, known latency, and bounded error detail. Unknown usage, cost, and
-latency are omitted rather than serialized as zero.
+known cost, known latency, and bounded error detail. Unknown values are omitted
+rather than serialized as zero; accepted zero-cost estimates remain explicit.
 
 Event types are namespaced under `route`, `admission`, `execution`, `tool`,
 `approval`, `artifact`, `review`, and `goal`. New fields may be added within

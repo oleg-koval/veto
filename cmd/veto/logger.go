@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,11 +12,18 @@ import (
 	"github.com/oleg-koval/veto/pkg/router"
 )
 
-var eventLedger *ledger.Writer
+var (
+	eventLedger *ledger.Writer
+	eventRunID  string
+)
 
 // setupLogger opens today's log file, rotates old ones, and sets eventLedger.
 // Logs are written to ~/.veto/logs/veto-YYYY-MM-DD.log as JSON lines.
 func setupLogger() {
+	eventRunID, _ = ledger.NewRunID()
+	if eventRunID == "" {
+		eventRunID = fmt.Sprintf("run-%d-%d", os.Getpid(), time.Now().UnixNano())
+	}
 	home, _ := os.UserHomeDir()
 	logDir := filepath.Join(home, ".veto", "logs")
 	_ = os.MkdirAll(logDir, 0700)
@@ -45,7 +53,7 @@ func setupLogger() {
 }
 
 // logEvent writes a routing pipeline event as a structured JSON log line.
-func logEvent(runID, kind, risk string, e router.ProgressEvent) {
+func logEvent(taskID, kind, risk string, e router.ProgressEvent) {
 	if eventLedger == nil {
 		return
 	}
@@ -54,28 +62,34 @@ func logEvent(runID, kind, risk string, e router.ProgressEvent) {
 		return
 	}
 	event := ledger.Event{
-		RunID: runID, TaskID: runID, Type: eventType,
+		RunID: currentRunID(taskID), TaskID: taskID, Type: eventType,
 		TaskKind: kind, Risk: risk, Model: e.Model,
 		Reasons: append([]string(nil), e.Reasons...), Detail: e.Detail,
 	}
-	if e.Confidence > 0 {
+	if e.Kind == router.EventAskAccept {
 		event.Confidence = &e.Confidence
-	}
-	if e.EstTokens > 0 {
 		event.EstimatedTokens = &e.EstTokens
-	}
-	if e.EstCost > 0 {
 		event.EstimatedCostUSD = &e.EstCost
+	} else {
+		if e.Confidence > 0 {
+			event.Confidence = &e.Confidence
+		}
+		if e.EstTokens > 0 {
+			event.EstimatedTokens = &e.EstTokens
+		}
+		if e.EstCost > 0 {
+			event.EstimatedCostUSD = &e.EstCost
+		}
 	}
 	_ = eventLedger.Append(event)
 }
 
-func logExecution(runID string, eventType ledger.EventType, model router.ModelCapabilities, metrics router.ExecutionMetrics, detail string) {
+func logExecution(taskID string, eventType ledger.EventType, model router.ModelCapabilities, metrics router.ExecutionMetrics, detail string) {
 	if eventLedger == nil {
 		return
 	}
 	event := ledger.Event{
-		RunID: runID, TaskID: runID, Type: eventType, Model: model.Name,
+		RunID: currentRunID(taskID), TaskID: taskID, Type: eventType, Model: model.Name,
 		Runtime: model.Runtime, Status: metrics.Status, Detail: detail,
 	}
 	if metrics.UsageKnown {
@@ -92,13 +106,20 @@ func logExecution(runID string, eventType ledger.EventType, model router.ModelCa
 	_ = eventLedger.Append(event)
 }
 
-func logLifecycle(runID string, eventType ledger.EventType, status, detail string) {
-	if eventLedger == nil || runID == "" {
+func logLifecycle(taskID string, eventType ledger.EventType, status, detail string) {
+	if eventLedger == nil || taskID == "" {
 		return
 	}
 	_ = eventLedger.Append(ledger.Event{
-		RunID: runID, TaskID: runID, Type: eventType, Status: status, Detail: detail,
+		RunID: currentRunID(taskID), TaskID: taskID, Type: eventType, Status: status, Detail: detail,
 	})
+}
+
+func currentRunID(taskID string) string {
+	if eventRunID != "" {
+		return eventRunID
+	}
+	return taskID
 }
 
 func ledgerType(kind router.EventKind) (ledger.EventType, bool) {
