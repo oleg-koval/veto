@@ -25,13 +25,14 @@ jobs:
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
 
       # Tags created with GITHUB_TOKEN do not trigger tag-push workflows. An
       # explicit dispatch is allowed and keeps artifact publication separate.
       - name: Publish release artifacts
         if: ${{ steps.release.outputs.release_created }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           TAG_NAME: ${{ steps.release.outputs.tag_name }}
         run: |
           set -euo pipefail
