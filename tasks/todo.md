@@ -183,3 +183,11 @@
 **Verification:** the minimum-deadline regression test fails first, then passes; the live exact command completes without the 30-minute execution timeout.
 
 **Dependencies:** Task 23.
+
+## Task 25: Cancel the complete subscription CLI process tree
+
+**Acceptance criteria:** on Unix, a timed-out Claude execution cannot leave agent-spawned commands running after Veto reports failure; non-Unix behavior remains build-compatible.
+
+**Verification:** a fake CLI child-process regression test fails first, then proves the descendant no longer exists after cancellation.
+
+**Dependencies:** Task 24.

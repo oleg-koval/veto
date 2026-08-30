@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 )
 
@@ -52,7 +51,7 @@ func (e *CLIExecutor) executionArgs(prompt string) []string {
 
 // Run invokes the CLI and returns stdout as the model's response.
 func (e *CLIExecutor) Run(ctx context.Context, prompt string) Result {
-	cmd := exec.CommandContext(ctx, e.binary, e.admissionArgs(prompt)...)
+	cmd := commandContext(ctx, e.binary, e.admissionArgs(prompt)...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -103,7 +102,7 @@ func parseClaudeStructuredResult(data []byte) (string, error) {
 // to the command line; the result still satisfies the same execution
 // contract, with provider usage and truncation remaining unknown.
 func (e *CLIExecutor) Execute(ctx context.Context, prompt string, _ ExecutionOptions) Result {
-	cmd := exec.CommandContext(ctx, e.binary, e.executionArgs(prompt)...)
+	cmd := commandContext(ctx, e.binary, e.executionArgs(prompt)...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -132,7 +131,7 @@ func (e *CLIExecutor) EffectiveTools() []string {
 // Stream invokes the CLI and pipes tokens directly to w as they arrive.
 // Returns an error if the process fails; output is already written to w on success.
 func (e *CLIExecutor) Stream(ctx context.Context, prompt string, w io.Writer) error {
-	cmd := exec.CommandContext(ctx, e.binary, e.executionArgs(prompt)...)
+	cmd := commandContext(ctx, e.binary, e.executionArgs(prompt)...)
 	cmd.Stdout = w
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

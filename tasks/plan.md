@@ -95,6 +95,7 @@ Authoritative catalog -> documentation consistency -> beta release
 - [ ] Task 22: Require live inline-thread verification for pull-request review-fix executions.
 - [ ] Task 23: Keep batch PR-review remediation off small-model routing after demonstrated false completion.
 - [ ] Task 24: Allow enough wall time for repositories with mandatory test and AI-review push gates.
+- [ ] Task 25: Kill the complete subscription CLI process tree when a run times out.
 
 ### Checkpoint: Agentic execution
 

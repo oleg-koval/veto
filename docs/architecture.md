@@ -407,6 +407,8 @@ candidates later.
 
 The timeout on `veto run` (default one hour) covers both routing and execution, unlike `veto route` which only times out the admission phase. `veto run --admission-timeout` separately bounds each admission attempt and defaults to 60 seconds. When the `CLIExecutor` (`claude -p`) is killed by a timeout, it distinguishes `"claude cli admission: timed out"` from `"claude cli execution: timed out"` rather than exposing the raw `"signal: killed"` from the subprocess.
 
+On Unix, subscription CLI processes run in a dedicated process group. On macOS and Linux, cancellation also snapshots and kills descendants that created their own process groups, so agent-spawned tests, hooks, and pushes cannot survive a Veto timeout and continue mutating the repository in the background. Other platforms retain group or standard process cancellation behavior.
+
 **Shared helper: `routeAndCaptureWithOptions`** — both `cmdRun` and `cmdExec` (for plan steps) share the execution helper in `run.go`. It wires `mgr.OnEvent`, calls `mgr.Route`, looks up the executor, calls its full `Execute` method with explicit options, and returns `(modelName, output, error)`. Internal conversion/review paths use the bounded default. This keeps each command's routing setup in one place (`prepareRouting`) and prevents admission and execution transports from drifting.
 
 **Pull-request review execution:** when an objective explicitly asks the executor to fix review comments on a pull request, `executionPrompt` adds a narrow live-verification contract. The executor must query GitHub inline `reviewThreads`, address and resolve the requested reviewer's unresolved threads, push when requested, and re-query before claiming completion. Ordinary tasks receive no added instructions.
