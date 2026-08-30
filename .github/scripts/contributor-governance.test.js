@@ -52,6 +52,7 @@ test('skips duplicate issue validation for the configured Release Please PR', as
 test('accepts same-repository issue links and rejects external or malformed links', () => {
   assert.deepEqual(governance.extractIssueReferences('Fixes #42', 'oleg-koval', 'veto'), { numbers: [42], malformed: false });
   assert.deepEqual(governance.extractIssueReferences('Fixes oleg-koval/veto#43', 'oleg-koval', 'veto'), { numbers: [43], malformed: false });
+  assert.deepEqual(governance.extractIssueReferences('Release PR #23\nCloses #44', 'oleg-koval', 'veto'), { numbers: [44], malformed: false });
   assert.equal(governance.extractIssueReferences('Fixes https://github.com/other/repo/issues/42', 'oleg-koval', 'veto').malformed, true);
   assert.equal(governance.extractIssueReferences('Fixes #not-a-number', 'oleg-koval', 'veto').malformed, true);
 });

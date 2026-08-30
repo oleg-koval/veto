@@ -51,6 +51,7 @@ function trustedAutomationEntry(policy, pullRequest) {
 function extractIssueReferences(body, owner, repo) {
   const text = String(body || '');
   const references = new Set();
+  const closingReferences = new Set();
   let malformed = false;
   const urlPattern = /https?:\/\/github\.com\/([^/]+)\/([^/#]+)\/issues\/(\d+)/gi;
   for (const match of text.matchAll(urlPattern)) {
@@ -62,7 +63,9 @@ function extractIssueReferences(body, owner, repo) {
   const qualifiedPattern = new RegExp(`${owner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\/${repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}#(\\d+)`, 'gi');
   for (const match of text.matchAll(qualifiedPattern)) references.add(Number(match[1]));
   if (/(?:^|[\s([{:])#[A-Za-z][A-Za-z0-9_-]*/.test(text)) malformed = true;
-  return { numbers: [...references], malformed };
+  const closingPattern = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[^\n]*?(?:#(\d+)|\/issues\/(\d+))/gi;
+  for (const match of text.matchAll(closingPattern)) closingReferences.add(Number(match[1] || match[2]));
+  return { numbers: [...(closingReferences.size ? closingReferences : references)], malformed };
 }
 
 function extractAcceptanceCriteria(body) {
