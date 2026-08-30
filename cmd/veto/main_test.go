@@ -54,6 +54,28 @@ func TestProviderRegistryModelCapsUseEffectiveTransportTools(t *testing.T) {
 	}, got["api"].Identity())
 }
 
+func TestProviderRegistryModelCapsFiltersExactRuntime(t *testing.T) {
+	reg := &providerRegistry{
+		executors: map[string]executor.RuntimeAdapter{"direct": textOnlyTestExecutor{}, "open": runtimeTestExecutor{id: "opencode"}},
+		caps:      map[string]router.ModelCapabilities{"direct": {Name: "direct"}, "open": {Name: "open"}},
+	}
+
+	got := reg.modelCapsForRuntime("opencode")
+	if assert.Len(t, got, 1) {
+		assert.Equal(t, "open", got[0].Name)
+		assert.Equal(t, "opencode", got[0].Runtime)
+	}
+}
+
+type runtimeTestExecutor struct{ id string }
+
+func (r runtimeTestExecutor) Run(context.Context, string) executor.Result { return executor.Result{} }
+func (r runtimeTestExecutor) Execute(context.Context, string, executor.ExecutionOptions) executor.Result {
+	return executor.Result{}
+}
+func (r runtimeTestExecutor) RuntimeID() string      { return r.id }
+func (runtimeTestExecutor) EffectiveTools() []string { return nil }
+
 func TestRootHelpProcess(t *testing.T) {
 	if arg := os.Getenv("VETO_TEST_ROOT_HELP"); arg != "" {
 		os.Args = []string{"veto", arg}

@@ -228,6 +228,22 @@ attachment counts, usage, cost, failures, and cancellation map into Veto
 execution and ledger events. Prompts, tool arguments/output, paths, file
 contents, and provider response bodies are not placed in the event envelope.
 
+`integrations/opencode` embeds a self-contained local OpenCode plugin and four
+global command definitions in the Veto binary. The installer writes only its
+six managed files with private modes, refuses symlink-shaped targets and
+unapproved collisions, and uninstalls only checksum-identical content. The
+plugin's `chat.message` hook extracts bounded non-synthetic user text, invokes
+`veto route --json --runtime opencode` without a shell, validates an exact
+OpenCode routing identity, and mutates the pending message model. Errors are
+visible and fail open to the current OpenCode model.
+
+Recursion is blocked in two independent ways. Plugin-spawned Veto processes set
+`VETO_ROUTING_ORIGIN=opencode-plugin`, which OpenCode CLI descendants inherit,
+and attach-mode session events identify opaque `veto:*` titles as internal.
+All-synthetic continuations also bypass routing. `/veto-off` is a visible,
+in-memory per-session override; explicit `/veto-route` still works while it is
+off. The plugin exposes no permission hook and never approves a tool call.
+
 **Per-model disable/enable** — `buildProviderRegistry` calls `loadDisabledModels()` which reads `~/.veto/config.json` under the `"disabled_models"` key. Any model name found there is silently skipped when registering executors — it is invisible to the router and never appears as a candidate. `veto disable <model...>` adds names to this list; `veto enable <model...>` removes them. Both commands persist changes back to `config.json` and take effect on the next invocation.
 
 The optional `routing` section in `config.json` adds pinned/favorite/allowed
@@ -348,7 +364,7 @@ provider output-length termination as a failed truncated result.
 
 `--quiet` on `veto run` suppresses the routing animation entirely and prints only the model's output — making `veto run --quiet "..." > file` scriptable.
 
-`--json` on `veto route` is the stricter scripting mode for agent infrastructure. It implies `--quiet` and `--no-resume`, suppresses checkpoint prompts, and emits a single JSON object on stdout. Successful routes include `model`, `tier`, `kind`, `risk`, `complexity`, `confidence`, and `saved_usd`; no-candidate routes exit non-zero with `{"error":"no_candidate",...}` and include `provider_errors` when transports failed. Legitimate model rejections and hard-filter exhaustion omit that field.
+`--json` on `veto route` is the stricter scripting mode for agent infrastructure. It implies `--quiet` and `--no-resume`, suppresses checkpoint prompts, and emits a single JSON object on stdout. Successful routes include `model`, stable `source`/`provider`/`api_model`/`runtime` identity, `tier`, `kind`, `risk`, `complexity`, `confidence`, and `saved_usd`. `--runtime` restricts the effective registry before admission so a host integration never selects a model it cannot execute. No-candidate routes exit non-zero with `{"error":"no_candidate",...}` and include `provider_errors` when transports failed. Legitimate model rejections and hard-filter exhaustion omit that field.
 
 The `veto route --timeout` value is a per-model admission deadline. A transport
 failure is logged with its normalized detail and consumes one of the three

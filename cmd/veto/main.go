@@ -110,7 +110,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  verify-models      verify catalog IDs against one provider account")
 	fmt.Fprintln(o, "  doctor             diagnose installation and ~/.veto integrity")
 	fmt.Fprintln(o, "  feedback           prepare a redacted bug, feature, or optimization report")
-	fmt.Fprintln(o, "  opencode           connect, inspect, or disconnect an OpenCode runtime")
+	fmt.Fprintln(o, "  opencode           connect a runtime or install the OpenCode integration")
 	fmt.Fprintln(o, "  providers          show which providers are configured")
 	fmt.Fprintln(o, "  version            print veto version")
 	fmt.Fprintln(o, "  install-git-hook   add veto to your git workflow")
@@ -129,6 +129,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  --quiet     print only the selected model name — useful in scripts")
 	fmt.Fprintln(o, "  --json      print one JSON result line — implies --quiet and --no-resume")
 	fmt.Fprintln(o, "  --no-resume ignore a saved checkpoint and start fresh")
+	fmt.Fprintln(o, "  --runtime   route only through one runtime adapter, e.g. opencode")
 	fmt.Fprintln(o, "  --dashboard open a live routing view in your browser")
 	fmt.Fprintln(o, "  --criteria  comma-separated acceptance criteria; run a QA review after execution")
 	fmt.Fprintln(o)
@@ -173,6 +174,7 @@ func cmdRoute(args []string) {
 	quiet := fs.Bool("quiet", false, "suppress routing animation (useful in scripts)")
 	jsonOut := fs.Bool("json", false, "emit the routing result as a single JSON line (implies --quiet and --no-resume; ideal for scripting/agent infra)")
 	noResume := fs.Bool("no-resume", false, "ignore any saved checkpoint and start fresh")
+	runtimeFilter := fs.String("runtime", "", "route only through one runtime adapter (for example: opencode)")
 	dashFlag := fs.Bool("dashboard", false, "watch routing live in a local web page")
 	_ = fs.Parse(args)
 
@@ -210,7 +212,11 @@ func cmdRoute(args []string) {
 	}
 
 	// checkpoint: resume interrupted routing sessions
-	hash := taskHash(objective, kind, *risk, *maxCost)
+	hashObjective := objective
+	if *runtimeFilter != "" {
+		hashObjective += "\x00runtime=" + *runtimeFilter
+	}
+	hash := taskHash(hashObjective, kind, *risk, *maxCost)
 	cp := &Checkpoint{Hash: hash, Objective: objective}
 	if !*noResume {
 		if saved, ok := loadCheckpoint(hash); ok {
@@ -235,7 +241,7 @@ func cmdRoute(args []string) {
 	ctx := sigCtx
 
 	// only route across models whose provider is configured
-	modelReg := router.NewRegistryFromModels(reg.modelCaps())
+	modelReg := router.NewRegistryFromModels(reg.modelCapsForRuntime(*runtimeFilter))
 	gate := router.NewAdmissionGateWithFactory(reg)
 	gate.SetTimeout(*timeout)
 	// FileStore persists accept/reject history so it compounds across runs and
@@ -358,6 +364,10 @@ func cmdRoute(args []string) {
 
 type routeJSONSuccess struct {
 	Model      string  `json:"model"`
+	Source     string  `json:"source"`
+	Provider   string  `json:"provider"`
+	APIModel   string  `json:"api_model"`
+	Runtime    string  `json:"runtime"`
 	Tier       string  `json:"tier"`
 	Kind       string  `json:"kind"`
 	Risk       string  `json:"risk"`
@@ -382,6 +392,10 @@ type routeJSONProviderError struct {
 func printRouteJSONSuccess(w io.Writer, model router.ModelCapabilities, kind, risk, complexity string, confidence, savedUSD float64) {
 	_ = json.NewEncoder(w).Encode(routeJSONSuccess{
 		Model:      model.Name,
+		Source:     model.Source,
+		Provider:   model.Provider,
+		APIModel:   model.Identity().Model,
+		Runtime:    model.Runtime,
 		Tier:       model.Tier,
 		Kind:       kind,
 		Risk:       risk,
@@ -599,6 +613,13 @@ func (r *providerRegistry) For(name string) (router.Executor, bool) {
 
 // modelCaps returns the capability list for all configured models (built-ins + locals).
 func (r *providerRegistry) modelCaps() []router.ModelCapabilities {
+	return r.modelCapsForRuntime("")
+}
+
+// modelCapsForRuntime returns effective capabilities, optionally restricted to
+// one execution runtime. Runtime integrations use this to avoid selecting a
+// model that their host cannot execute.
+func (r *providerRegistry) modelCapsForRuntime(runtimeID string) []router.ModelCapabilities {
 	caps := make([]router.ModelCapabilities, 0, len(r.caps))
 	for name, c := range r.caps {
 		c.Runtime = ""
@@ -610,6 +631,9 @@ func (r *providerRegistry) modelCaps() []router.ModelCapabilities {
 			} else {
 				c.SupportsTools = append([]string{}, exec.EffectiveTools()...)
 			}
+		}
+		if runtimeID != "" && c.Runtime != runtimeID {
+			continue
 		}
 		caps = append(caps, c)
 	}

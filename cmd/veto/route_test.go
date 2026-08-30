@@ -64,7 +64,7 @@ func TestSavingsVsOpus(t *testing.T) {
 func TestPrintRouteJSONSuccess(t *testing.T) {
 	var out bytes.Buffer
 	printRouteJSONSuccess(&out, router.ModelCapabilities{
-		Name: "sonnet",
+		Name: "sonnet", Source: "builtin", Provider: "anthropic", APIModel: "claude-sonnet", Runtime: "opencode",
 		Tier: "mid",
 	}, "code-change", "medium", "moderate", 0.937, 0.0123)
 
@@ -72,6 +72,10 @@ func TestPrintRouteJSONSuccess(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out.Bytes(), &got))
 	assert.Equal(t, routeJSONSuccess{
 		Model:      "sonnet",
+		Source:     "builtin",
+		Provider:   "anthropic",
+		APIModel:   "claude-sonnet",
+		Runtime:    "opencode",
 		Tier:       "mid",
 		Kind:       "code-change",
 		Risk:       "medium",

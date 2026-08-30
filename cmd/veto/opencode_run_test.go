@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,54 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestOpenCodeRouteProcess(t *testing.T) {
+	if os.Getenv("VETO_TEST_OPENCODE_ROUTE") != "1" {
+		return
+	}
+	cmdRoute([]string{"--json", "--runtime", "opencode", "--kind", "plan", "Create a short plan"})
+}
+
+func TestRouteRuntimeFilterEmitsExecutableOpenCodeIdentityAndMarker(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	home := t.TempDir()
+	bin := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".veto"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".veto", "config.json"), []byte(`{"opencode":{"mode":"cli"}}`), 0600))
+	script := `#!/bin/sh
+case "$1" in
+  --version) echo 1.18.5 ;;
+  models) echo openai/gpt-4.1 ;;
+  run)
+    printf '%s' "$VETO_ROUTING_ORIGIN" > "$HOME/marker"
+    printf '%s\n' '{"type":"text","sessionID":"ses_admission","part":{"id":"prt_admission","text":"{\"accept\":true,\"confidence\":0.99,\"reason_codes\":[],\"estimated_tokens\":50,\"estimated_cost_usd\":0.001,\"suggested_alternative_model\":\"\",\"required_task_changes\":[]}"}}'
+    ;;
+  *) exit 2 ;;
+esac
+`
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "opencode"), []byte(script), 0700))
+	command := exec.Command(os.Args[0], "-test.run=^TestOpenCodeRouteProcess$")
+	command.Env = []string{
+		"VETO_TEST_OPENCODE_ROUTE=1",
+		"VETO_ROUTING_ORIGIN=opencode-plugin",
+		"HOME=" + home,
+		"PATH=" + bin,
+	}
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, string(output))
+	var decision routeJSONSuccess
+	require.NoError(t, json.Unmarshal([]byte(strings.SplitN(string(output), "\n", 2)[0]), &decision), string(output))
+	assert.Equal(t, "opencode:openai/gpt-4.1", decision.Model)
+	assert.Equal(t, "opencode", decision.Source)
+	assert.Equal(t, "openai", decision.Provider)
+	assert.Equal(t, "gpt-4.1", decision.APIModel)
+	assert.Equal(t, "opencode", decision.Runtime)
+	marker, err := os.ReadFile(filepath.Join(home, "marker"))
+	require.NoError(t, err)
+	assert.Equal(t, "opencode-plugin", string(marker))
+}
 
 func TestOpenCodeRunProcess(t *testing.T) {
 	if os.Getenv("VETO_TEST_OPENCODE_RUN") != "1" {
