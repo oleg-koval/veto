@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const (
@@ -39,6 +40,7 @@ type Client struct {
 	timeout          time.Duration
 	maxAge           time.Duration
 	maxResponseBytes int64
+	maxCacheBytes    int64
 	writeCache       func(string, persistedCache) error
 }
 
@@ -49,7 +51,8 @@ func New(apiKey, cachePath string) *Client {
 		apiKey: apiKey, cachePath: cachePath, endpoint: defaultEndpoint,
 		httpClient: newHTTPClient(), now: time.Now, timeout: defaultTimeout,
 		maxAge: defaultMaxAge, maxResponseBytes: defaultMaxResponseBytes,
-		writeCache: writeCacheFile,
+		maxCacheBytes: defaultMaxResponseBytes,
+		writeCache:    writeCacheFile,
 	}
 }
 
@@ -57,7 +60,7 @@ func New(apiKey, cachePath string) *Client {
 // When refresh fails, a valid stale cache remains usable and is returned.
 func (c *Client) Load(ctx context.Context, offline bool) (Snapshot, error) {
 	now := c.now().UTC()
-	cached, cacheErr := readCacheFile(c.cachePath, c.maxResponseBytes)
+	cached, cacheErr := readCacheFile(c.cachePath, c.maxCacheBytes)
 	if cacheErr == nil {
 		snapshot := snapshotFromCache(cached, now, c.maxAge, offline)
 		if offline || snapshot.State == StateFresh {
@@ -82,14 +85,15 @@ func (c *Client) Load(ctx context.Context, offline bool) (Snapshot, error) {
 		if cacheErr != nil {
 			return Snapshot{}, errors.New("openrouter catalog returned not-modified without a usable cache")
 		}
-		cached.FetchedAt = now
+		refreshed := cached
+		refreshed.FetchedAt = now
 		if responseETag != "" {
-			cached.ETag = responseETag
+			refreshed.ETag = responseETag
 		}
-		if err := c.writeCache(c.cachePath, cached); err != nil {
-			return snapshotFromCache(cachedWithTime(cached, cached.FetchedAt.Add(-c.maxAge-time.Nanosecond)), now, c.maxAge, false), nil
+		if err := c.writeCache(c.cachePath, refreshed); err != nil {
+			return snapshotFromCache(cached, now, c.maxAge, false), nil
 		}
-		return snapshotFromCache(cached, now, c.maxAge, false), nil
+		return snapshotFromCache(refreshed, now, c.maxAge, false), nil
 	}
 
 	updated := persistedCache{Version: cacheVersion, FetchedAt: now, ETag: responseETag, Models: models}
@@ -100,11 +104,6 @@ func (c *Client) Load(ctx context.Context, offline bool) (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("persist openrouter catalog: %w", err)
 	}
 	return snapshotFromCache(updated, now, c.maxAge, false), nil
-}
-
-func cachedWithTime(cache persistedCache, fetchedAt time.Time) persistedCache {
-	cache.FetchedAt = fetchedAt
-	return cache
 }
 
 func (c *Client) fetch(ctx context.Context, etag string) ([]Model, string, bool, error) {
@@ -231,6 +230,9 @@ func validateModel(raw rawModel) (Model, error) {
 	if raw.ID == "" || raw.Name == "" || len(raw.ID) > 512 || len(raw.Name) > 512 {
 		return Model{}, errors.New("openrouter catalog model identity is missing or too large")
 	}
+	if hasControl(raw.ID) || hasControl(raw.Name) {
+		return Model{}, errors.New("openrouter catalog model identity contains control characters")
+	}
 	if raw.ContextLength != nil && (*raw.ContextLength <= 0 || *raw.ContextLength > 100_000_000) {
 		return Model{}, errors.New("openrouter catalog context length is invalid")
 	}
@@ -263,8 +265,8 @@ func validateModel(raw rawModel) (Model, error) {
 	}
 	if raw.ExpirationDate != nil && strings.TrimSpace(*raw.ExpirationDate) != "" {
 		model.ExpirationDate = strings.TrimSpace(*raw.ExpirationDate)
-		if len(model.ExpirationDate) > 64 {
-			return Model{}, errors.New("openrouter catalog expiration date is too large")
+		if !validExpirationDate(model.ExpirationDate) {
+			return Model{}, errors.New("openrouter catalog expiration date is invalid")
 		}
 		model.Status = StatusScheduledForRemoval
 	}
@@ -300,7 +302,7 @@ func normalizeStrings(values []string) ([]string, error) {
 	result := make([]string, 0, len(values))
 	for _, value := range values {
 		value = strings.TrimSpace(value)
-		if value == "" || len(value) > 128 {
+		if value == "" || len(value) > 128 || hasControl(value) {
 			return nil, errors.New("openrouter catalog capability value is invalid")
 		}
 		if !seen[value] {
@@ -310,6 +312,19 @@ func normalizeStrings(values []string) ([]string, error) {
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+func validExpirationDate(value string) bool {
+	for _, layout := range []string{"2006-01-02", time.RFC3339} {
+		if _, err := time.Parse(layout, value); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func hasControl(value string) bool {
+	return strings.IndexFunc(value, unicode.IsControl) >= 0
 }
 
 func newHTTPClient() *http.Client {

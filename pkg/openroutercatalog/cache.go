@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -35,6 +37,9 @@ func snapshotFromCache(cache persistedCache, now time.Time, maxAge time.Duration
 func readCacheFile(path string, maxBytes int64) (persistedCache, error) {
 	if path == "" {
 		return persistedCache{}, errors.New("cache path is empty")
+	}
+	if pathHasSymlink(path) {
+		return persistedCache{}, errors.New("cache path contains a symbolic link")
 	}
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -75,20 +80,59 @@ func validateStoredModels(models []Model) ([]Model, error) {
 		return nil, errors.New("invalid model count")
 	}
 	seen := make(map[string]bool, len(models))
-	for _, model := range models {
-		if model.ID == "" || model.Name == "" || seen[model.ID] ||
-			(model.Status != StatusAvailable && model.Status != StatusScheduledForRemoval) {
+	for i := range models {
+		model := &models[i]
+		if strings.TrimSpace(model.ID) != model.ID || strings.TrimSpace(model.Name) != model.Name ||
+			model.ID == "" || model.Name == "" || len(model.ID) > 512 || len(model.Name) > 512 ||
+			hasControl(model.ID) || hasControl(model.Name) || seen[model.ID] ||
+			(model.Status != StatusAvailable && model.Status != StatusScheduledForRemoval) ||
+			(model.ContextLength != nil && (*model.ContextLength <= 0 || *model.ContextLength > 100_000_000)) ||
+			!validStoredPrice(model.PromptUSDPerToken) || !validStoredPrice(model.CompletionUSDPerToken) {
 			return nil, errors.New("invalid model")
+		}
+		var err error
+		model.InputModalities, err = normalizeStrings(model.InputModalities)
+		if err != nil {
+			return nil, err
+		}
+		model.OutputModalities, err = normalizeStrings(model.OutputModalities)
+		if err != nil {
+			return nil, err
+		}
+		model.SupportedParameters, err = normalizeStrings(model.SupportedParameters)
+		if err != nil {
+			return nil, err
+		}
+		if model.Status == StatusScheduledForRemoval && !validExpirationDate(model.ExpirationDate) {
+			return nil, errors.New("invalid expiration date")
+		}
+		if model.Status == StatusAvailable && model.ExpirationDate != "" {
+			return nil, errors.New("inconsistent model status")
 		}
 		seen[model.ID] = true
 	}
 	return models, nil
 }
 
+func validStoredPrice(price *float64) bool {
+	return price == nil || (!math.IsNaN(*price) && !math.IsInf(*price, 0) && *price >= 0)
+}
+
 func writeCacheFile(path string, cache persistedCache) error {
 	if path == "" {
 		return errors.New("cache path is empty")
 	}
+	if pathHasSymlink(path) {
+		return errors.New("cache path contains a symbolic link")
+	}
+	if cache.Version != cacheVersion || cache.FetchedAt.IsZero() || len(cache.ETag) > 512 {
+		return errors.New("cache is malformed")
+	}
+	models, err := validateStoredModels(cache.Models)
+	if err != nil {
+		return errors.New("cache is malformed")
+	}
+	cache.Models = models
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -106,6 +150,9 @@ func writeCacheFile(path string, cache persistedCache) error {
 	body, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
 		return err
+	}
+	if len(body) > defaultMaxResponseBytes {
+		return errors.New("cache is too large")
 	}
 	temp, err := os.CreateTemp(dir, ".openrouter-models-*.json")
 	if err != nil {
@@ -132,6 +179,20 @@ func writeCacheFile(path string, cache persistedCache) error {
 		return err
 	}
 	return nil
+}
+
+func pathHasSymlink(path string) bool {
+	clean := filepath.Clean(path)
+	for _, candidate := range []string{clean, filepath.Dir(clean), filepath.Dir(filepath.Dir(clean))} {
+		info, err := os.Lstat(candidate)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func replaceCacheFile(tempPath, path string) error {
