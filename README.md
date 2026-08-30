@@ -257,16 +257,19 @@ hermes plugins enable veto --no-allow-tool-override
 ```
 
 After restarting Hermes, `/veto`, `/models`, `/route <objective>`,
-`/cost <objective>`, and `/veto-off` are available. The plugin also registers
+`/cost <objective>`, and `/veto-off` are available. Automatic routing now runs
+for external user turns through Hermes' pre-agent turn middleware. Use
+`/veto-off` (or `/veto off`) to disable it for the current session, `/veto on`
+to re-enable it, and `/veto pin <provider>` to pin a provider. The plugin also registers
 the `veto_status`, `veto_route`, `veto_run`, `veto_models`, `veto_cost`, and
-`veto_cancel` tools. This first Hermes slice is explicit-only: automatic
-first-turn routing is not installed yet. `/veto-off` records the process-local
-preference that the next middleware slice will honor.
+`veto_cancel` tools.
 
 The plugin never reads Hermes credentials or overrides built-in tools. It runs
 Veto without a shell, bounds time and output, marks plugin-originated calls to
 prevent future recursion, and returns structured errors when Veto is absent or
-incompatible. Disable it with `hermes plugins disable veto` before
+incompatible. Internal calls and tool continuations bypass automatic routing;
+provider-resolution or Veto failures fail open to Hermes' configured route.
+Disable it with `hermes plugins disable veto` before
 `veto hermes plugin uninstall`; uninstall removes only unchanged Veto-owned
 files and does not edit Hermes configuration.
 

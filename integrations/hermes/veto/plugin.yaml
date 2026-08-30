@@ -1,6 +1,6 @@
 name: veto
 version: 0.1.0
-description: "Native Veto routing tools and slash commands for Hermes Agent. Explicit-only; automatic routing is a separate opt-in middleware feature."
+description: "Native Veto routing tools, commands, and bounded automatic turn routing for Hermes Agent."
 author: "Veto contributors"
 kind: standalone
 platforms:

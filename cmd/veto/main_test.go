@@ -67,6 +67,23 @@ func TestProviderRegistryModelCapsFiltersExactRuntime(t *testing.T) {
 	}
 }
 
+func TestProviderRegistryModelCapsFiltersProviderForHermesPin(t *testing.T) {
+	reg := &providerRegistry{
+		executors: map[string]executor.RuntimeAdapter{
+			"openai": textOnlyTestExecutor{},
+			"anthropic": textOnlyTestExecutor{},
+		},
+		caps: map[string]router.ModelCapabilities{
+			"openai": {Name: "openai", Provider: "openai"},
+			"anthropic": {Name: "anthropic", Provider: "anthropic"},
+		},
+	}
+	got := reg.modelCapsForRuntimeProvider("", "OPENAI")
+	if assert.Len(t, got, 1) {
+		assert.Equal(t, "openai", got[0].Name)
+	}
+}
+
 type runtimeTestExecutor struct{ id string }
 
 func (r runtimeTestExecutor) Run(context.Context, string) executor.Result { return executor.Result{} }

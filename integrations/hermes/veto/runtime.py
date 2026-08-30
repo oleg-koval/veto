@@ -168,6 +168,8 @@ class VetoRuntime:
         self.runner = runner or ProcessRunner()
         self._state_lock = threading.Lock()
         self._automatic_routing_preference = True
+        self._session_preferences: dict[str, dict[str, Any]] = {}
+        self._last_route: dict[str, dict[str, Any]] = {}
 
     def _invoke_json(self, arguments: list[str], timeout: float) -> dict[str, Any]:
         try:
@@ -192,11 +194,17 @@ class VetoRuntime:
 
     def status(self, _args: dict[str, Any], **_kwargs: Any) -> str:
         value = self._invoke_json(["hermes", "api", "--json"], 5)
+        session_id = self._session_id(_kwargs)
         with self._state_lock:
             preference = self._automatic_routing_preference
+            session = dict(self._session_preferences.get(session_id, {}))
+            last_route = dict(self._last_route.get(session_id, {}))
         routing_state = {
-            "automatic_routing": False,
+            "automatic_routing": preference and not session.get("disabled", False),
             "automatic_routing_preference": preference,
+            "session_id": session_id or None,
+            "session_preference": session,
+            "last_route": last_route or None,
         }
         if value.get("error") in {"veto_failed", "invalid_response"}:
             return _error(
@@ -229,18 +237,90 @@ class VetoRuntime:
         })
 
     @staticmethod
+    def _session_id(context: dict[str, Any]) -> str:
+        value = context.get("session_id")
+        return value.strip() if isinstance(value, str) else ""
+
+    def turn_route(self, route: dict[str, Any], **context: Any) -> dict[str, Any] | None:
+        """Route one external user turn through Veto before Hermes builds an agent.
+
+        The host supplies only public route metadata and session identity. The
+        callback never receives Hermes credentials or a provider client. Any
+        Veto failure is fail-open: Hermes keeps its original route.
+        """
+        if not isinstance(route, dict) or not isinstance(context.get("user_message"), str):
+            return None
+        if context.get("internal") or context.get("tool_continuation"):
+            return None
+        if context.get("is_user_turn") is False:
+            return None
+        session_id = self._session_id(context)
+        with self._state_lock:
+            preference = dict(self._session_preferences.get(session_id, {}))
+            enabled = self._automatic_routing_preference and not preference.get("disabled", False)
+        if not enabled:
+            return None
+        objective = context["user_message"].strip()
+        if not objective:
+            return None
+        args: dict[str, Any] = {"objective": objective}
+        pinned_provider = preference.get("provider")
+        if isinstance(pinned_provider, str) and pinned_provider:
+            args["provider"] = pinned_provider
+        value = self._route_for_turn(args)
+        if value.get("error"):
+            return None
+        provider = value.get("provider")
+        selected_model = value.get("api_model") or value.get("model")
+        if not isinstance(provider, str) or not provider.strip() or not isinstance(selected_model, str) or not selected_model.strip():
+            return None
+        selected = dict(route)
+        selected["model"] = selected_model.strip()
+        selected["provider"] = provider.strip()
+        selected["requested_provider"] = provider.strip()
+        runtime = dict(selected.get("runtime") or {})
+        runtime["provider"] = provider.strip()
+        runtime["requested_provider"] = provider.strip()
+        selected["runtime"] = runtime
+        trace = {
+            "source": "veto",
+            "reason": "automatic turn routing",
+            "provider": provider.strip(),
+            "model": selected_model.strip(),
+        }
+        with self._state_lock:
+            self._last_route[session_id] = trace
+        return {"route": selected, **trace}
+
+    def _route_for_turn(self, args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            # Automatic routing must not hold a user turn for the explicit
+            # command's full admission budget. A bounded 8s per-candidate
+            # timeout gives Veto a short, fail-open preflight window.
+            timeout = 8.0
+            command_args = self._routing_arguments(args, timeout)
+            return self._invoke_json(command_args, min(timeout * 3 + 5, 600))
+        except (ValueError, OSError):
+            return {"ok": False, "error": "routing_failed"}
+
+    @staticmethod
     def _routing_arguments(args: dict[str, Any], timeout: float) -> list[str]:
         objective = _objective(args)
         command = ["route", "--json", "--no-resume", "--timeout", f"{timeout:g}s"]
         kind = _choice(args, "kind", {"extract", "summarize", "code-change", "debug", "plan", "review", "refactor"})
         risk = _choice(args, "risk", {"low", "medium", "high"})
         max_cost = _number(args, "max_cost_usd", 0, 1000000)
+        provider = args.get("provider")
+        if provider is not None and (not isinstance(provider, str) or not provider.strip()):
+            raise ValueError("provider must be a non-empty string")
         if kind:
             command.extend(["--kind", kind])
         if risk:
             command.extend(["--risk", risk])
         if max_cost is not None:
             command.extend(["--max-cost", str(max_cost)])
+        if provider:
+            command.extend(["--provider", provider.strip()])
         command.extend(["--task", objective])
         return command
 
@@ -321,32 +401,49 @@ class VetoRuntime:
             return _error("not_active", "No active Veto execution has that ID.", execution_id=execution_id)
         return _encode({"ok": True, "cancelled": True, "execution_id": execution_id})
 
-    def _set_automatic(self, enabled: bool) -> str:
+    def _set_automatic(self, enabled: bool, session_id: str = "") -> str:
         with self._state_lock:
-            self._automatic_routing_preference = enabled
+            if session_id:
+                preference = self._session_preferences.setdefault(session_id, {})
+                preference["disabled"] = not enabled
+            else:
+                self._automatic_routing_preference = enabled
         state = "enabled" if enabled else "disabled"
-        return (
-            f"Veto automatic-routing preference is {state} for this Hermes process. "
-            "This plugin version is explicit-only; its tools remain available."
-        )
+        scope = f"session {session_id}" if session_id else "this Hermes process"
+        return f"Veto automatic routing is {state} for {scope}."
 
-    def command_veto(self, raw_args: str) -> str:
+    def _set_pin(self, provider: str | None, session_id: str) -> str:
+        if not session_id:
+            return "Veto provider pins require a session context."
+        with self._state_lock:
+            preference = self._session_preferences.setdefault(session_id, {})
+            if provider:
+                preference["provider"] = provider
+                return f"Veto will pin automatic routing to provider {provider} for session {session_id}."
+            preference.pop("provider", None)
+        return f"Veto provider pin cleared for session {session_id}."
+
+    def command_veto(self, raw_args: str, **context: Any) -> str:
+        session_id = self._session_id(context)
         action = raw_args.strip().lower()
         if action == "off":
-            return self._set_automatic(False)
+            return self._set_automatic(False, session_id)
         if action == "on":
-            return self._set_automatic(True)
+            return self._set_automatic(True, session_id)
+        if action.startswith("pin "):
+            provider = raw_args.strip()[4:].strip().lower()
+            return self._set_pin(None if provider in {"", "off", "none"} else provider, session_id)
         if action not in {"", "status"}:
-            return "Usage: /veto [status|on|off]"
-        value, error = self._command_value(self.status({}))
+            return "Usage: /veto [status|on|off|pin <provider>|pin off]"
+        value, error = self._command_value(self.status({}, **context))
         if error:
             return error
         preference = "on" if value.get("automatic_routing_preference") else "off"
         return (
             f"Veto {self._display(value.get('version', 'unknown'))} is ready "
             f"(plugin API {value.get('api_version', 'unknown')}). "
-            "Automatic routing is not active in this explicit-only plugin; "
-            f"the next-middleware preference is {preference}."
+            f"Automatic routing is {'active' if value.get('automatic_routing') else 'inactive'}; "
+            f"the session preference is {preference}."
         )
 
     def command_models(self, raw_args: str) -> str:
@@ -393,10 +490,10 @@ class VetoRuntime:
             estimate = "unavailable"
         return f"Estimated routing savings with {model}: {estimate}. This is not provider billing."
 
-    def command_off(self, raw_args: str) -> str:
+    def command_off(self, raw_args: str, **context: Any) -> str:
         if raw_args.strip():
             return "Usage: /veto-off"
-        return self._set_automatic(False)
+        return self._set_automatic(False, self._session_id(context))
 
     @staticmethod
     def _display(value: Any, limit: int = 96) -> str:
@@ -466,11 +563,11 @@ class VetoRuntime:
 
     @staticmethod
     def _safe_command(handler):
-        def wrapped(raw_args: str) -> str:
+        def wrapped(raw_args: str, **kwargs: Any) -> str:
             if not isinstance(raw_args, str):
                 return "The Veto command received invalid arguments."
             try:
-                return handler(raw_args)
+                return handler(raw_args, **kwargs)
             except Exception:
                 return "The Veto plugin could not complete this command safely."
 

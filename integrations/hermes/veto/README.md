@@ -1,9 +1,10 @@
 # Veto for Hermes Agent
 
-This native Hermes plugin exposes explicit Veto routing tools and slash
-commands. It does not read Hermes credentials, replace built-in tools, register
-permission hooks, or enable automatic routing. Automatic first-turn routing is
-a separate opt-in middleware feature planned for the next integration slice.
+This native Hermes plugin exposes Veto routing tools, slash commands, and
+bounded automatic routing for external user turns. Hermes remains the owner of
+credentials, provider clients, tools, and permissions; Veto only returns public
+model/provider selection metadata. Internal calls and tool continuations bypass
+automatic routing, and failures fall back to Hermes' configured route.
 
 Install and enable it with:
 
@@ -13,8 +14,11 @@ hermes plugins doctor veto --ci
 hermes plugins enable veto --no-allow-tool-override
 ```
 
-Restart Hermes, then use `/veto`, `/models`, `/route <objective>`,
-`/cost <objective>`, or `/veto-off`. Disable before uninstalling:
+Restart Hermes, then use `/veto`, `/models`, `/route <objective>`, or
+`/cost <objective>`. `/veto off` and `/veto-off` disable automatic routing for
+the current session; `/veto on` enables it again. Pin or clear a provider with
+`/veto pin <provider>` and `/veto pin off`. `/veto status` shows the latest
+decision trace. Disable before uninstalling:
 
 ```sh
 hermes plugins disable veto
