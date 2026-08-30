@@ -17,7 +17,7 @@ type Manager struct {
 	OnEvent       func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
 }
 
-// SetCandidatePreferences applies user-owned local filtering and ordering.
+// SetCandidatePreferences applies user-owned local filtering and ordering preferences.
 func (m *Manager) SetCandidatePreferences(preferences CandidatePreferences) {
 	m.preferences = preferences
 }

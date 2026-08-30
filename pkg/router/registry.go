@@ -2,12 +2,13 @@ package router
 
 import "context"
 
-// tool name constants used across registry and filter logic.
+// Tool name constants used across registry and filter logic.
 const (
 	toolBash = "bash"
 	toolRead = "read"
 )
 
+// Model tier constants classify model capability levels.
 const (
 	tierSmall = "small"
 	tierMid   = "mid"
@@ -223,7 +224,7 @@ func (r *Registry) All() []ModelCapabilities {
 	return out
 }
 
-// ByName returns the model with the given name, or false if not found.
+// ByName looks up a model by name and returns it with a success flag.
 func (r *Registry) ByName(name string) (ModelCapabilities, bool) {
 	for _, m := range r.models {
 		if m.Name == name {
@@ -233,8 +234,8 @@ func (r *Registry) ByName(name string) (ModelCapabilities, bool) {
 	return ModelCapabilities{}, false
 }
 
-// Signal returns historical routing data for a model+kind pair.
-// MVP stub: returns a neutral baseline; a real store replaces this in Phase 2.
+// Signal returns a neutral baseline for routing decisions when no history exists.
+// Real stores replace this with actual accumulated performance data.
 func (r *Registry) Signal(_ string, _ TaskKind) RoutingSignal {
 	return RoutingSignal{
 		HistoricalSuccessRate: 0.5,

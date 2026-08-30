@@ -28,6 +28,7 @@ func NewClaudeCLIExecutor(model string) *CLIExecutor {
 	}
 }
 
+// RuntimeID returns the executor's runtime identifier.
 func (*CLIExecutor) RuntimeID() string { return "claude-cli" }
 
 // Run invokes the CLI and returns stdout as the model's response.
@@ -64,8 +65,7 @@ func (e *CLIExecutor) Execute(ctx context.Context, prompt string, _ ExecutionOpt
 	return e.Run(ctx, prompt)
 }
 
-// EffectiveTools returns the tools claude -p can use during execution.
-// CLIExecutor is the only current executor that actually invokes tools.
+// EffectiveTools returns the tool set available in claude -p during execution.
 func (e *CLIExecutor) EffectiveTools() []string {
 	return []string{"bash", "read", "write", "edit"}
 }

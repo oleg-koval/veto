@@ -16,8 +16,8 @@ type CandidatePreferences struct {
 	ExcludedProviders []string
 }
 
-// Filter returns eligible models without mutating the input. Exclusions and
-// disables win, allowlists constrain independently, and any pin is exclusive.
+// Filter applies preference constraints to return eligible models without mutating the input.
+// Exclusions and disables win, allowlists constrain independently, and any pin is exclusive.
 func (p CandidatePreferences) Filter(models []ModelCapabilities) []ModelCapabilities {
 	out := make([]ModelCapabilities, 0, len(models))
 	for _, model := range models {
@@ -29,7 +29,7 @@ func (p CandidatePreferences) Filter(models []ModelCapabilities) []ModelCapabili
 	return out
 }
 
-// Prioritize stably promotes favorite models, then favorite providers.
+// Prioritize reorders candidates to promote favorite models first, then favorite providers.
 func (p CandidatePreferences) Prioritize(ranked []ModelCapabilities) []ModelCapabilities {
 	modelFavorites := make([]ModelCapabilities, 0, len(ranked))
 	providerFavorites := make([]ModelCapabilities, 0, len(ranked))

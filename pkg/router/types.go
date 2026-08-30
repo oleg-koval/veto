@@ -5,6 +5,7 @@ package router
 // TaskKind classifies the type of work in a task.
 type TaskKind string
 
+// TaskKind constants define the supported task classifications.
 const (
 	KindExtract    TaskKind = "extract"
 	KindSummarize  TaskKind = "summarize"
@@ -18,6 +19,7 @@ const (
 // Risk classifies the potential impact of a task.
 type Risk string
 
+// Risk level constants classify task impact.
 const (
 	RiskLow    Risk = "low"
 	RiskMedium Risk = "medium"
@@ -27,6 +29,7 @@ const (
 // Complexity classifies how demanding a task is, used to enforce tier constraints.
 type Complexity string
 
+// Complexity level constants define tier constraint requirements.
 const (
 	ComplexitySimple   Complexity = "simple"   // any tier
 	ComplexityModerate Complexity = "moderate" // mid or large
