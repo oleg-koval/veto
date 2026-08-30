@@ -3,6 +3,27 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0](https://github.com/oleg-koval/veto/compare/v0.2.0...v0.3.0) (2026-08-30)
+
+
+### Features
+
+* add a versioned redacted event ledger ([#26](https://github.com/oleg-koval/veto/issues/26)) ([b0bd67b](https://github.com/oleg-koval/veto/commit/b0bd67bb129aa2c0be2d56a65069eb563725e24b))
+* add bounded OpenRouter catalog cache ([#28](https://github.com/oleg-koval/veto/issues/28)) ([56c4c08](https://github.com/oleg-koval/veto/commit/56c4c08d6a24acc972e46643bd75066263578644))
+* add governed feedback reporting ([#33](https://github.com/oleg-koval/veto/issues/33)) ([a0ce7c5](https://github.com/oleg-koval/veto/commit/a0ce7c5bf5ef9898ca417761d718f24b884d6256))
+* add OpenRouter browser login with PKCE ([#32](https://github.com/oleg-koval/veto/issues/32)) ([9c569ec](https://github.com/oleg-koval/veto/commit/9c569ec737abc89aac99582f458a29a44a79b139))
+* discover OpenCode runtimes ([#36](https://github.com/oleg-koval/veto/issues/36)) ([0426dea](https://github.com/oleg-koval/veto/commit/0426dea7a5ca6c438bbeaf400e9773d3981537a2))
+* explain routing with an animated flow ([#29](https://github.com/oleg-koval/veto/issues/29)) ([44f0bee](https://github.com/oleg-koval/veto/commit/44f0bee66d697548e5f625274ea378dbb7173bc3))
+* shortlist the dynamic OpenRouter catalog ([#31](https://github.com/oleg-koval/veto/issues/31)) ([1f4d103](https://github.com/oleg-koval/veto/commit/1f4d1036b3d1798679d1681943ab57e7db1118e8))
+
+
+### Bug Fixes
+
+* allow Release Please through contributor governance ([#35](https://github.com/oleg-koval/veto/issues/35)) ([f1c2f62](https://github.com/oleg-koval/veto/commit/f1c2f626d1d179473975a563fb9aa650cfab3376))
+* polish responsive project site ([#24](https://github.com/oleg-koval/veto/issues/24)) ([39e45da](https://github.com/oleg-koval/veto/commit/39e45daaa726159c0e3cb41a76a558180275ed2f))
+* preserve event ledger correlation semantics ([#27](https://github.com/oleg-koval/veto/issues/27)) ([b660225](https://github.com/oleg-koval/veto/commit/b660225743868859c9e51db621681786d377c91f))
+* report the routable OpenRouter catalog honestly ([#22](https://github.com/oleg-koval/veto/issues/22)) ([fb439a1](https://github.com/oleg-koval/veto/commit/fb439a1ac8ef7cb95cb8d28ce64e51356178128f))
+
 ## [0.2.0](https://github.com/oleg-koval/veto/compare/v0.1.0...v0.2.0) (2026-08-29)
 
 
