@@ -89,22 +89,22 @@ Authoritative catalog -> documentation consistency -> beta release
 
 ### Phase 6: Reliable agentic repository execution
 
-- [ ] Task 19: Infer executable-runtime requirements from explicit repository mutation objectives and filter text-only transports before admission.
-- [ ] Task 20: Make Claude subscription admission structured, customization-free, and independently timeout-bounded.
-- [ ] Task 21: Give agentic `run` executions a practical default deadline and cover the exact PR-fix flow with a fake CLI integration test.
-- [ ] Task 22: Require live inline-thread verification for pull-request review-fix executions.
-- [ ] Task 23: Keep batch PR-review remediation off small-model routing after demonstrated false completion.
-- [ ] Task 24: Allow enough wall time for repositories with mandatory test and AI-review push gates.
-- [ ] Task 25: Kill the complete subscription CLI process tree when a run times out.
-- [ ] Task 26: Register an authenticated Codex CLI as a native ChatGPT-subscription agent runtime.
+- [x] Task 19: Infer executable-runtime requirements from explicit repository mutation objectives and filter text-only transports before admission.
+- [x] Task 20: Make Claude subscription admission structured, customization-free, and independently timeout-bounded.
+- [x] Task 21: Give agentic `run` executions a practical default deadline and cover the exact PR-fix flow with a fake CLI integration test.
+- [x] Task 22: Require live inline-thread verification for pull-request review-fix executions.
+- [x] Task 23: Keep batch PR-review remediation off small-model routing after demonstrated false completion.
+- [x] Task 24: Allow enough wall time for repositories with mandatory test and AI-review push gates.
+- [x] Task 25: Kill the complete subscription CLI process tree when a run times out.
+- [x] Task 26: Register an authenticated Codex CLI as a native ChatGPT-subscription agent runtime.
 
 ### Checkpoint: Agentic execution
 
-- [ ] The reported PR-fix objective qualifies executable runtimes only.
-- [ ] Claude admission returns schema-valid JSON without project hooks, skills, or tools.
-- [ ] Codex subscription admission is isolated and full execution retains the caller's repository policy.
-- [ ] PR review-fix execution cannot infer zero findings from summary views that omit inline threads.
-- [ ] Focused tests, race suite, vet, build, onboarding smoke, and the exact live command pass.
+- [x] The reported PR-fix objective qualifies executable runtimes only.
+- [x] Claude admission returns schema-valid JSON without project hooks, skills, or tools.
+- [x] Codex subscription admission is isolated and full execution retains the caller's repository policy.
+- [x] PR review-fix execution cannot infer zero findings from summary views that omit inline threads.
+- [x] Focused tests, race suite, vet, build, onboarding smoke, and the exact live command pass.
 
 ### Checkpoint: Complete
 
