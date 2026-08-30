@@ -3,6 +3,13 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0](https://github.com/oleg-koval/veto/compare/v0.5.0...v0.6.0) (2026-08-30)
+
+
+### Features
+
+* enable automatic Hermes turn routing ([169887a](https://github.com/oleg-koval/veto/commit/169887addcb7cda076f1aecc7713d9a2f72386df))
+
 ## [0.5.0](https://github.com/oleg-koval/veto/compare/v0.4.1...v0.5.0) (2026-08-30)
 
 
