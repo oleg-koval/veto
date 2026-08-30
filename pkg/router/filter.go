@@ -8,6 +8,9 @@ import "slices"
 func HardFilter(task TaskSpec, models []ModelCapabilities) []ModelCapabilities {
 	out := make([]ModelCapabilities, 0, len(models))
 	for _, m := range models {
+		if task.RequiresExecutableTools && !hasExecutableTools(m) {
+			continue
+		}
 		if !hasRequiredTools(m, task.RequiredTools) {
 			continue
 		}
@@ -26,6 +29,12 @@ func HardFilter(task TaskSpec, models []ModelCapabilities) []ModelCapabilities {
 		out = append(out, m)
 	}
 	return out
+}
+
+// hasExecutableTools treats nil as an agent runtime whose project-specific
+// tools are resolved at execution time. A known-empty slice is text-only.
+func hasExecutableTools(m ModelCapabilities) bool {
+	return m.SupportsTools == nil || len(m.SupportsTools) > 0
 }
 
 // hasRequiredTools returns true when the model supports all required tools.
@@ -72,6 +81,9 @@ func EstimatedCost(m ModelCapabilities, task TaskSpec) float64 {
 // FilterReason returns the hard-filter rejection reason for m, or "" if it passes.
 // Used by Manager to emit per-model filter events without duplicating HardFilter logic.
 func FilterReason(m ModelCapabilities, task TaskSpec) string {
+	if task.RequiresExecutableTools && !hasExecutableTools(m) {
+		return ReasonMissingTool
+	}
 	if !hasRequiredTools(m, task.RequiredTools) {
 		return ReasonMissingTool
 	}

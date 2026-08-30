@@ -47,6 +47,46 @@ func TestContainsAny(t *testing.T) {
 	assert.False(t, containsAny("hello world"))
 }
 
+func TestRequiresExecutableRuntime(t *testing.T) {
+	tests := []struct {
+		name      string
+		objective string
+		want      bool
+	}{
+		{
+			name:      "reported PR fix and push",
+			objective: "fix and resolve all codex comments in this pr, push when you done https://github.com/oleg-koval/roazon/pull/1513",
+			want:      true,
+		},
+		{
+			name:      "explicit repository edit",
+			objective: "modify the repository files and commit the changes",
+			want:      true,
+		},
+		{
+			name:      "standard PR shorthand",
+			objective: "resolve CodeRabbit comments on PR #123 and push changes",
+			want:      true,
+		},
+		{
+			name:      "content-only code generation",
+			objective: "write a Go function that parses a duration",
+			want:      false,
+		},
+		{
+			name:      "pull request summary",
+			objective: "summarize https://github.com/oleg-koval/roazon/pull/1513",
+			want:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, requiresExecutableRuntime(tt.objective))
+		})
+	}
+}
+
 // TestSavingsVsOpus documents the reward calc: any non-opus model should cost
 // less than opus for the same task, yielding a positive saving.
 func TestSavingsVsOpus(t *testing.T) {
