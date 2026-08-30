@@ -77,13 +77,17 @@ func (g *AdmissionGate) Ask(ctx context.Context, task TaskSpec, model ModelCapab
 	// HTTP executors are text-only — no tools pass through a plain chat completion.
 	// Only CLIExecutor (claude -p) runs with real tool access.
 	effectiveTools := model.SupportsTools
+	toolsKnown := true
 	if tp, ok := exec.(executor.ToolProvider); ok {
 		effectiveTools = tp.EffectiveTools()
+		if status, ok := exec.(executor.ToolCapabilityStatus); ok {
+			toolsKnown = status.EffectiveToolsKnown()
+		}
 	} else {
 		effectiveTools = nil // text-only: advertise no tools so model can reject accurately
 	}
 
-	prompt := buildAdmissionPrompt(task, model, effectiveTools)
+	prompt := buildAdmissionPromptWithToolStatus(task, model, effectiveTools, toolsKnown)
 	result := exec.Run(mCtx, prompt)
 	if result.Error != nil {
 		return AdmissionDecision{Accept: false, ReasonCodes: []string{ReasonParseFailure}},
@@ -108,6 +112,10 @@ func (g *AdmissionGate) Ask(ctx context.Context, task TaskSpec, model ModelCapab
 // (the executor is a plain HTTP chat API with no tool definitions passed).
 // the prompt explicitly forbids prose — JSON only.
 func buildAdmissionPrompt(task TaskSpec, model ModelCapabilities, effectiveTools []string) string {
+	return buildAdmissionPromptWithToolStatus(task, model, effectiveTools, true)
+}
+
+func buildAdmissionPromptWithToolStatus(task TaskSpec, model ModelCapabilities, effectiveTools []string, toolsKnown bool) string {
 	constraints := strings.Join(task.Constraints, ", ")
 	if constraints == "" {
 		constraints = "none"
@@ -118,7 +126,9 @@ func buildAdmissionPrompt(task TaskSpec, model ModelCapabilities, effectiveTools
 	}
 
 	var toolsLine string
-	if len(effectiveTools) == 0 {
+	if !toolsKnown {
+		toolsLine = "unknown (the agent runtime resolves project-specific tools and permissions when execution starts; do not assume shell, file, browser, or network access)"
+	} else if len(effectiveTools) == 0 {
 		toolsLine = "none (text-output mode — you will receive the task and must respond with the answer directly; you cannot execute code, read files, or write files)"
 	} else {
 		toolsLine = strings.Join(effectiveTools, ", ")

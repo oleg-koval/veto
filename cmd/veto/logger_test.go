@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/oleg-koval/veto/pkg/executor"
 	"github.com/oleg-koval/veto/pkg/ledger"
 	"github.com/oleg-koval/veto/pkg/router"
 	"github.com/stretchr/testify/assert"
@@ -98,6 +99,48 @@ func TestLogExecutionPreservesKnownUsage(t *testing.T) {
 	assert.Equal(t, 15, event.Usage.TotalTokens)
 	require.NotNil(t, event.CostUSD)
 	assert.Equal(t, 0.01, *event.CostUSD)
+}
+
+func TestLogRuntimeEventUsesAllowlistedFields(t *testing.T) {
+	var output bytes.Buffer
+	previous := eventLedger
+	previousRunID := eventRunID
+	eventLedger = ledger.NewWriter(&output)
+	eventRunID = "run-test"
+	t.Cleanup(func() {
+		eventLedger = previous
+		eventRunID = previousRunID
+	})
+
+	logRuntimeEvent("task-1", router.ModelCapabilities{Name: "opencode/openai/gpt-5", Runtime: "opencode"}, executor.RuntimeEvent{
+		Kind: executor.RuntimeArtifactCreated, Name: "patch", Status: "created", Count: 2,
+	})
+
+	var event ledger.Event
+	require.NoError(t, json.Unmarshal(output.Bytes(), &event))
+	assert.Equal(t, ledger.EventArtifactCreated, event.Type)
+	assert.Equal(t, "opencode", event.Runtime)
+	assert.Equal(t, "name=patch count=2", event.Detail)
+	assert.NotContains(t, output.String(), "prompt")
+	assert.NotContains(t, output.String(), "response")
+}
+
+func TestRuntimeLedgerTypeIsClosed(t *testing.T) {
+	for input, want := range map[executor.RuntimeEventKind]ledger.EventType{
+		executor.RuntimeToolStarted:       ledger.EventToolStarted,
+		executor.RuntimeToolCompleted:     ledger.EventToolCompleted,
+		executor.RuntimeToolError:         ledger.EventToolError,
+		executor.RuntimeApprovalRequested: ledger.EventApprovalRequested,
+		executor.RuntimeApprovalGranted:   ledger.EventApprovalGranted,
+		executor.RuntimeApprovalDenied:    ledger.EventApprovalDenied,
+		executor.RuntimeArtifactCreated:   ledger.EventArtifactCreated,
+	} {
+		got, ok := runtimeLedgerType(input)
+		assert.True(t, ok)
+		assert.Equal(t, want, got)
+	}
+	_, ok := runtimeLedgerType(executor.RuntimeEventKind("future"))
+	assert.False(t, ok)
 }
 
 func TestLogEventPreservesAcceptedZeroEstimates(t *testing.T) {

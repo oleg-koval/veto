@@ -133,7 +133,7 @@ func cmdRun(args []string) {
 	// For text-only executors (HTTP-based, no tool definitions passed), append an
 	// instruction to output content directly — not prose about what they would do.
 	prompt := withSkills(objective, skillBodies)
-	if !hasEffectiveTools(exec) {
+	if isTextOnlyRuntime(exec) {
 		prompt += "\n\n---\nOutput the requested content directly. No explanation, no description of what you will do, no markdown prose. If the task is to create a file, output the file contents only."
 	}
 	type streamer interface {
@@ -146,7 +146,40 @@ func cmdRun(args []string) {
 		mgr.RecordExecution(spec, model.Name, metrics)
 		logExecution(spec.ID, eventType, model, metrics, detail)
 	}
-	if s, ok := exec.(streamer); ok {
+	legacyStreaming := false
+	if eventExec, ok := exec.(executor.EventTaskExecutor); ok {
+		var buf strings.Builder
+		result := eventExec.ExecuteWithEvents(
+			ctx, prompt, executor.ExecutionOptions{MaxOutputTokens: *maxOutputTokens},
+			io.MultiWriter(os.Stdout, &buf),
+			func(event executor.RuntimeEvent) { logRuntimeEvent(spec.ID, model, event) },
+		)
+		output = result.Output
+		if output == "" {
+			output = buf.String()
+		}
+		if resultErr := validateExecutionResult(result); resultErr != nil {
+			status := executionStatus(ctx, "error")
+			if result.Truncated {
+				status = "truncated"
+			}
+			metrics := executionMetrics(model, result, time.Since(started), status)
+			recordExecution(metrics, ledger.EventExecutionError, resultErr.Error())
+			fmt.Fprintf(os.Stderr, "run failed: %v\n", resultErr)
+			os.Exit(1)
+		}
+		fmt.Println()
+		metrics := executionMetrics(model, result, time.Since(started), "success")
+		recordExecution(metrics, ledger.EventExecutionCompleted, "")
+		if !*quiet {
+			if metrics.CostKnown {
+				fmt.Fprintf(os.Stderr, "  actual provider cost: $%.6f (%d input, %d output tokens)\n", metrics.CostUSD, metrics.InputTokens, metrics.OutputTokens)
+			} else {
+				fmt.Fprintln(os.Stderr, "  actual provider cost: unavailable")
+			}
+		}
+	} else if s, ok := exec.(streamer); ok {
+		legacyStreaming = true
 		// When criteria are set, tee stream output to a buffer so the reviewer can read it.
 		if len(criteria) > 0 || *outputPath != "" {
 			var buf strings.Builder
@@ -204,7 +237,7 @@ func cmdRun(args []string) {
 			}
 		}
 	}
-	if _, streaming := exec.(streamer); streaming {
+	if legacyStreaming {
 		metrics := router.ExecutionMetrics{
 			Status: "success", LatencyMs: time.Since(started).Milliseconds(), LatencyKnown: true,
 		}
@@ -371,16 +404,21 @@ func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr 
 		return "", "", fmt.Errorf("no executor for model %q", model.Name)
 	}
 	prompt := withSkills(spec.Objective, skills)
-	if !hasEffectiveTools(exec) {
+	if isTextOnlyRuntime(exec) {
 		prompt += "\n\n---\nOutput the requested content directly. No explanation, no description of what you will do, no markdown prose. If the task is to create a file, output the file contents only."
-	}
-	taskExec, ok := exec.(executor.TaskExecutor)
-	if !ok {
-		return model.Name, "", fmt.Errorf("executor for %q does not support task execution", model.Name)
 	}
 	started := time.Now()
 	logExecution(spec.ID, ledger.EventExecutionStarted, model, router.ExecutionMetrics{Status: "started"}, "")
-	result := taskExec.Execute(ctx, prompt, options)
+	var result executor.Result
+	if eventExec, ok := exec.(executor.EventTaskExecutor); ok {
+		result = eventExec.ExecuteWithEvents(ctx, prompt, options, io.Discard, func(event executor.RuntimeEvent) {
+			logRuntimeEvent(spec.ID, model, event)
+		})
+	} else if taskExec, ok := exec.(executor.TaskExecutor); ok {
+		result = taskExec.Execute(ctx, prompt, options)
+	} else {
+		return model.Name, "", fmt.Errorf("executor for %q does not support task execution", model.Name)
+	}
 	if resultErr := validateExecutionResult(result); resultErr != nil {
 		status := executionStatus(ctx, "error")
 		if result.Truncated {
@@ -400,6 +438,13 @@ func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr 
 func hasEffectiveTools(exec router.Executor) bool {
 	tools, ok := exec.(executor.ToolProvider)
 	return ok && len(tools.EffectiveTools()) > 0
+}
+
+func isTextOnlyRuntime(exec router.Executor) bool {
+	if status, ok := exec.(executor.ToolCapabilityStatus); ok && !status.EffectiveToolsKnown() {
+		return false
+	}
+	return !hasEffectiveTools(exec)
 }
 
 func validateExecutionResult(result executor.Result) error {
@@ -433,7 +478,10 @@ func executionMetrics(model router.ModelCapabilities, result executor.Result, el
 		InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens,
 		TotalTokens: result.Usage.TotalTokens, UsageKnown: result.Usage.Known,
 	}
-	if result.Usage.Known {
+	if result.CostKnown {
+		metrics.CostUSD = result.CostUSD
+		metrics.CostKnown = true
+	} else if result.Usage.Known && !model.CostPer1kInputUnknown && !model.CostPer1kOutputUnknown {
 		metrics.CostUSD = float64(result.Usage.InputTokens)/1000*model.CostPer1kInputUSD +
 			float64(result.Usage.OutputTokens)/1000*model.CostPer1kOutputUSD
 		metrics.CostKnown = true

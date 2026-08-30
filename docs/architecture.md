@@ -177,8 +177,9 @@ built-in catalog and local model configuration both implement it. An
 `executor.RuntimeAdapter` provides the separate admission and full-execution
 paths plus a stable runtime ID. When the provider registry binds them, each
 model has a source/provider/model/runtime identity. Effective tools still come
-from the active transport and default to none when it does not implement tool
-support.
+from the active transport. `executor.ToolCapabilityStatus` preserves an
+undiscovered runtime tool set as unknown rather than silently changing it to a
+known-empty set.
 
 `pkg/openroutercatalog` implements bounded discovery against OpenRouter's
 official models endpoint and persists a versioned cache at
@@ -203,8 +204,29 @@ semantic version, and parses bounded `provider/model` output without a shell.
 Managed mode launches `opencode serve` on an explicit loopback host/port with a
 random process-local Basic Auth password and exposes an owned process lifecycle.
 The adapter never scans ports or reads OpenCode configuration or credential
-stores. This discovery contract remains separate from the session execution
-adapter added in the next slice.
+stores. Discovered models join the provider registry under
+`opencode:<provider>/<model>` and retain known static catalog metadata when an
+exact provider/model match exists; unknown price, tier, and tools remain
+unknown.
+
+`pkg/opencode.Runtime` binds one exact provider/model to that runtime. Attach
+and managed modes create a fresh documented session, subscribe to
+`/global/event`, send an asynchronous prompt, stream text deltas, and delete the
+internal session afterward. Admission sessions carry an opaque
+`veto:admission:*` title and a session-level deny-all permission rule. Execution
+sessions carry `veto:execution:*`, preserve OpenCode's existing permission
+policy, and explicitly reject any new `permission.asked` event. Cancellation
+calls the session abort endpoint before cleanup. CLI fallback invokes the exact
+discovered executable with JSON output, an exact `provider/model`, an opaque
+title, and a `--` argument boundary; it never supplies OpenCode's auto-approval
+flags. Its admission subprocess uses a final inline deny-all permission override
+while preserving unrelated inline configuration.
+
+The optional `executor.EventTaskExecutor` contract streams text and emits only
+allowlisted lifecycle metadata. OpenCode tool states, approvals, patch/diff or
+attachment counts, usage, cost, failures, and cancellation map into Veto
+execution and ledger events. Prompts, tool arguments/output, paths, file
+contents, and provider response bodies are not placed in the event envelope.
 
 **Per-model disable/enable** — `buildProviderRegistry` calls `loadDisabledModels()` which reads `~/.veto/config.json` under the `"disabled_models"` key. Any model name found there is silently skipped when registering executors — it is invisible to the router and never appears as a candidate. `veto disable <model...>` adds names to this list; `veto enable <model...>` removes them. Both commands persist changes back to `config.json` and take effect on the next invocation.
 
@@ -222,6 +244,7 @@ network-free.
 | `OpenAIExecutor` | OpenAI Responses for GPT-5.6; Chat Completions for GPT-4.1 (HTTP) | `OPENAI_API_KEY` set |
 | `OpenRouterExecutor` | OpenRouter API (HTTP) | `OPENROUTER_API_KEY` set |
 | `CLIExecutor` | `claude -p` subprocess | `CLAUDE_SUBSCRIPTION=true` |
+| `opencode.Runtime` | OpenCode session SSE or JSON CLI subprocess | `veto opencode connect` |
 | `OpenAICompatibleExecutor` | any OpenAI-compatible endpoint (HTTP) | local model configured via `veto login` |
 
 **Subscription mode** (`CLIExecutor`) shells out to the `claude` CLI with `-p` (print mode) and `--output-format text`. This bypasses the Anthropic API entirely — cost is $0 per route because it runs under the user's flat Claude Max / Pro subscription. Subscription takes precedence over API key when both are configured.
@@ -305,7 +328,10 @@ Each step has `task` (objective), `kind`, `risk`, optional `depends_on` (forward
 
 `veto run` is a thin wrapper around the routing pipeline that adds an execution step. After `Manager.Route` returns a winner, `cmdRun` looks up the executor for that model via the provider registry and invokes its separate full-task execution contract with `executor.ExecutionOptions{MaxOutputTokens: ...}`. The default is `executor.DefaultExecutionMaxTokens` (8192), configurable with `--max-output-tokens`; the admission probe's 512-token budget is never reused for task output.
 
-**Streaming:** `cmdRun` checks whether the executor implements an optional `streamer` interface:
+**Streaming:** `cmdRun` first checks for `executor.EventTaskExecutor`, which
+returns full result telemetry while streaming text and structured runtime
+events. OpenCode implements this path. It then falls back to the legacy
+optional `streamer` interface:
 
 ```go
 type streamer interface {
@@ -313,7 +339,12 @@ type streamer interface {
 }
 ```
 
-If it does (currently `CLIExecutor` via subscription mode), tokens are piped directly to `os.Stdout` as they arrive. If not, the executor's full `Execute` path is used and the complete response is printed at once. This keeps the fast path simple while allowing subscription users to see output incrementally without accidentally using the admission limit.
+The Claude subscription CLI implements the legacy path. Other executors use
+their buffered `Execute` method. OpenCode exposes provider-reported usage and
+cost when present; unknown pricing is not recomputed as a known zero. Its API
+does not expose a portable per-prompt output-token field, so Veto still enforces
+the command timeout and bounded 8 MiB event/text safety limit, while reporting
+provider output-length termination as a failed truncated result.
 
 `--quiet` on `veto run` suppresses the routing animation entirely and prints only the model's output — making `veto run --quiet "..." > file` scriptable.
 

@@ -5,8 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/oleg-koval/veto/pkg/executor"
+	"github.com/oleg-koval/veto/pkg/opencode"
+	"github.com/oleg-koval/veto/pkg/router"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,6 +41,31 @@ func TestValidateExecutionResultPreservesProviderError(t *testing.T) {
 func TestHasEffectiveToolsUsesRuntimeCapabilities(t *testing.T) {
 	assert.False(t, hasEffectiveTools(executor.NewOpenAIExecutor("key", "gpt-4.1")))
 	assert.True(t, hasEffectiveTools(executor.NewClaudeCLIExecutor("sonnet")))
+	assert.False(t, isTextOnlyRuntime(opencode.NewRuntime(opencode.Config{}, opencode.Discovery{}, opencode.Model{}, opencode.Dependencies{})))
+}
+
+func TestExecutionMetricsPrefersProviderReportedCost(t *testing.T) {
+	metrics := executionMetrics(router.ModelCapabilities{
+		CostPer1kInputUnknown: true, CostPer1kOutputUnknown: true,
+	}, executor.Result{
+		Usage:   executor.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15, Known: true},
+		CostUSD: 0.0125, CostKnown: true,
+	}, time.Second, "success")
+
+	assert.True(t, metrics.UsageKnown)
+	assert.True(t, metrics.CostKnown)
+	assert.InDelta(t, 0.0125, metrics.CostUSD, 0.000001)
+}
+
+func TestExecutionMetricsKeepsUnknownPriceUnknown(t *testing.T) {
+	metrics := executionMetrics(router.ModelCapabilities{
+		CostPer1kInputUnknown: true, CostPer1kOutputUnknown: true,
+	}, executor.Result{
+		Usage: executor.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15, Known: true},
+	}, time.Second, "success")
+
+	assert.True(t, metrics.UsageKnown)
+	assert.False(t, metrics.CostKnown)
 }
 
 func TestWriteOutputFile(t *testing.T) {
