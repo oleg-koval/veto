@@ -5,13 +5,50 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/oleg-koval/veto/pkg/executor"
 	"github.com/oleg-koval/veto/pkg/router"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestCodexCLIAuthenticatedUsesExistingChatGPTLogin(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	script := filepath.Join(bin, "codex")
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\n[ \"$1 $2\" = \"login status\" ]\n"), 0700))
+	t.Setenv("PATH", bin)
+	assert.True(t, codexCLIAuthenticated())
+
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nexit 1\n"), 0700))
+	assert.False(t, codexCLIAuthenticated())
+}
+
+func TestBuildProviderRegistryAddsAuthenticatedCodexCLI(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "codex"), []byte("#!/bin/sh\n[ \"$1 $2\" = \"login status\" ]\n"), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY", "CLAUDE_SUBSCRIPTION"} {
+		t.Setenv(key, "")
+	}
+
+	reg, err := buildProviderRegistry()
+	require.NoError(t, err)
+	registered, ok := reg.executors["codex"]
+	require.True(t, ok)
+	assert.Equal(t, "codex-cli", registered.RuntimeID())
+	assert.Equal(t, "large", reg.caps["codex"].Tier)
+}
 
 type textOnlyTestExecutor struct{}
 

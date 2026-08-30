@@ -170,7 +170,7 @@ pkg/router/admission.go   ExecutorFactory (interface)
 cmd/veto/main.go          providerRegistry (concrete factory)
                               ↓
 pkg/executor/             AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor, CLIExecutor,
-                          OpenAICompatibleExecutor (local/self-hosted)
+                          CodexCLIExecutor, OpenAICompatibleExecutor (local/self-hosted)
 ```
 
 `providerRegistry` exposes two views of the model set: `For(name)` (executor lookup, used by admission and execution) and `modelCaps()` (capability slice, used to build the `router.Registry`). `modelCaps()` intersects catalog metadata with the active transport's effective tools before hard filtering. This allows local models added via `veto login` to participate in scoring and filtering alongside built-ins without claiming capabilities their transport cannot provide.
@@ -294,10 +294,20 @@ network-free.
 | `OpenAIExecutor` | OpenAI Responses for GPT-5.6; Chat Completions for GPT-4.1 (HTTP) | `OPENAI_API_KEY` set |
 | `OpenRouterExecutor` | OpenRouter API (HTTP) | `OPENROUTER_API_KEY` set |
 | `CLIExecutor` | `claude -p` subprocess | `CLAUDE_SUBSCRIPTION=true` |
+| `CodexCLIExecutor` | `codex exec` subprocess | Codex CLI has an active ChatGPT login |
 | `opencode.Runtime` | OpenCode session SSE or JSON CLI subprocess | `veto opencode connect` |
 | `OpenAICompatibleExecutor` | any OpenAI-compatible endpoint (HTTP) | local model configured via `veto login` |
 
 **Subscription mode** (`CLIExecutor`) shells out to the `claude` CLI with `-p` (print mode) and `--output-format text`. This bypasses the Anthropic API entirely — cost is $0 per route because it runs under the user's flat Claude Max / Pro subscription. Subscription takes precedence over API key when both are configured.
+
+**Codex subscription mode** (`CodexCLIExecutor`) is registered automatically
+when `codex login status` succeeds. Admission runs ephemerally in a temporary
+read-only workspace, ignores user config and exec-policy rules, and writes the
+schema-constrained decision to a dedicated output file. Full execution runs a
+normal ephemeral Codex agent in the caller's working directory so repository
+instructions, tools, hooks, and the user's approval policy remain effective.
+Authentication comes from the existing ChatGPT login rather than
+`OPENAI_API_KEY`.
 
 All concrete transports implement the short `Run` admission path and the
 separate `Execute` task path. HTTP executors send the provider-specific bounded
@@ -389,7 +399,7 @@ type streamer interface {
 }
 ```
 
-The Claude subscription CLI implements the legacy path. Other executors use
+The Claude and Codex subscription CLIs implement the legacy path. Other executors use
 their buffered `Execute` method. OpenCode exposes provider-reported usage and
 cost when present; unknown pricing is not recomputed as a known zero. Its API
 does not expose a portable per-prompt output-token field, so Veto still enforces

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	osexec "os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
@@ -554,6 +555,10 @@ func cmdProviders() {
 	fmt.Printf("%-14s  %-18s  %s\n", "provider", "status", "models")
 	fmt.Printf("%-14s  %-18s  %s\n", "──────────────", "──────────────────", "──────────────────────")
 	configured := 0
+	if codexCLIAuthenticated() {
+		fmt.Printf("%-14s  %-18s  %s\n", "Codex", "ChatGPT (cli)", "codex")
+		configured++
+	}
 	for _, p := range knownProviders {
 		models := catalogModelDescription(p.provider)
 		// Anthropic: check subscription mode before API key
@@ -730,6 +735,11 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 			addBuiltin(model, modelExecutor)
 		}
 	}
+	if codexCLIAuthenticated() {
+		if model, ok := catalog.ByName("codex"); ok {
+			addBuiltin(model, executor.NewCodexCLIExecutor())
+		}
+	}
 	if key := providerKeys["openrouter"]; key != "" {
 		home, homeErr := os.UserHomeDir()
 		if homeErr == nil && home != "" {
@@ -775,6 +785,19 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 		return nil, fmt.Errorf("no providers configured — run 'veto login' or set ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY / XAI_API_KEY")
 	}
 	return reg, nil
+}
+
+func codexCLIAuthenticated() bool {
+	path, err := osexec.LookPath("codex")
+	if err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := osexec.CommandContext(ctx, path, "login", "status")
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	return cmd.Run() == nil
 }
 
 // loadDisabledModels reads the "disabled_models" list from ~/.veto/config.json.

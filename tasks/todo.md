@@ -191,3 +191,17 @@
 **Verification:** a fake CLI child-process regression test fails first, then proves the descendant no longer exists after cancellation.
 
 **Dependencies:** Task 24.
+
+## Task 26: Add a native Codex subscription runtime
+
+**Acceptance criteria:** an installed Codex CLI with a successful
+`codex login status` is registered automatically as an executable `codex`
+model; admission is ephemeral, schema-constrained, read-only, and isolated from
+user config and rules; execution uses the normal caller repository policy; no
+`OPENAI_API_KEY` is required.
+
+**Verification:** fake-CLI argument and authentication tests fail first, then
+pass; the installed CLI reports a ChatGPT login; the exact live PR-fix command
+selects Codex and reaches a truthful terminal result.
+
+**Dependencies:** Tasks 19 and 25.

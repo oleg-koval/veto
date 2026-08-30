@@ -17,7 +17,7 @@ type CLIExecutor struct {
 	model  string
 }
 
-const admissionJSONSchema = `{"type":"object","properties":{"accept":{"type":"boolean"},"confidence":{"type":"number","minimum":0,"maximum":1},"reason_codes":{"type":"array","items":{"type":"string","enum":["MISSING_REQUIRED_TOOL","CONTEXT_TOO_LARGE","COST_CEILING_EXCEEDED","TASK_KIND_OUTSIDE_STRENGTHS","RISK_TOO_HIGH"]}},"estimated_tokens":{"type":"integer","minimum":0},"estimated_cost_usd":{"type":"number","minimum":0},"suggested_alternative_model":{"type":"string"},"required_task_changes":{"type":"array","items":{"type":"string"}}},"required":["accept","confidence","reason_codes","estimated_tokens","estimated_cost_usd","suggested_alternative_model","required_task_changes"],"additionalProperties":false}`
+const admissionJSONSchema = `{"type":"object","properties":{"accept":{"type":"boolean"},"confidence":{"type":"number","minimum":0,"maximum":1},"reason_codes":{"type":"array","items":{"type":"string","enum":["MISSING_REQUIRED_TOOL","CONTEXT_TOO_LARGE","COST_CEILING_EXCEEDED","TASK_KIND_OUTSIDE_STRENGTHS","RISK_TOO_HIGH"]}},"estimated_tokens":{"type":"integer","minimum":0},"estimated_cost_usd":{"type":"number","minimum":0,"maximum":0},"suggested_alternative_model":{"type":"string"},"required_task_changes":{"type":"array","items":{"type":"string"}}},"required":["accept","confidence","reason_codes","estimated_tokens","estimated_cost_usd","suggested_alternative_model","required_task_changes"],"additionalProperties":false}`
 
 var _ RuntimeAdapter = (*CLIExecutor)(nil)
 

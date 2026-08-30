@@ -139,6 +139,10 @@ func TestBuildAdmissionPrompt(t *testing.T) {
 	unknownPrompt := buildAdmissionPromptWithToolStatus(task, model, nil, false)
 	assert.Contains(t, unknownPrompt, "available tools (actual, not theoretical): unknown")
 	assert.Contains(t, unknownPrompt, "do not assume shell, file, browser, or network access")
+
+	unknownContextPrompt := buildAdmissionPrompt(task, ModelCapabilities{Name: "codex", Tier: "large"}, []string{"bash"})
+	assert.Contains(t, unknownContextPrompt, "max context tokens: unknown")
+	assert.NotContains(t, unknownContextPrompt, "max context tokens: 0")
 }
 
 func TestParseAdmissionJSON(t *testing.T) {

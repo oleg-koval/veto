@@ -96,11 +96,13 @@ Authoritative catalog -> documentation consistency -> beta release
 - [ ] Task 23: Keep batch PR-review remediation off small-model routing after demonstrated false completion.
 - [ ] Task 24: Allow enough wall time for repositories with mandatory test and AI-review push gates.
 - [ ] Task 25: Kill the complete subscription CLI process tree when a run times out.
+- [ ] Task 26: Register an authenticated Codex CLI as a native ChatGPT-subscription agent runtime.
 
 ### Checkpoint: Agentic execution
 
 - [ ] The reported PR-fix objective qualifies executable runtimes only.
 - [ ] Claude admission returns schema-valid JSON without project hooks, skills, or tools.
+- [ ] Codex subscription admission is isolated and full execution retains the caller's repository policy.
 - [ ] PR review-fix execution cannot infer zero findings from summary views that omit inline threads.
 - [ ] Focused tests, race suite, vet, build, onboarding smoke, and the exact live command pass.
 
