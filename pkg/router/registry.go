@@ -1,5 +1,7 @@
 package router
 
+import "context"
+
 // tool name constants used across registry and filter logic.
 const (
 	toolBash = "bash"
@@ -183,7 +185,8 @@ func catalog() []ModelCapabilities {
 
 // NewRegistry returns a registry pre-loaded with the full model catalog.
 func NewRegistry() *Registry {
-	return &Registry{models: catalog()}
+	models, _ := (StaticModelSource{}).Models(context.Background())
+	return &Registry{models: models}
 }
 
 // NewRegistryFor returns a registry containing only the named catalog models —

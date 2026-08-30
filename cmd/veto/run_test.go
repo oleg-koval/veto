@@ -35,6 +35,11 @@ func TestValidateExecutionResultPreservesProviderError(t *testing.T) {
 	assert.ErrorIs(t, err, providerErr)
 }
 
+func TestHasEffectiveToolsUsesRuntimeCapabilities(t *testing.T) {
+	assert.False(t, hasEffectiveTools(executor.NewOpenAIExecutor("key", "gpt-4.1")))
+	assert.True(t, hasEffectiveTools(executor.NewClaudeCLIExecutor("sonnet")))
+}
+
 func TestWriteOutputFile(t *testing.T) {
 	dir := t.TempDir()
 	old, err := os.Getwd()

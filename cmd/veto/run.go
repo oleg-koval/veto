@@ -130,8 +130,7 @@ func cmdRun(args []string) {
 	// For text-only executors (HTTP-based, no tool definitions passed), append an
 	// instruction to output content directly — not prose about what they would do.
 	prompt := withSkills(objective, skillBodies)
-	type toolProvider interface{ EffectiveTools() []string }
-	if _, agentic := exec.(toolProvider); !agentic {
+	if !hasEffectiveTools(exec) {
 		prompt += "\n\n---\nOutput the requested content directly. No explanation, no description of what you will do, no markdown prose. If the task is to create a file, output the file contents only."
 	}
 	type streamer interface {
@@ -351,9 +350,8 @@ func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr 
 	if !ok {
 		return "", "", fmt.Errorf("no executor for model %q", model.Name)
 	}
-	type toolProvider interface{ EffectiveTools() []string }
 	prompt := withSkills(spec.Objective, skills)
-	if _, agentic := exec.(toolProvider); !agentic {
+	if !hasEffectiveTools(exec) {
 		prompt += "\n\n---\nOutput the requested content directly. No explanation, no description of what you will do, no markdown prose. If the task is to create a file, output the file contents only."
 	}
 	taskExec, ok := exec.(executor.TaskExecutor)
@@ -372,6 +370,11 @@ func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr 
 	}
 	mgr.RecordExecution(spec, model.Name, executionMetrics(model, result, time.Since(started), "success"))
 	return model.Name, result.Output, nil
+}
+
+func hasEffectiveTools(exec router.Executor) bool {
+	tools, ok := exec.(executor.ToolProvider)
+	return ok && len(tools.EffectiveTools()) > 0
 }
 
 func validateExecutionResult(result executor.Result) error {

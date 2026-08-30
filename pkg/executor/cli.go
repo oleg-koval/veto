@@ -17,6 +17,8 @@ type CLIExecutor struct {
 	args   []string // flags that precede the prompt, e.g. ["-p", "--model", "...", "--output-format", "text"]
 }
 
+var _ RuntimeAdapter = (*CLIExecutor)(nil)
+
 // NewClaudeCLIExecutor creates an executor that shells out to the claude CLI.
 // Requires claude (Claude Code) to be installed and already logged in.
 func NewClaudeCLIExecutor(model string) *CLIExecutor {
@@ -25,6 +27,8 @@ func NewClaudeCLIExecutor(model string) *CLIExecutor {
 		args:   []string{"-p", "--model", model, "--output-format", "text"},
 	}
 }
+
+func (*CLIExecutor) RuntimeID() string { return "claude-cli" }
 
 // Run invokes the CLI and returns stdout as the model's response.
 func (e *CLIExecutor) Run(ctx context.Context, prompt string) Result {
@@ -61,8 +65,7 @@ func (e *CLIExecutor) Execute(ctx context.Context, prompt string, _ ExecutionOpt
 }
 
 // EffectiveTools returns the tools claude -p can use during execution.
-// CLIExecutor is the only executor that actually invokes tools — HTTP executors
-// are text-only and do not implement ToolProvider.
+// CLIExecutor is the only current executor that actually invokes tools.
 func (e *CLIExecutor) EffectiveTools() []string {
 	return []string{"bash", "read", "write", "edit"}
 }

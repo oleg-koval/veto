@@ -1,12 +1,26 @@
 package main
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestLocalModelSourceProvidesStableSourceIdentity(t *testing.T) {
+	source := localModelSource{models: []LocalModel{{
+		Name: "local-a", Endpoint: "http://localhost/v1/chat/completions", Model: "server-model",
+	}}}
+
+	models, err := source.Models(context.Background())
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+	assert.Equal(t, "local-config", models[0].Source)
+	assert.Equal(t, "local", models[0].Provider)
+	assert.Equal(t, "server-model", models[0].APIModel)
+}
 
 func setTempModelsPath(t *testing.T) {
 	t.Helper()

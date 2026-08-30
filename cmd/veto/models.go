@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -10,11 +11,30 @@ import (
 	"github.com/oleg-koval/veto/pkg/router"
 )
 
+type localModelSource struct {
+	models []LocalModel
+}
+
+func (localModelSource) SourceID() string { return "local-config" }
+
+func (source localModelSource) Models(ctx context.Context) ([]router.ModelCapabilities, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	models := make([]router.ModelCapabilities, 0, len(source.models))
+	for _, model := range source.models {
+		models = append(models, model.capabilities())
+	}
+	return models, nil
+}
+
+var _ router.ModelSource = localModelSource{}
+
 // LocalModel holds the user-supplied definition of a self-hosted model.
 type LocalModel struct {
-	Name             string   `json:"name"`                         // routing id (unique)
-	Endpoint         string   `json:"endpoint"`                     // full chat-completions URL
-	Model            string   `json:"model"`                        // server-side model id
+	Name             string   `json:"name"`     // routing id (unique)
+	Endpoint         string   `json:"endpoint"` // full chat-completions URL
+	Model            string   `json:"model"`    // server-side model id
 	APIKey           string   `json:"api_key,omitempty"`
 	Tier             string   `json:"tier,omitempty"`               // default: "small"
 	MaxContextTokens int      `json:"max_context_tokens,omitempty"` // default: 8192
@@ -123,6 +143,9 @@ func (lm LocalModel) capabilities() router.ModelCapabilities {
 	}
 	return router.ModelCapabilities{
 		Name:             lm.Name,
+		Source:           "local-config",
+		Provider:         "local",
+		APIModel:         lm.Model,
 		Tier:             tier,
 		MaxContextTokens: ctx,
 		SupportsTools:    tools,

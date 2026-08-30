@@ -25,9 +25,12 @@ type OpenAIExecutor struct {
 	apiKey       string
 	model        string
 	endpoint     string
+	runtimeID    string
 	client       *http.Client
 	responsesAPI bool
 }
+
+var _ RuntimeAdapter = (*OpenAIExecutor)(nil)
 
 // NewOpenAIExecutor creates an executor for the given OpenAI model.
 func NewOpenAIExecutor(apiKey, model string) *OpenAIExecutor {
@@ -38,26 +41,30 @@ func NewOpenAIExecutor(apiKey, model string) *OpenAIExecutor {
 	}
 	return &OpenAIExecutor{
 		apiKey: apiKey, model: model, endpoint: endpoint,
-		client: &http.Client{}, responsesAPI: responsesAPI,
+		runtimeID: "openai-api", client: &http.Client{}, responsesAPI: responsesAPI,
 	}
 }
 
 // NewOpenRouterExecutor creates an executor for OpenRouter (OpenAI-compatible API).
 func NewOpenRouterExecutor(apiKey, model string) *OpenAIExecutor {
-	return &OpenAIExecutor{apiKey: apiKey, model: model, endpoint: openRouterEndpoint, client: &http.Client{}}
+	return &OpenAIExecutor{apiKey: apiKey, model: model, endpoint: openRouterEndpoint, runtimeID: "openrouter-api", client: &http.Client{}}
 }
 
 // NewOpenAICompatibleExecutor targets any OpenAI-compatible chat-completions
 // endpoint (Ollama, LM Studio, vLLM, llama.cpp server). apiKey may be empty.
 func NewOpenAICompatibleExecutor(apiKey, model, endpoint string) *OpenAIExecutor {
-	return &OpenAIExecutor{apiKey: apiKey, model: model, endpoint: endpoint, client: &http.Client{}}
+	return &OpenAIExecutor{apiKey: apiKey, model: model, endpoint: endpoint, runtimeID: "openai-compatible", client: &http.Client{}}
 }
 
 // NewXAIExecutor creates an executor for xAI Grok models via the OpenAI-compatible
 // endpoint at api.x.ai. Use XAI_API_KEY.
 func NewXAIExecutor(apiKey, model string) *OpenAIExecutor {
-	return &OpenAIExecutor{apiKey: apiKey, model: model, endpoint: xAIEndpoint, client: &http.Client{}}
+	return &OpenAIExecutor{apiKey: apiKey, model: model, endpoint: xAIEndpoint, runtimeID: "xai-api", client: &http.Client{}}
 }
+
+func (e *OpenAIExecutor) RuntimeID() string { return e.runtimeID }
+
+func (*OpenAIExecutor) EffectiveTools() []string { return nil }
 
 type openAIRequest struct {
 	Model     string          `json:"model"`

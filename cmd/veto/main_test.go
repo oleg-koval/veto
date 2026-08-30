@@ -16,6 +16,11 @@ import (
 type textOnlyTestExecutor struct{}
 
 func (textOnlyTestExecutor) Run(context.Context, string) executor.Result { return executor.Result{} }
+func (textOnlyTestExecutor) Execute(context.Context, string, executor.ExecutionOptions) executor.Result {
+	return executor.Result{}
+}
+func (textOnlyTestExecutor) RuntimeID() string        { return "test-text" }
+func (textOnlyTestExecutor) EffectiveTools() []string { return nil }
 
 type toolTestExecutor struct{ textOnlyTestExecutor }
 
@@ -23,13 +28,14 @@ func (toolTestExecutor) EffectiveTools() []string { return []string{"read"} }
 
 func TestProviderRegistryModelCapsUseEffectiveTransportTools(t *testing.T) {
 	reg := &providerRegistry{
-		executors: map[string]router.Executor{
+		executors: map[string]executor.RuntimeAdapter{
 			"api": textOnlyTestExecutor{},
 			"cli": toolTestExecutor{},
 		},
 		caps: map[string]router.ModelCapabilities{
-			"api": {Name: "api", SupportsTools: []string{"bash", "read"}},
-			"cli": {Name: "cli", SupportsTools: []string{"bash", "read"}},
+			"api":     {Name: "api", Source: "builtin", Provider: "openai", APIModel: "model", SupportsTools: []string{"bash", "read"}},
+			"cli":     {Name: "cli", SupportsTools: []string{"bash", "read"}},
+			"missing": {Name: "missing", SupportsTools: []string{"bash", "read"}},
 		},
 	}
 
@@ -39,6 +45,12 @@ func TestProviderRegistryModelCapsUseEffectiveTransportTools(t *testing.T) {
 	}
 	assert.Empty(t, got["api"].SupportsTools)
 	assert.Equal(t, []string{"read"}, got["cli"].SupportsTools)
+	assert.Empty(t, got["missing"].SupportsTools)
+	assert.Equal(t, "test-text", got["api"].Runtime)
+	assert.Equal(t, "test-text", got["cli"].Runtime)
+	assert.Equal(t, router.ModelIdentity{
+		Source: "builtin", Provider: "openai", Model: "model", Runtime: "test-text",
+	}, got["api"].Identity())
 }
 
 func TestRootHelpProcess(t *testing.T) {

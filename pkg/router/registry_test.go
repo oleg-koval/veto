@@ -1,11 +1,26 @@
 package router
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestStaticModelSourceProvidesStableSourceIdentity(t *testing.T) {
+	source := StaticModelSource{}
+	models, err := source.Models(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, models)
+
+	for _, model := range models {
+		identity := model.Identity()
+		assert.Equal(t, "builtin", identity.Source, model.Name)
+		assert.NotEmpty(t, identity.Provider, model.Name)
+		assert.NotEmpty(t, identity.Model, model.Name)
+	}
+}
 
 func TestNewRegistry(t *testing.T) {
 	reg := NewRegistry()

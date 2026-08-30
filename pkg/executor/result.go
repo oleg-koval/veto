@@ -39,6 +39,15 @@ type TaskExecutor interface {
 	Execute(ctx context.Context, prompt string, options ExecutionOptions) Result
 }
 
+// RuntimeAdapter is the complete transport contract used by veto. Admission
+// and execution remain separate methods with independent output budgets.
+type RuntimeAdapter interface {
+	Run(ctx context.Context, prompt string) Result
+	TaskExecutor
+	ToolProvider
+	RuntimeID() string
+}
+
 func (o ExecutionOptions) maxOutputTokens() int {
 	if o.MaxOutputTokens <= 0 {
 		return DefaultExecutionMaxTokens
@@ -46,10 +55,8 @@ func (o ExecutionOptions) maxOutputTokens() int {
 	return o.MaxOutputTokens
 }
 
-// ToolProvider is implemented by executors that can actually invoke tools
-// (bash, read, write, edit) during execution. HTTP-only executors are
-// text-only and do not implement this — the model receives no tool definitions
-// and can only return text.
+// ToolProvider reports tools the transport can actually invoke. Text-only
+// runtimes return nil so model-declared capabilities never grant tool access.
 type ToolProvider interface {
 	EffectiveTools() []string
 }

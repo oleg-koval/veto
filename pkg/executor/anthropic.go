@@ -25,10 +25,16 @@ type AnthropicExecutor struct {
 	client   *http.Client
 }
 
+var _ RuntimeAdapter = (*AnthropicExecutor)(nil)
+
 // NewAnthropicExecutor creates an executor for the given Anthropic model.
 func NewAnthropicExecutor(apiKey, model string) *AnthropicExecutor {
 	return &AnthropicExecutor{apiKey: apiKey, model: model, endpoint: anthropicEndpoint, client: &http.Client{}}
 }
+
+func (*AnthropicExecutor) RuntimeID() string { return "anthropic-api" }
+
+func (*AnthropicExecutor) EffectiveTools() []string { return nil }
 
 type anthropicRequest struct {
 	Model     string             `json:"model"`

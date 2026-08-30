@@ -359,6 +359,29 @@ func TestNewOpenRouterExecutor_UsesOpenRouterEndpoint(t *testing.T) {
 	assert.Equal(t, openRouterEndpoint, exec.endpoint)
 }
 
+func TestRuntimeAdapterIDs(t *testing.T) {
+	tests := []struct {
+		name      string
+		exec      RuntimeAdapter
+		want      string
+		wantTools []string
+	}{
+		{name: "anthropic api", exec: NewAnthropicExecutor("key", "claude"), want: "anthropic-api"},
+		{name: "openai api", exec: NewOpenAIExecutor("key", "gpt-4.1"), want: "openai-api"},
+		{name: "openrouter api", exec: NewOpenRouterExecutor("key", "model"), want: "openrouter-api"},
+		{name: "xai api", exec: NewXAIExecutor("key", "grok"), want: "xai-api"},
+		{name: "openai compatible", exec: NewOpenAICompatibleExecutor("", "model", "http://localhost/v1/chat/completions"), want: "openai-compatible"},
+		{name: "claude cli", exec: NewClaudeCLIExecutor("sonnet"), want: "claude-cli", wantTools: []string{"bash", "read", "write", "edit"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.exec.RuntimeID())
+			assert.Equal(t, tt.wantTools, tt.exec.EffectiveTools())
+		})
+	}
+}
+
 // TestOpenRouterExecutor_SetsRefererHeaders verifies that the OpenRouter executor
 // injects the HTTP-Referer and X-Title headers. We use a custom RoundTripper
 // so the endpoint URL stays set to openRouterEndpoint (the header gate condition).

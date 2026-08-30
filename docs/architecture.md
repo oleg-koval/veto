@@ -169,6 +169,15 @@ pkg/executor/             AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor,
 
 `providerRegistry` exposes two views of the model set: `For(name)` (executor lookup, used by admission and execution) and `modelCaps()` (capability slice, used to build the `router.Registry`). `modelCaps()` intersects catalog metadata with the active transport's effective tools before hard filtering. This allows local models added via `veto login` to participate in scoring and filtering alongside built-ins without claiming capabilities their transport cannot provide.
 
+Model discovery and execution are separate internal contracts. A
+`router.ModelSource` returns catalog metadata without choosing a transport; the
+built-in catalog and local model configuration both implement it. An
+`executor.RuntimeAdapter` provides the separate admission and full-execution
+paths plus a stable runtime ID. When the provider registry binds them, each
+model has a source/provider/model/runtime identity. Effective tools still come
+from the active transport and default to none when it does not implement tool
+support.
+
 **Per-model disable/enable** — `buildProviderRegistry` calls `loadDisabledModels()` which reads `~/.veto/config.json` under the `"disabled_models"` key. Any model name found there is silently skipped when registering executors — it is invisible to the router and never appears as a candidate. `veto disable <model...>` adds names to this list; `veto enable <model...>` removes them. Both commands persist changes back to `config.json` and take effect on the next invocation.
 
 ### Executors
