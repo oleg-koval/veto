@@ -456,7 +456,7 @@ func executionPrompt(objective string, skills []string) string {
 
 ## Required live pull-request workflow
 
-- Inspect the live PR's inline review threads with GitHub GraphQL reviewThreads(first:100); do not infer that there are no findings from gh pr view --comments, reviews, check summaries, or template text.
+- Inspect the live PR's inline review threads with GitHub GraphQL reviewThreads(first:100). Follow pageInfo.hasNextPage with endCursor until all pages have been inspected; do not infer that there are no findings from gh pr view --comments, reviews, check summaries, or template text.
 - Select unresolved threads from the reviewer named in the task, inspect the referenced code, and address every applicable finding.
 - Run focused verification for each change, then reply to and resolve every requested review thread.
 - After verification, commit and push the changes to the PR head branch when the task requests it.
@@ -464,10 +464,7 @@ func executionPrompt(objective string, skills []string) string {
 }
 
 func requiresPullRequestThreadWorkflow(objective string) bool {
-	s := strings.ToLower(objective)
-	prTarget := containsAny(s, "pull request", "/pull/", "this pr", "the pr")
-	reviewTarget := containsAny(s, "review comment", "review thread", "codex comment", "coderabbit comment", "comments in this pr", "comments on this pr")
-	mutation := containsAny(s, "fix", "resolve", "address")
+	prTarget, reviewTarget, mutation := pullRequestMutationSignals(objective)
 	return prTarget && reviewTarget && mutation
 }
 

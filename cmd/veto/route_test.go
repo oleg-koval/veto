@@ -64,6 +64,11 @@ func TestRequiresExecutableRuntime(t *testing.T) {
 			want:      true,
 		},
 		{
+			name:      "standard PR shorthand",
+			objective: "resolve CodeRabbit comments on PR #123 and push changes",
+			want:      true,
+		},
+		{
 			name:      "content-only code generation",
 			objective: "write a Go function that parses a duration",
 			want:      false,

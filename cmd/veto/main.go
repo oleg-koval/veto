@@ -471,9 +471,27 @@ func requiresExecutableRuntime(objective string) bool {
 		return true
 	}
 
-	prTarget := containsAny(s, "pull request", "/pull/", "this pr", "the pr")
-	mutation := containsAny(s, "fix", "resolve", "address", "implement", "modify", "edit", "update", "refactor")
+	prTarget, _, mutation := pullRequestMutationSignals(s)
 	return prTarget && mutation
+}
+
+func pullRequestMutationSignals(objective string) (prTarget, reviewTarget, mutation bool) {
+	s := strings.ToLower(objective)
+	prTarget = containsAny(s, "pull request", "/pull/", "this pr", "the pr") || containsWord(s, "pr")
+	reviewTarget = containsAny(s, "review comment", "review thread", "codex comment", "coderabbit comment", "comments in this pr", "comments on this pr")
+	mutation = containsAny(s, "fix", "resolve", "address", "implement", "modify", "edit", "update", "change", "refactor", "push")
+	return prTarget, reviewTarget, mutation
+}
+
+func containsWord(s, word string) bool {
+	for _, field := range strings.FieldsFunc(s, func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_')
+	}) {
+		if field == word {
+			return true
+		}
+	}
+	return false
 }
 
 func containsAny(s string, subs ...string) bool {
@@ -555,8 +573,14 @@ func cmdProviders() {
 	fmt.Printf("%-14s  %-18s  %s\n", "provider", "status", "models")
 	fmt.Printf("%-14s  %-18s  %s\n", "──────────────", "──────────────────", "──────────────────────")
 	configured := 0
-	if codexCLIAuthenticated() {
-		fmt.Printf("%-14s  %-18s  %s\n", "Codex", "ChatGPT (cli)", "codex")
+	if auth := codexCLIAuthentication(); auth != codexAuthNone {
+		status := "authenticated (cli)"
+		if auth == codexAuthChatGPT {
+			status = "ChatGPT (cli)"
+		} else if auth == codexAuthAPIKey {
+			status = "API key (cli)"
+		}
+		fmt.Printf("%-14s  %-18s  %s\n", "Codex", status, "codex")
 		configured++
 	}
 	for _, p := range knownProviders {
@@ -735,9 +759,15 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 			addBuiltin(model, modelExecutor)
 		}
 	}
-	if codexCLIAuthenticated() {
+	if auth := codexCLIAuthentication(); auth != codexAuthNone {
 		if model, ok := catalog.ByName("codex"); ok {
-			addBuiltin(model, executor.NewCodexCLIExecutor())
+			if auth == codexAuthChatGPT {
+				addBuiltin(model, executor.NewCodexCLIExecutor())
+			} else {
+				model.CostPer1kInputUnknown = true
+				model.CostPer1kOutputUnknown = true
+				addBuiltin(model, executor.NewCodexCLIExecutorWithUnknownCost())
+			}
 		}
 	}
 	if key := providerKeys["openrouter"]; key != "" {
@@ -787,17 +817,36 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 	return reg, nil
 }
 
-func codexCLIAuthenticated() bool {
+type codexAuthMode string
+
+const (
+	codexAuthNone    codexAuthMode = ""
+	codexAuthChatGPT codexAuthMode = "chatgpt"
+	codexAuthAPIKey  codexAuthMode = "api-key"
+	codexAuthUnknown codexAuthMode = "unknown"
+)
+
+func codexCLIAuthentication() codexAuthMode {
 	path, err := osexec.LookPath("codex")
 	if err != nil {
-		return false
+		return codexAuthNone
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	cmd := osexec.CommandContext(ctx, path, "login", "status")
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	return cmd.Run() == nil
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return codexAuthNone
+	}
+	status := strings.ToLower(string(out))
+	switch {
+	case strings.Contains(status, "chatgpt"):
+		return codexAuthChatGPT
+	case strings.Contains(status, "api key"), strings.Contains(status, "api-key"):
+		return codexAuthAPIKey
+	default:
+		return codexAuthUnknown
+	}
 }
 
 // loadDisabledModels reads the "disabled_models" list from ~/.veto/config.json.

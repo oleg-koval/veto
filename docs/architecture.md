@@ -306,8 +306,9 @@ read-only workspace, ignores user config and exec-policy rules, and writes the
 schema-constrained decision to a dedicated output file. Full execution runs a
 normal ephemeral Codex agent in the caller's working directory so repository
 instructions, tools, hooks, and the user's approval policy remain effective.
-Authentication comes from the existing ChatGPT login rather than
-`OPENAI_API_KEY`.
+Authentication comes from the existing Codex CLI login. Veto distinguishes a
+ChatGPT subscription login (known zero marginal provider cost) from API-key or
+unrecognized CLI authentication, whose cost remains unknown.
 
 All concrete transports implement the short `Run` admission path and the
 separate `Execute` task path. HTTP executors send the provider-specific bounded

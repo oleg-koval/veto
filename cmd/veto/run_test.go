@@ -29,9 +29,16 @@ func TestExecutionPromptRequiresLivePRThreadAudit(t *testing.T) {
 	prompt := executionPrompt(reportedAgenticObjective, []string{"- follow repository conventions"})
 
 	assert.Contains(t, prompt, "reviewThreads(first:100)")
+	assert.Contains(t, prompt, "pageInfo.hasNextPage")
+	assert.Contains(t, prompt, "endCursor")
 	assert.Contains(t, prompt, "zero unresolved matching threads")
 	assert.Contains(t, prompt, "reply to and resolve")
 	assert.Contains(t, prompt, "commit and push")
+}
+
+func TestExecutionPromptRecognizesStandardPRShorthand(t *testing.T) {
+	prompt := executionPrompt("resolve CodeRabbit comments on PR #123 and push changes", nil)
+	assert.Contains(t, prompt, "Required live pull-request workflow")
 }
 
 func TestExecutionPromptLeavesOrdinaryTasksUnchanged(t *testing.T) {

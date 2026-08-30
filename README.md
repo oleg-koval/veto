@@ -181,10 +181,10 @@ For Anthropic, veto asks whether you use a **subscription** (Claude Max / Pro) o
 For subscription mode, veto verifies the `claude` CLI is present and saves a `CLAUDE_SUBSCRIPTION=true` marker. For API key mode, it opens the keys page in your browser and stores the key (masked input) at `~/.veto/credentials.json` (mode 0600).
 
 Veto also detects an installed Codex CLI whose `codex login status` succeeds.
-It registers the `codex` agent automatically and uses the existing ChatGPT
-subscription login; no OpenAI API key or API billing is required. OpenAI API
-models remain a separate, text-only provider path configured with
-`OPENAI_API_KEY`.
+It registers the `codex` agent automatically. A ChatGPT login uses subscription
+access with known zero marginal provider cost; an API-key or unrecognized login
+keeps cost unknown rather than pretending it is free. OpenAI API models remain
+a separate, text-only provider path configured with `OPENAI_API_KEY`.
 
 For OpenRouter, `veto login` recommends browser authorization. Veto binds an
 ephemeral `127.0.0.1` callback, uses S256 PKCE plus an unguessable callback-path
@@ -503,7 +503,7 @@ veto run "refactor the auth middleware" \
   --criteria "no third-party JWT dep,all existing tests pass,function names unchanged"
 ```
 
-`veto run` makes two distinct calls when needed. Admission is a short JSON-only probe capped at 512 output tokens. Claude CLI admission runs in safe mode with tools disabled; Codex CLI admission uses an isolated read-only temporary workspace without user config or rules. Both use native JSON schema output. Execution remains a separate normal agent run in the caller's working directory. Execution has a bounded response, defaulting to 8192 output tokens and controlled by `--max-output-tokens`; the admission limit never truncates the task result. OpenCode does not expose a portable per-prompt token-limit field, so its adapter instead uses the command timeout and an 8 MiB event/text safety bound while preserving any provider-reported output-length failure. If a provider reports that execution reached its output limit, Veto exits non-zero and does not save or review the partial output. Increase `--max-output-tokens` where the transport supports it and retry.
+`veto run` makes two distinct calls when needed. Admission is a short JSON-only probe capped at 512 output tokens. Claude CLI admission runs in safe mode with tools disabled; Codex CLI admission uses an isolated read-only temporary workspace without user config or rules. Both use native JSON schema output. Execution remains a separate normal agent run in the caller's working directory. Execution has a bounded response, defaulting to 8192 output tokens and controlled by `--max-output-tokens`; the admission limit never truncates the task result. Codex and OpenCode do not expose a portable per-prompt token-limit field, so their adapters instead use command timeouts and bounded event streams; Codex rejects custom `--max-output-tokens` values rather than silently ignoring them. If a provider reports that execution reached its output limit, Veto exits non-zero and does not save or review the partial output. Increase `--max-output-tokens` where the transport supports it and retry.
 
 Objectives that explicitly ask Veto to modify, commit, or push repository work require an executable agent runtime. Known text-only API and local transports are filtered before admission so they cannot consume the bounded admission attempts. Agent runtimes whose tool set is discovered only at execution time remain eligible.
 

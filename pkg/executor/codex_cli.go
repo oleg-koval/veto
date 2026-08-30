@@ -13,9 +13,11 @@ import (
 	"strings"
 )
 
-// CodexCLIExecutor runs Codex through the user's existing ChatGPT login.
+// CodexCLIExecutor runs Codex through the user's existing CLI login.
 type CodexCLIExecutor struct {
-	binary string
+	binary          string
+	admissionSchema string
+	costKnown       bool
 }
 
 var _ RuntimeAdapter = (*CodexCLIExecutor)(nil)
@@ -27,7 +29,14 @@ const (
 )
 
 func NewCodexCLIExecutor() *CodexCLIExecutor {
-	return &CodexCLIExecutor{binary: "codex"}
+	return &CodexCLIExecutor{binary: "codex", admissionSchema: admissionJSONSchema, costKnown: true}
+}
+
+// NewCodexCLIExecutorWithUnknownCost preserves API-key and unrecognized Codex
+// authentication as billable-unknown rather than subscription-free.
+func NewCodexCLIExecutorWithUnknownCost() *CodexCLIExecutor {
+	schema := strings.Replace(admissionJSONSchema, `"minimum":0,"maximum":0`, `"minimum":0`, 1)
+	return &CodexCLIExecutor{binary: "codex", admissionSchema: schema}
 }
 
 func (*CodexCLIExecutor) RuntimeID() string { return "codex-cli" }
@@ -45,7 +54,7 @@ func (e *CodexCLIExecutor) Run(ctx context.Context, prompt string) Result {
 
 	schemaPath := filepath.Join(dir, "schema.json")
 	outputPath := filepath.Join(dir, "output.json")
-	if err := os.WriteFile(schemaPath, []byte(admissionJSONSchema), 0600); err != nil {
+	if err := os.WriteFile(schemaPath, []byte(e.admissionSchema), 0600); err != nil {
 		return Result{Error: fmt.Errorf("codex cli admission: write schema: %w", err)}
 	}
 	args := []string{
@@ -72,8 +81,8 @@ func (e *CodexCLIExecutor) Run(ctx context.Context, prompt string) Result {
 	return Result{Output: output}
 }
 
-func (e *CodexCLIExecutor) Execute(ctx context.Context, prompt string, _ ExecutionOptions) Result {
-	return e.ExecuteWithEvents(ctx, prompt, ExecutionOptions{}, io.Discard, nil)
+func (e *CodexCLIExecutor) Execute(ctx context.Context, prompt string, options ExecutionOptions) Result {
+	return e.ExecuteWithEvents(ctx, prompt, options, io.Discard, nil)
 }
 
 func (e *CodexCLIExecutor) Stream(ctx context.Context, prompt string, w io.Writer) error {
@@ -89,10 +98,16 @@ func (*CodexCLIExecutor) executionArgs(prompt string) []string {
 func (e *CodexCLIExecutor) ExecuteWithEvents(
 	ctx context.Context,
 	prompt string,
-	_ ExecutionOptions,
+	options ExecutionOptions,
 	w io.Writer,
 	emit func(RuntimeEvent),
 ) Result {
+	if options.MaxOutputTokens > 0 && options.MaxOutputTokens != DefaultExecutionMaxTokens {
+		return Result{
+			Error:     fmt.Errorf("codex cli does not support custom --max-output-tokens; use the default %d", DefaultExecutionMaxTokens),
+			CostKnown: e.costKnown,
+		}
+	}
 	if w == nil {
 		w = io.Discard
 	}
@@ -109,7 +124,7 @@ func (e *CodexCLIExecutor) ExecuteWithEvents(
 		return codexCLIError(ctx, "execution", err, stderr.String())
 	}
 
-	state := codexExecutionState{writer: w, emit: emit}
+	state := codexExecutionState{writer: w, emit: emit, costKnown: e.costKnown}
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), maxCodexEventLine)
 	for scanner.Scan() {
@@ -154,6 +169,7 @@ type codexExecutionState struct {
 	usage      Usage
 	failure    error
 	eventBytes int
+	costKnown  bool
 }
 
 func (s *codexExecutionState) process(line []byte) error {
@@ -242,7 +258,7 @@ func (s *codexExecutionState) emitToolEvent(eventType, itemType, status string) 
 func (s *codexExecutionState) result() Result {
 	return Result{
 		Output: s.output, Usage: s.usage, Error: s.failure,
-		CostUSD: 0, CostKnown: true, FinishReason: "completed",
+		CostUSD: 0, CostKnown: s.costKnown, FinishReason: "completed",
 	}
 }
 
