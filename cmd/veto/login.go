@@ -16,7 +16,6 @@ type providerInfo struct {
 	name     string
 	provider string
 	envKey   string
-	models   string
 	keyURL   string
 	keyHint  string
 }
@@ -33,7 +32,6 @@ var knownProviders = []providerInfo{
 		name:     "OpenAI",
 		provider: "openai",
 		envKey:   "OPENAI_API_KEY",
-		models:   "GPT-4.1, GPT-4.1-mini",
 		keyURL:   "https://platform.openai.com/api-keys",
 		keyHint:  "sk-",
 	},
@@ -41,7 +39,6 @@ var knownProviders = []providerInfo{
 		name:     "OpenRouter",
 		provider: "openrouter",
 		envKey:   "OPENROUTER_API_KEY",
-		models:   "Llama, Mistral, Gemini, and 100+ more",
 		keyURL:   "https://openrouter.ai/keys",
 		keyHint:  "sk-or-",
 	},
@@ -49,7 +46,6 @@ var knownProviders = []providerInfo{
 		name:     "xAI (Grok)",
 		provider: "xai",
 		envKey:   "XAI_API_KEY",
-		models:   "grok-4.5, grok-4.3, grok-3, grok-3-mini",
 		keyURL:   "https://console.x.ai/",
 		keyHint:  "",
 	},
@@ -63,7 +59,7 @@ func cmdLogin() {
 	fmt.Println()
 	fmt.Println("  1  Anthropic (Claude)  — API key or subscription (Claude Max / claude CLI)")
 	fmt.Println("  2  OpenAI              — API key")
-	fmt.Println("  3  OpenRouter          — API key (100+ models)")
+	fmt.Printf("  3  OpenRouter          — API key (%s)\n", catalogModelDescription("openrouter"))
 	fmt.Println("  4  xAI (Grok)          — API key (Grok 4.5 / 4.3 / 3 family)")
 	fmt.Println("  5  Local / self-hosted — Ollama, LM Studio, vLLM, llama.cpp")
 	fmt.Println()
@@ -490,7 +486,7 @@ func loginAPIKey(p providerInfo) {
 
 	fmt.Println()
 	fmt.Printf("  %s is connected!\n", p.name)
-	fmt.Printf("  Models available: %s\n", catalogModelNames(p.provider))
+	fmt.Printf("  Models available: %s\n", catalogModelDescription(p.provider))
 	fmt.Println()
 	fmt.Println("  What's next:")
 	fmt.Println("    veto providers              — see all connected providers")

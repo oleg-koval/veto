@@ -3,7 +3,25 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
+
+func TestCatalogModelDescriptionReportsOpenRouterRoutableCount(t *testing.T) {
+	assert.Equal(
+		t,
+		"1 routable model: meta-llama/llama-4-maverick",
+		catalogModelDescription("openrouter"),
+	)
+}
+
+func TestCatalogModelDescriptionPreservesDirectProviderNames(t *testing.T) {
+	assert.Equal(
+		t,
+		"gpt-4.1, gpt-4.1-mini, sol, terra, luna",
+		catalogModelDescription("openai"),
+	)
+}
 
 func TestOllamaInstallCommandsDoNotPipeRemoteScripts(t *testing.T) {
 	for _, opt := range localServerOptions {

@@ -135,7 +135,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "PROVIDERS")
 	fmt.Fprintln(o, "  ANTHROPIC_API_KEY     Claude Haiku · Sonnet · Opus")
 	fmt.Fprintln(o, "  OPENAI_API_KEY        OpenAI catalog models")
-	fmt.Fprintln(o, "  OPENROUTER_API_KEY    Llama, Mistral, Gemini, and 100+ more")
+	fmt.Fprintf(o, "  OPENROUTER_API_KEY    %s\n", catalogModelDescription("openrouter"))
 	fmt.Fprintln(o, "  XAI_API_KEY           Grok 4.5, 4.3, 3, 3-mini (xAI)")
 	fmt.Fprintln(o, "  (or run 'veto login' — veto stores keys in ~/.veto/credentials.json)")
 }
@@ -498,7 +498,7 @@ func cmdProviders() {
 	fmt.Printf("%-14s  %-18s  %s\n", "──────────────", "──────────────────", "──────────────────────")
 	configured := 0
 	for _, p := range knownProviders {
-		models := catalogModelNames(p.provider)
+		models := catalogModelDescription(p.provider)
 		// Anthropic: check subscription mode before API key
 		if p.envKey == "ANTHROPIC_API_KEY" {
 			switch {
@@ -550,12 +550,19 @@ func cmdProviders() {
 	}
 }
 
-func catalogModelNames(provider string) string {
+func catalogModelDescription(provider string) string {
 	var names []string
 	for _, model := range router.NewRegistry().All() {
 		if model.Provider == provider {
 			names = append(names, model.Name)
 		}
+	}
+	if provider == "openrouter" {
+		noun := "models"
+		if len(names) == 1 {
+			noun = "model"
+		}
+		return fmt.Sprintf("%d routable %s: %s", len(names), noun, strings.Join(names, ", "))
 	}
 	return strings.Join(names, ", ")
 }
