@@ -99,7 +99,7 @@ The model must respond with a JSON object. The parser (`parseAdmissionJSON`) sca
 
 **Confidence gate:** any model accepting with confidence < 0.7 is treated as a rejection (`LOW_CONFIDENCE`). This prevents models from accepting out of politeness without real certainty.
 
-**Per-model timeout:** each executor call in `Ask` runs under a child context derived from the outer context. The gate default is 20 seconds; `veto run` raises it to the configurable `--admission-timeout` default of 60 seconds because subscription CLI startup routinely exceeds 20 seconds. A hung model is treated as a rejection so routing continues to the next candidate. The outer `veto run --timeout` default of one hour still bounds admission plus execution.
+**Per-model timeout:** each executor call in `Ask` runs under a child context derived from the outer context. The gate default is 20 seconds; `veto run` raises it to the configurable `--admission-timeout` default of 60 seconds because subscription CLI startup routinely exceeds 20 seconds. A hung model is treated as a rejection so routing continues to the next candidate. The outer `veto run --timeout` default of two hours still bounds admission plus execution.
 
 **Claude CLI admission:** subscription admission uses `claude -p` in safe mode with tools disabled, session persistence disabled, and a native JSON schema matching `AdmissionDecision`. Veto extracts the CLI envelope's `structured_output` value before passing it to the shared parser. The later execution call does not use these admission-only restrictions and runs in the caller's working directory.
 
@@ -405,7 +405,7 @@ failure is logged with its normalized detail and consumes one of the three
 admission calls for that run; checkpoint resume can continue with untried
 candidates later.
 
-The timeout on `veto run` (default one hour) covers both routing and execution, unlike `veto route` which only times out the admission phase. `veto run --admission-timeout` separately bounds each admission attempt and defaults to 60 seconds. When the `CLIExecutor` (`claude -p`) is killed by a timeout, it distinguishes `"claude cli admission: timed out"` from `"claude cli execution: timed out"` rather than exposing the raw `"signal: killed"` from the subprocess.
+The timeout on `veto run` (default two hours) covers both routing and execution, unlike `veto route` which only times out the admission phase. `veto run --admission-timeout` separately bounds each admission attempt and defaults to 60 seconds. When the `CLIExecutor` (`claude -p`) is killed by a timeout, it distinguishes `"claude cli admission: timed out"` from `"claude cli execution: timed out"` rather than exposing the raw `"signal: killed"` from the subprocess.
 
 On Unix, subscription CLI processes run in a dedicated process group. On macOS and Linux, cancellation also snapshots and kills descendants that created their own process groups, so agent-spawned tests, hooks, and pushes cannot survive a Veto timeout and continue mutating the repository in the background. Other platforms retain group or standard process cancellation behavior.
 

@@ -470,7 +470,7 @@ Route and execute in one step. The winning model's response is printed to stdout
 | `--kind` | *(auto-detected)* | Task type (see below) |
 | `--risk` | `medium` | Impact level: `low`, `medium`, `high` |
 | `--max-cost` | `0` (no limit) | Estimated preflight cost ceiling in USD |
-| `--timeout` | `1h` | Total timeout (routing + execution) |
+| `--timeout` | `2h` | Total timeout (routing + execution) |
 | `--admission-timeout` | `60s` | Per-model admission timeout |
 | `--quiet` | `false` | Suppress routing animation — print model output only |
 | `--max-output-tokens` | `8192` | Bounded output budget for the execution response |
