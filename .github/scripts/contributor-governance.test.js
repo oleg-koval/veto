@@ -13,26 +13,35 @@ test('classifies logins case-insensitively and leaves unknown users grey', () =>
 test('matches only the explicitly configured Release Please automation', () => {
   const policy = {
     settings: {
-      trusted_automation: [{ login: 'github-actions', head_prefix: 'release-please--branches--main--components--' }],
+      trusted_automation: [{ login: 'github-actions[bot]', head_prefix: 'release-please--branches--main--components--' }],
     },
   };
-  const releasePR = { user: { login: 'GitHub-Actions' }, head: { ref: 'release-please--branches--main--components--veto' } };
+  const releasePR = { user: { login: 'GitHub-Actions[Bot]' }, head: { ref: 'release-please--branches--main--components--veto' } };
   assert.ok(governance.trustedAutomationEntry(policy, releasePR));
-  assert.equal(governance.trustedAutomationEntry(policy, { user: { login: 'github-actions' }, head: { ref: 'feature/release' } }), undefined);
+  assert.equal(governance.trustedAutomationEntry(policy, { user: { login: 'github-actions[bot]' }, head: { ref: 'feature/release' } }), undefined);
   assert.equal(governance.trustedAutomationEntry(policy, { user: { login: 'dependabot' }, head: { ref: 'release-please--branches--main--components--veto' } }), undefined);
 });
 
 test('skips duplicate issue validation for the configured Release Please PR', async () => {
   const notices = [];
   const failures = [];
+  const comments = [];
   await governance.run({
-    github: { rest: {} },
+    github: {
+      rest: {
+        pulls: { listCommits: async () => ({ data: [{ author: { login: 'release-maintainer' } }] }) },
+        issues: {
+          listComments: async () => ({ data: [] }),
+          createComment: async ({ body }) => comments.push(body),
+        },
+      },
+    },
     context: {
       repo: { owner: 'oleg-koval', repo: 'veto' },
       payload: {
         pull_request: {
           number: 23,
-          user: { login: 'github-actions' },
+          user: { login: 'github-actions[bot]' },
           head: { ref: 'release-please--branches--main--components--veto' },
           body: '',
         },
@@ -47,6 +56,7 @@ test('skips duplicate issue validation for the configured Release Please PR', as
   });
   assert.equal(failures.length, 0);
   assert.match(notices[0], /Trusted automation/);
+  assert.match(comments[0], /Commit-author mismatch/);
 });
 
 test('accepts same-repository issue links and rejects external or malformed links', () => {

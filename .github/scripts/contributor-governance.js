@@ -158,6 +158,12 @@ async function run({ github, context, core, policyPath }) {
   const automation = trustedAutomationEntry(policy, pullRequest);
   if (!failure && automation) {
     core.notice(`Trusted automation @${login} matched policy: ${automation.reason || 'configured automation'}`);
+    try {
+      const mismatches = await commitAuthorMismatches(github, owner, repo, pullRequest.number, login);
+      if (mismatches.length) await reportComment(github, owner, repo, pullRequest.number, `Accountable contributor: @${login}. Commit-author mismatch(es) detected: ${mismatches.map((name) => `@${name}`).join(', ')}. Maintainers should verify attribution.`, MISMATCH_MARKER);
+    } catch (error) {
+      core.warning(`Could not inspect commit authors: ${error.status || error.message}`);
+    }
     return;
   }
 
