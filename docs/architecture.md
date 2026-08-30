@@ -390,7 +390,7 @@ Each step has `task` (objective), `kind`, `risk`, optional `depends_on` (forward
 
 **Streaming:** `cmdRun` first checks for `executor.EventTaskExecutor`, which
 returns full result telemetry while streaming text and structured runtime
-events. OpenCode implements this path. It then falls back to the legacy
+events. OpenCode and Codex implement this path. It then falls back to the legacy
 optional `streamer` interface:
 
 ```go
@@ -399,8 +399,10 @@ type streamer interface {
 }
 ```
 
-The Claude and Codex subscription CLIs implement the legacy path. Other executors use
-their buffered `Execute` method. OpenCode exposes provider-reported usage and
+The Claude subscription CLI implements the legacy path. Other executors use
+their buffered `Execute` method. Codex consumes its bounded JSONL event stream,
+prints completed agent messages, records only allowlisted tool lifecycle names,
+and reports CLI token usage with known zero marginal subscription cost. OpenCode exposes provider-reported usage and
 cost when present; unknown pricing is not recomputed as a known zero. Its API
 does not expose a portable per-prompt output-token field, so Veto still enforces
 the command timeout and bounded 8 MiB event/text safety limit, while reporting
