@@ -501,6 +501,8 @@ veto run "refactor the auth middleware" \
 
 Objectives that explicitly ask Veto to modify, commit, or push repository work require an executable agent runtime. Known text-only API and local transports are filtered before admission so they cannot consume the bounded admission attempts. Agent runtimes whose tool set is discovered only at execution time remain eligible.
 
+For tasks that fix pull-request review comments, the execution prompt requires a live inline-thread audit before and after the changes. This avoids false “no findings” results from PR summary views that omit GitHub review threads.
+
 `--output` is the only way for `veto run` to write a file. The path must be relative to the current directory, cannot traverse upward or target hidden files/directories, and is created with mode `0600`. Existing files are protected; pass `--force` to replace one. Objective text such as “save as report.md” does not write a file by itself.
 
 ### `veto exec` flags

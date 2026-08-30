@@ -140,7 +140,7 @@ func cmdRun(args []string) {
 	// Skills are injected into the execution prompt; routing used the clean objective.
 	// For text-only executors (HTTP-based, no tool definitions passed), append an
 	// instruction to output content directly — not prose about what they would do.
-	prompt := withSkills(objective, skillBodies)
+	prompt := executionPrompt(objective, skillBodies)
 	if isTextOnlyRuntime(exec) {
 		prompt += "\n\n---\nOutput the requested content directly. No explanation, no description of what you will do, no markdown prose. If the task is to create a file, output the file contents only."
 	}
@@ -411,7 +411,7 @@ func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr 
 	if !ok {
 		return "", "", fmt.Errorf("no executor for model %q", model.Name)
 	}
-	prompt := withSkills(spec.Objective, skills)
+	prompt := executionPrompt(spec.Objective, skills)
 	if isTextOnlyRuntime(exec) {
 		prompt += "\n\n---\nOutput the requested content directly. No explanation, no description of what you will do, no markdown prose. If the task is to create a file, output the file contents only."
 	}
@@ -441,6 +441,34 @@ func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr 
 	mgr.RecordExecution(spec, model.Name, metrics)
 	logExecution(spec.ID, ledger.EventExecutionCompleted, model, metrics, "")
 	return model.Name, result.Output, nil
+}
+
+// executionPrompt adds live verification instructions only when the objective
+// explicitly asks an agent to address pull-request review comments. GitHub's
+// ordinary PR comment views omit inline review threads, which can otherwise
+// make an agent incorrectly report that there is nothing to fix.
+func executionPrompt(objective string, skills []string) string {
+	prompt := withSkills(objective, skills)
+	if !requiresPullRequestThreadWorkflow(objective) {
+		return prompt
+	}
+	return prompt + `
+
+## Required live pull-request workflow
+
+- Inspect the live PR's inline review threads with GitHub GraphQL reviewThreads(first:100); do not infer that there are no findings from gh pr view --comments, reviews, check summaries, or template text.
+- Select unresolved threads from the reviewer named in the task, inspect the referenced code, and address every applicable finding.
+- Run focused verification for each change, then reply to and resolve every requested review thread.
+- After verification, commit and push the changes to the PR head branch when the task requests it.
+- Re-query the live PR before finishing. Do not report completion unless there are zero unresolved matching threads and the requested remote update is present. If access or verification fails, report the task as incomplete instead of claiming success.`
+}
+
+func requiresPullRequestThreadWorkflow(objective string) bool {
+	s := strings.ToLower(objective)
+	prTarget := containsAny(s, "pull request", "/pull/", "this pr", "the pr")
+	reviewTarget := containsAny(s, "review comment", "review thread", "codex comment", "coderabbit comment", "comments in this pr", "comments on this pr")
+	mutation := containsAny(s, "fix", "resolve", "address")
+	return prTarget && reviewTarget && mutation
 }
 
 func hasEffectiveTools(exec router.Executor) bool {

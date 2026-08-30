@@ -409,6 +409,8 @@ The timeout on `veto run` (default 30 minutes) covers both routing and execution
 
 **Shared helper: `routeAndCaptureWithOptions`** — both `cmdRun` and `cmdExec` (for plan steps) share the execution helper in `run.go`. It wires `mgr.OnEvent`, calls `mgr.Route`, looks up the executor, calls its full `Execute` method with explicit options, and returns `(modelName, output, error)`. Internal conversion/review paths use the bounded default. This keeps each command's routing setup in one place (`prepareRouting`) and prevents admission and execution transports from drifting.
 
+**Pull-request review execution:** when an objective explicitly asks the executor to fix review comments on a pull request, `executionPrompt` adds a narrow live-verification contract. The executor must query GitHub inline `reviewThreads`, address and resolve the requested reviewer's unresolved threads, push when requested, and re-query before claiming completion. Ordinary tasks receive no added instructions.
+
 **Explicit output files:** only `--output <relative-path>` writes a file. The
 path must remain inside the current working directory and cannot target hidden
 files or directories. New files are created with mode `0600`; existing files

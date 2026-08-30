@@ -25,6 +25,19 @@ func TestAgenticRunTimeoutDefaults(t *testing.T) {
 	assert.Less(t, defaultAdmissionTimeout, defaultRunTimeout)
 }
 
+func TestExecutionPromptRequiresLivePRThreadAudit(t *testing.T) {
+	prompt := executionPrompt(reportedAgenticObjective, []string{"- follow repository conventions"})
+
+	assert.Contains(t, prompt, "reviewThreads(first:100)")
+	assert.Contains(t, prompt, "zero unresolved matching threads")
+	assert.Contains(t, prompt, "reply to and resolve")
+	assert.Contains(t, prompt, "commit and push")
+}
+
+func TestExecutionPromptLeavesOrdinaryTasksUnchanged(t *testing.T) {
+	assert.Equal(t, "summarize the release", executionPrompt("summarize the release", nil))
+}
+
 func TestClaudeAgenticRunProcess(t *testing.T) {
 	if os.Getenv("VETO_TEST_CLAUDE_AGENTIC_RUN") != "1" {
 		return
@@ -56,6 +69,10 @@ case "$*" in
     printf '%s\n' '{"is_error":false,"result":"fallback","structured_output":{"accept":true,"confidence":0.95,"reason_codes":[],"estimated_tokens":100,"estimated_cost_usd":0,"suggested_alternative_model":"","required_task_changes":[]}}'
     ;;
   *"--output-format text"*)
+	case "$*" in
+	  *"reviewThreads(first:100)"*"zero unresolved matching threads"*) ;;
+	  *) exit 5 ;;
+	esac
 	printf '%s\n' 'execution' >> "$HOME/claude-calls.log"
     printf '%s\n' 'agentic execution complete'
     ;;

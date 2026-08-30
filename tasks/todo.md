@@ -159,3 +159,11 @@
 **Verification:** focused subprocess test, race suite, vet, build, onboarding smoke, benchmark, and live PR-state audit.
 
 **Dependencies:** Tasks 19-20.
+
+## Task 22: Require a live pull-request thread workflow
+
+**Acceptance criteria:** PR review-fix objectives instruct the selected agent to inspect inline review threads, address and resolve the requested reviewer's findings, push when requested, and re-query zero unresolved matching threads before reporting completion; ordinary objectives remain unchanged.
+
+**Verification:** prompt unit tests and the exact fake CLI integration test fail first, then pass; the live PR run no longer reports false zero findings.
+
+**Dependencies:** Task 21.

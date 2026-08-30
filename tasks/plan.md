@@ -92,11 +92,13 @@ Authoritative catalog -> documentation consistency -> beta release
 - [ ] Task 19: Infer executable-runtime requirements from explicit repository mutation objectives and filter text-only transports before admission.
 - [ ] Task 20: Make Claude subscription admission structured, customization-free, and independently timeout-bounded.
 - [ ] Task 21: Give agentic `run` executions a practical default deadline and cover the exact PR-fix flow with a fake CLI integration test.
+- [ ] Task 22: Require live inline-thread verification for pull-request review-fix executions.
 
 ### Checkpoint: Agentic execution
 
 - [ ] The reported PR-fix objective qualifies executable runtimes only.
 - [ ] Claude admission returns schema-valid JSON without project hooks, skills, or tools.
+- [ ] PR review-fix execution cannot infer zero findings from summary views that omit inline threads.
 - [ ] Focused tests, race suite, vet, build, onboarding smoke, and the exact live command pass.
 
 ### Checkpoint: Complete
