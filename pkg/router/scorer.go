@@ -57,7 +57,10 @@ func RankCandidates(task TaskSpec, models []ModelCapabilities, signals SignalSou
 	}
 
 	slices.SortFunc(ranked, func(a, b scored) int {
-		return cmp.Compare(b.score, a.score)
+		if byScore := cmp.Compare(b.score, a.score); byScore != 0 {
+			return byScore
+		}
+		return cmp.Compare(a.model.Name, b.model.Name)
 	})
 
 	out := make([]ModelCapabilities, len(ranked))
@@ -83,6 +86,9 @@ func kindMatch(m ModelCapabilities, kind TaskKind) float64 {
 // Without a ceiling: uses opus input cost as reference so cheaper models naturally rank higher.
 // Local/free models score 1.0; opus scores ~0.05.
 func costFit(m ModelCapabilities, task TaskSpec) float64 {
+	if !costKnown(m) {
+		return 0.05
+	}
 	if task.MaxCostUSD > 0 {
 		est := estimatedCost(m, task)
 		if est >= task.MaxCostUSD {

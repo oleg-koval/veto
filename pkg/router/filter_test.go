@@ -31,10 +31,10 @@ func TestHardFilter(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		task       TaskSpec
-		models     []ModelCapabilities
-		wantNames  []string
+		name      string
+		task      TaskSpec
+		models    []ModelCapabilities
+		wantNames []string
 	}{
 		{
 			name:      "no filters — all pass",
@@ -105,6 +105,27 @@ func TestEstimatedCost(t *testing.T) {
 	assert.InDelta(t, 0.011, cost2, 0.0001)
 }
 
+func TestHardFilterDistinguishesUnknownFromKnownZero(t *testing.T) {
+	unknown := ModelCapabilities{
+		Name: "unknown", Tier: tierSmall, CostPer1kInputUnknown: true, CostPer1kOutputUnknown: true,
+	}
+	free := ModelCapabilities{
+		Name: "free", Tier: tierSmall, MaxContextTokens: 8192,
+	}
+
+	assert.Empty(t, HardFilter(TaskSpec{Kind: KindSummarize, MaxTokens: 1000}, []ModelCapabilities{unknown}))
+	assert.Empty(t, HardFilter(TaskSpec{Kind: KindSummarize, MaxCostUSD: 0.01}, []ModelCapabilities{unknown}))
+	assert.Equal(t, []ModelCapabilities{free}, HardFilter(TaskSpec{
+		Kind: KindSummarize, MaxTokens: 1000, MaxCostUSD: 0.01,
+	}, []ModelCapabilities{free}))
+	assert.Less(t, Score(TaskSpec{Kind: KindSummarize}, unknown, neutralRoutingSignal()),
+		Score(TaskSpec{Kind: KindSummarize}, free, neutralRoutingSignal()))
+}
+
+func neutralRoutingSignal() RoutingSignal {
+	return RoutingSignal{HistoricalSuccessRate: 0.5, HistoricalRejectRate: 0.1, AvgEvalScore: 0.7}
+}
+
 func TestFilterReason(t *testing.T) {
 	allTools := []string{"bash", "read", "write"}
 	base := ModelCapabilities{
@@ -116,9 +137,9 @@ func TestFilterReason(t *testing.T) {
 	}
 
 	tests := []struct {
-		name   string
-		model  ModelCapabilities
-		task   TaskSpec
+		name       string
+		model      ModelCapabilities
+		task       TaskSpec
 		wantReason string
 	}{
 		{

@@ -146,7 +146,9 @@ candidates [A, B, C]  (A highest-ranked)
 
 On exec failure (network error, API timeout, auth error) for a candidate: logs `PARSE_FAILURE`, emits `EventAskError` with `Detail` set to the real error message (e.g. `"openai: 429 rate limited"`), and continues to the next candidate — unless the failure was caused by the outer context being cancelled/timed out, in which case the error propagates immediately via `fmt.Errorf("routing: %w", ctx.Err())`. JSON parse failures (model returned text but no valid JSON) are handled as a soft reject in the gate and never reach this path as errors. The loop also checks `ctx.Err()` before each ask, so cancellation between asks is caught promptly without waiting on a model call.
 
-Cap: at most 3 candidates on a fresh run (prevents unnecessary calls when one model is almost certainly the right pick). When resuming from a checkpoint, all remaining untried candidates are attempted, still strictly in rank order.
+Cap: at most 3 candidates receive admission calls per run, including transport
+failures. Checkpoint resume skips tried models and can continue with the next
+bounded group in a later invocation.
 
 ## Checkpoint/Resume (`cmd/veto/checkpoint.go`)
 
@@ -186,10 +188,19 @@ state independently, and never replaces a known-good cache with malformed or
 partial data. Optional ETags support conditional refresh. The official schema
 provides `expiration_date` rather than a separate status, so cached status is
 derived as available or scheduled for removal. See
-[`docs/openrouter-catalog.md`](openrouter-catalog.md). Dynamic entries remain
-outside the active registry until local shortlist policy is implemented.
+[`docs/openrouter-catalog.md`](openrouter-catalog.md). When OpenRouter is
+configured, validated available entries join the active registry with their
+unknown metadata preserved explicitly. Local preferences filter the catalog,
+normal hard filters and scoring rank it, and only three candidates can reach
+paid admission.
 
 **Per-model disable/enable** — `buildProviderRegistry` calls `loadDisabledModels()` which reads `~/.veto/config.json` under the `"disabled_models"` key. Any model name found there is silently skipped when registering executors — it is invisible to the router and never appears as a candidate. `veto disable <model...>` adds names to this list; `veto enable <model...>` removes them. Both commands persist changes back to `config.json` and take effect on the next invocation.
+
+The optional `routing` section in `config.json` adds pinned/favorite/allowed
+model and provider lists plus excluded models/providers. Exclusion and the
+legacy disabled list win over allowlists; pins are exclusive; favorites are a
+stable promotion after ordinary ranking. This policy is deterministic and
+network-free.
 
 ### Executors
 
@@ -297,8 +308,9 @@ If it does (currently `CLIExecutor` via subscription mode), tokens are piped dir
 `--json` on `veto route` is the stricter scripting mode for agent infrastructure. It implies `--quiet` and `--no-resume`, suppresses checkpoint prompts, and emits a single JSON object on stdout. Successful routes include `model`, `tier`, `kind`, `risk`, `complexity`, `confidence`, and `saved_usd`; no-candidate routes exit non-zero with `{"error":"no_candidate",...}` and include `provider_errors` when transports failed. Legitimate model rejections and hard-filter exhaustion omit that field.
 
 The `veto route --timeout` value is a per-model admission deadline. A transport
-failure is logged with its normalized detail and does not consume the three
-completed-admission budget, allowing fallback to later healthy candidates.
+failure is logged with its normalized detail and consumes one of the three
+admission calls for that run; checkpoint resume can continue with untried
+candidates later.
 
 The timeout on `veto run` (default 120s) covers both routing and execution, unlike `veto route` which only times out the admission phase. When the `CLIExecutor` (`claude -p`) is killed by a timeout, it reports `"claude cli: timed out (use --timeout to increase)"` rather than the raw `"signal: killed"` from the subprocess.
 

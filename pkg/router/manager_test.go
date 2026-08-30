@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -87,7 +88,7 @@ func TestManager_Route_NoCandidateError(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNoCandidate)
 }
 
-func TestManager_Route_TransportErrorsDoNotExhaustAdmissionLimit(t *testing.T) {
+func TestManager_Route_AdmissionCallsNeverExceedLimit(t *testing.T) {
 	models := []ModelCapabilities{
 		{Name: "broken-1", Provider: "one", Tier: tierMid, MaxContextTokens: 10_000, CostPer1kInputUSD: 0.001},
 		{Name: "broken-2", Provider: "two", Tier: tierMid, MaxContextTokens: 10_000, CostPer1kInputUSD: 0.002},
@@ -106,11 +107,31 @@ func TestManager_Route_TransportErrorsDoNotExhaustAdmissionLimit(t *testing.T) {
 	}
 	mgr := NewManager(NewRegistryFromModels(models), NewAdmissionGate(exec), NewMemoryStore())
 
-	model, decision, err := mgr.Route(t.Context(), TaskSpec{ID: "fallback", Kind: KindPlan})
-	require.NoError(t, err)
-	assert.Equal(t, "healthy", model.Name)
-	assert.True(t, decision.Accept)
-	assert.Equal(t, 4, calls)
+	_, _, err := mgr.Route(t.Context(), TaskSpec{ID: "fallback", Kind: KindPlan})
+	assert.ErrorIs(t, err, ErrNoCandidate)
+	assert.Equal(t, 3, calls)
+}
+
+func TestManager_Route_LargeCatalogIsShortlistedLocally(t *testing.T) {
+	models := make([]ModelCapabilities, 500)
+	for i := range models {
+		models[i] = ModelCapabilities{
+			Name: fmt.Sprintf("model-%03d", i), Provider: "openrouter", Tier: tierSmall,
+			MaxContextTokens: 100_000, CostPer1kInputUSD: float64(i+1) / 1_000_000,
+			CostPer1kOutputUSD: float64(i+1) / 500_000,
+		}
+	}
+	calls := 0
+	exec := &mocks.ExecutorMock{RunFunc: func(context.Context, string) executor.Result {
+		calls++
+		return executor.Result{Output: rejectJSON(ReasonWeakKind)}
+	}}
+	mgr := NewManager(NewRegistryFromModels(models), NewAdmissionGate(exec), NewMemoryStore())
+	mgr.SetCandidatePreferences(CandidatePreferences{AllowedProviders: []string{"openrouter"}})
+
+	_, _, err := mgr.Route(t.Context(), TaskSpec{ID: "large", Kind: KindSummarize})
+	assert.ErrorIs(t, err, ErrNoCandidate)
+	assert.Equal(t, 3, calls)
 }
 
 func TestManager_Route_ExecErrorIsSkipped(t *testing.T) {
