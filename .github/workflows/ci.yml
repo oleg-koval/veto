@@ -29,6 +29,9 @@ jobs:
           VETO_BINARY: ${{ runner.temp }}/veto-onboarding
         run: ./scripts/onboarding-smoke.sh
 
+      - name: Agent skill compatibility smoke
+        run: ./scripts/agent-skill-smoke.sh
+
       - name: Offline routing benchmark smoke
         run: |
           go run ./cmd/veto benchmark --corpus internal/eval/testdata/routing_corpus.json > "$RUNNER_TEMP/veto-benchmark.json"

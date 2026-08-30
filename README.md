@@ -279,6 +279,27 @@ points agents to the skill. Within this checkout, agents with project-skill
 discovery can select it automatically or invoke it explicitly as
 `$veto-routing`.
 
+### OpenCode
+
+OpenCode discovers the shared `.agents/skills/veto-routing/SKILL.md` directly;
+no duplicate `.opencode/skills` copy or project configuration is required. Run
+OpenCode from this checkout and ask it to use the `veto-routing` skill:
+
+```text
+Use the veto-routing skill to route and execute this as a low-risk planning task: ...
+```
+
+Verify discovery without making a model call:
+
+```bash
+./scripts/agent-skill-smoke.sh
+```
+
+For use outside this checkout, install the catalog into a global skill location
+that OpenCode scans, such as `~/.agents/skills`. See OpenCode's
+[Agent Skills documentation](https://opencode.ai/docs/skills/) for its supported
+project and global locations.
+
 The same skill is distributed as
 [`olko:veto-routing`](https://github.com/oleg-koval/agent-skills/tree/main/plugins/olko-skill-meta/skills/veto-routing)
 in the `olko-skill-meta` marketplace plugin. For Claude Code:
@@ -292,6 +313,16 @@ Codex and other supported agents can install the catalog by following the
 [agent-skills installation instructions](https://github.com/oleg-koval/agent-skills#quick-start).
 After installation, invoke the skill as `$veto-routing` or `olko:veto-routing`,
 depending on the agent's skill lookup convention.
+
+### Loops and goals
+
+Veto provides bounded orchestration rather than a general autonomous goal
+loop. `veto exec` runs a finite plan with ordered dependencies and per-step
+routing; `veto run --criteria` adds one independent acceptance review; and
+routing tries a bounded candidate set with checkpoint resume. Veto does not
+persist an open-ended goal, invent follow-up steps, or repeatedly revise output
+until it passes. An outer coding agent may run such a loop, but it must own the
+stop condition, authorization, and validation.
 
 ## Commands
 
