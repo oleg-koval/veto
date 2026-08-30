@@ -175,3 +175,11 @@
 **Verification:** the exact objective complexity test fails first, then passes; the live command asks Sonnet rather than Haiku.
 
 **Dependencies:** Task 22.
+
+## Task 24: Extend the default agentic delivery deadline
+
+**Acceptance criteria:** the default total run deadline accommodates repeated repository pre-push test and review gates while remaining explicitly bounded and configurable.
+
+**Verification:** the minimum-deadline regression test fails first, then passes; the live exact command completes without the 30-minute execution timeout.
+
+**Dependencies:** Task 23.

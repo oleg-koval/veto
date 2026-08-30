@@ -94,6 +94,7 @@ Authoritative catalog -> documentation consistency -> beta release
 - [ ] Task 21: Give agentic `run` executions a practical default deadline and cover the exact PR-fix flow with a fake CLI integration test.
 - [ ] Task 22: Require live inline-thread verification for pull-request review-fix executions.
 - [ ] Task 23: Keep batch PR-review remediation off small-model routing after demonstrated false completion.
+- [ ] Task 24: Allow enough wall time for repositories with mandatory test and AI-review push gates.
 
 ### Checkpoint: Agentic execution
 

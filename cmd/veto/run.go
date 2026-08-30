@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	defaultRunTimeout       = 30 * time.Minute
+	defaultRunTimeout       = 60 * time.Minute
 	defaultAdmissionTimeout = 60 * time.Second
 )
 

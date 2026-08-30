@@ -20,7 +20,7 @@ import (
 const reportedAgenticObjective = "fix and resolve all codex comments in this pr, push when you done https://github.com/oleg-koval/roazon/pull/1513"
 
 func TestAgenticRunTimeoutDefaults(t *testing.T) {
-	assert.GreaterOrEqual(t, defaultRunTimeout, 15*time.Minute)
+	assert.GreaterOrEqual(t, defaultRunTimeout, 45*time.Minute)
 	assert.GreaterOrEqual(t, defaultAdmissionTimeout, 45*time.Second)
 	assert.Less(t, defaultAdmissionTimeout, defaultRunTimeout)
 }
