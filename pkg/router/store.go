@@ -18,7 +18,7 @@ type Store interface {
 	Signal(modelName string, kind TaskKind) RoutingSignal
 }
 
-// KindAwareStore is the additive extension implemented by the built-in stores.
+// KindAwareStore extends Store with task-kind-scoped decision logging and execution metrics.
 // The legacy Store methods remain available for callers that do not have a
 // task kind or execution telemetry yet.
 type KindAwareStore interface {

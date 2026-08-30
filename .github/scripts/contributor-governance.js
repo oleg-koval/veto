@@ -35,9 +35,23 @@ function classifyContributor(policy, login) {
   return { classification: 'grey', reason: 'not listed in repository policy' };
 }
 
+function trustedAutomationEntry(policy, pullRequest) {
+  const entries = policy && policy.settings && Array.isArray(policy.settings.trusted_automation)
+    ? policy.settings.trusted_automation
+    : [];
+  const login = pullRequest && pullRequest.user && pullRequest.user.login;
+  const headRef = pullRequest && pullRequest.head && pullRequest.head.ref;
+  return entries.find((entry) => (
+    entry && normalizeLogin(entry.login) === normalizeLogin(login)
+      && typeof entry.head_prefix === 'string'
+      && String(headRef || '').startsWith(entry.head_prefix)
+  ));
+}
+
 function extractIssueReferences(body, owner, repo) {
   const text = String(body || '');
   const references = new Set();
+  const closingReferences = new Set();
   let malformed = false;
   const urlPattern = /https?:\/\/github\.com\/([^/]+)\/([^/#]+)\/issues\/(\d+)/gi;
   for (const match of text.matchAll(urlPattern)) {
@@ -49,7 +63,9 @@ function extractIssueReferences(body, owner, repo) {
   const qualifiedPattern = new RegExp(`${owner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\/${repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}#(\\d+)`, 'gi');
   for (const match of text.matchAll(qualifiedPattern)) references.add(Number(match[1]));
   if (/(?:^|[\s([{:])#[A-Za-z][A-Za-z0-9_-]*/.test(text)) malformed = true;
-  return { numbers: [...references], malformed };
+  const closingPattern = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[^\n]*?(?:#(\d+)|\/issues\/(\d+))/gi;
+  for (const match of text.matchAll(closingPattern)) closingReferences.add(Number(match[1] || match[2]));
+  return { numbers: [...(closingReferences.size ? closingReferences : references)], malformed };
 }
 
 function extractAcceptanceCriteria(body) {
@@ -139,6 +155,18 @@ async function run({ github, context, core, policyPath }) {
     failure = `This PR is blocked because @${login} is blacklisted by the versioned contributor policy. Reason: ${result.reason}`;
   }
 
+  const automation = trustedAutomationEntry(policy, pullRequest);
+  if (!failure && automation) {
+    core.notice(`Trusted automation @${login} matched policy: ${automation.reason || 'configured automation'}`);
+    try {
+      const mismatches = await commitAuthorMismatches(github, owner, repo, pullRequest.number, login);
+      if (mismatches.length) await reportComment(github, owner, repo, pullRequest.number, `Accountable contributor: @${login}. Commit-author mismatch(es) detected: ${mismatches.map((name) => `@${name}`).join(', ')}. Maintainers should verify attribution.`, MISMATCH_MARKER);
+    } catch (error) {
+      core.warning(`Could not inspect commit authors: ${error.status || error.message}`);
+    }
+    return;
+  }
+
   const refs = extractIssueReferences(pullRequest.body, owner, repo);
   let criteria = [];
   let issueNumber = refs.numbers[0];
@@ -188,6 +216,7 @@ async function run({ github, context, core, policyPath }) {
 
 module.exports = {
   classifyContributor,
+  trustedAutomationEntry,
   extractIssueReferences,
   extractAcceptanceCriteria,
   validateAcceptanceEvidence,

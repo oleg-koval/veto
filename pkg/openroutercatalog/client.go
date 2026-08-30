@@ -25,12 +25,14 @@ const (
 	maxCatalogModels        = 1000
 )
 
+// ErrCacheUnavailable is returned when offline mode is requested but no cache exists.
 var ErrCacheUnavailable = errors.New("openrouter catalog cache unavailable")
 
 type httpDoer interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
+// Client fetches and caches OpenRouter model metadata with bounded resource usage.
 type Client struct {
 	apiKey           string
 	cachePath        string

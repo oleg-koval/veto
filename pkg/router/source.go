@@ -11,8 +11,10 @@ type ModelSource interface {
 // StaticModelSource provides veto's built-in model catalog.
 type StaticModelSource struct{}
 
+// SourceID returns the identifier for the built-in catalog source.
 func (StaticModelSource) SourceID() string { return "builtin" }
 
+// Models returns the full built-in catalog with source metadata populated.
 func (source StaticModelSource) Models(_ context.Context) ([]ModelCapabilities, error) {
 	models := catalog()
 	for i := range models {

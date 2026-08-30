@@ -27,6 +27,12 @@ PR author is accountable; commit-author mismatches are reported separately for
 maintainer review. Reputation data is only a review signal, never an automatic
 quality judgment.
 
+Release Please PRs are an explicit trusted-automation exception: the policy
+matches the `github-actions` login and the repository's Release Please branch
+prefix, then skips duplicate issue and acceptance-criteria checks because those
+changes were governed in their source PRs. Other automation and bot PRs remain
+subject to the normal checks.
+
 The governance check fails closed when a grey contributor's issue or reputation
 data cannot be read. Maintainers may override a classification by updating the
 versioned policy in a reviewed PR, documenting the reason, and retaining the

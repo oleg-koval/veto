@@ -62,8 +62,10 @@ func NewXAIExecutor(apiKey, model string) *OpenAIExecutor {
 	return &OpenAIExecutor{apiKey: apiKey, model: model, endpoint: xAIEndpoint, runtimeID: "xai-api", client: &http.Client{}}
 }
 
+// RuntimeID returns the executor's runtime identifier.
 func (e *OpenAIExecutor) RuntimeID() string { return e.runtimeID }
 
+// EffectiveTools returns nil because HTTP executors cannot invoke tools.
 func (*OpenAIExecutor) EffectiveTools() []string { return nil }
 
 type openAIRequest struct {

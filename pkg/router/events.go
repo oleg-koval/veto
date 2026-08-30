@@ -3,6 +3,7 @@ package router
 // EventKind identifies the type of progress event emitted during Manager.Route.
 type EventKind string
 
+// EventKind constants define routing pipeline progress event types.
 const (
 	EventFilterPass EventKind = "filter_pass"
 	EventFilterFail EventKind = "filter_fail"

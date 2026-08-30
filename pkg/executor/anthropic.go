@@ -32,8 +32,10 @@ func NewAnthropicExecutor(apiKey, model string) *AnthropicExecutor {
 	return &AnthropicExecutor{apiKey: apiKey, model: model, endpoint: anthropicEndpoint, client: &http.Client{}}
 }
 
+// RuntimeID returns the executor's runtime identifier.
 func (*AnthropicExecutor) RuntimeID() string { return "anthropic-api" }
 
+// EffectiveTools returns nil because HTTP executors cannot invoke tools.
 func (*AnthropicExecutor) EffectiveTools() []string { return nil }
 
 type anthropicRequest struct {

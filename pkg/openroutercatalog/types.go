@@ -3,15 +3,19 @@ package openroutercatalog
 
 import "time"
 
+// CacheState indicates whether cached model metadata is still fresh.
 type CacheState string
 
+// CacheState constants define cache freshness levels.
 const (
 	StateFresh CacheState = "fresh"
 	StateStale CacheState = "stale"
 )
 
+// ModelStatus indicates a model's availability in the OpenRouter catalog.
 type ModelStatus string
 
+// ModelStatus constants define catalog availability states.
 const (
 	StatusAvailable           ModelStatus = "available"
 	StatusScheduledForRemoval ModelStatus = "scheduled_for_removal"

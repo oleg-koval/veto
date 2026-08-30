@@ -14,10 +14,13 @@ import (
 	"time"
 )
 
+// SchemaVersion is the current ledger event schema version.
 const SchemaVersion = 1
 
+// EventType identifies the category of a lifecycle event.
 type EventType string
 
+// EventType constants define the lifecycle event taxonomy.
 const (
 	EventFilterPass         EventType = "route.filter_pass"
 	EventFilterFail         EventType = "route.filter_fail"
@@ -69,18 +72,21 @@ type Event struct {
 	Detail           string    `json:"detail,omitempty"`
 }
 
+// Usage holds token consumption metrics for a model invocation.
 type Usage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
 	TotalTokens  int `json:"total_tokens"`
 }
 
+// Writer appends versioned events to a line-delimited JSON stream.
 type Writer struct {
 	mu  sync.Mutex
 	out io.Writer
 	now func() time.Time
 }
 
+// NewWriter creates a Writer that appends events to out.
 func NewWriter(out io.Writer) *Writer {
 	return &Writer{out: out, now: time.Now}
 }
@@ -95,6 +101,7 @@ func NewRunID() (string, error) {
 	return "run-" + id, nil
 }
 
+// Append writes an event to the stream after redacting sensitive detail fields.
 func (w *Writer) Append(event Event) error {
 	if strings.TrimSpace(event.RunID) == "" {
 		return fmt.Errorf("ledger: run_id is required")
@@ -153,6 +160,7 @@ var (
 	knownKeyPattern       = regexp.MustCompile(`(?i)\b(?:sk-(?:ant-|or-)?|xai-)[a-z0-9._-]{4,}`)
 )
 
+// Redact removes credentials, API keys, tokens, and passwords from detail text.
 func Redact(detail string) string {
 	detail = strings.Join(strings.Fields(detail), " ")
 	detail = jsonCredentialPattern.ReplaceAllString(detail, `$1[REDACTED]$2`)

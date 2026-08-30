@@ -13,6 +13,13 @@
   "blacklist": [],
   "settings": {
     "require_issue_for_grey": true,
-    "maintainer_review_label": "needs-maintainer-review"
+    "maintainer_review_label": "needs-maintainer-review",
+    "trusted_automation": [
+      {
+        "login": "github-actions[bot]",
+        "head_prefix": "release-please--branches--main--components--",
+        "reason": "Release Please aggregates changes already reviewed in source pull requests"
+      }
+    ]
   }
 }
