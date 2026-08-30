@@ -3,6 +3,13 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0](https://github.com/oleg-koval/veto/compare/v0.4.1...v0.5.0) (2026-08-30)
+
+
+### Features
+
+* add native Hermes integration ([#49](https://github.com/oleg-koval/veto/issues/49)) ([473fdd9](https://github.com/oleg-koval/veto/commit/473fdd939d8499b0df59c427b06be935d4e71016)), closes [#47](https://github.com/oleg-koval/veto/issues/47)
+
 ## [0.4.1](https://github.com/oleg-koval/veto/compare/v0.4.0...v0.4.1) (2026-08-30)
 
 
