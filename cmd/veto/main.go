@@ -220,6 +220,7 @@ func cmdRoute(args []string) {
 	// feeds future ranking — see NewManager wiring below.
 	store := router.NewFileStore(historyPath())
 	mgr := router.NewManager(modelReg, gate, store)
+	mgr.SetCandidatePreferences(loadCandidatePreferences())
 
 	render := NewRenderer(*quiet)
 	render.PrintTaskHeader(objective, kind, *risk, complexity, *maxCost, kindInferred)
@@ -534,7 +535,7 @@ func cmdProviders() {
 		fmt.Println("  No providers configured — run 'veto login' to get started.")
 	} else {
 		// build an accurate model count from the registry
-		reg, err := buildProviderRegistry()
+		reg, err := buildProviderRegistryWithCatalog(true)
 		if err == nil {
 			fmt.Printf("  %d model(s) available for routing\n", len(reg.modelCaps()))
 		}
@@ -553,7 +554,7 @@ func catalogModelDescription(provider string) string {
 		if len(names) == 1 {
 			noun = "model"
 		}
-		return fmt.Sprintf("%d routable %s: %s", len(names), noun, strings.Join(names, ", "))
+		return fmt.Sprintf("%d built-in %s plus the dynamic catalog: %s", len(names), noun, strings.Join(names, ", "))
 	}
 	return strings.Join(names, ", ")
 }
@@ -575,10 +576,10 @@ func (r *providerRegistry) modelCaps() []router.ModelCapabilities {
 	caps := make([]router.ModelCapabilities, 0, len(r.caps))
 	for name, c := range r.caps {
 		c.Runtime = ""
-		c.SupportsTools = nil
+		c.SupportsTools = []string{}
 		if exec := r.executors[name]; exec != nil {
 			c.Runtime = exec.RuntimeID()
-			c.SupportsTools = append([]string(nil), exec.EffectiveTools()...)
+			c.SupportsTools = append([]string{}, exec.EffectiveTools()...)
 		}
 		caps = append(caps, c)
 	}
@@ -586,9 +587,14 @@ func (r *providerRegistry) modelCaps() []router.ModelCapabilities {
 }
 
 func buildProviderRegistry() (*providerRegistry, error) {
+	return buildProviderRegistryWithCatalog(false)
+}
+
+func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 	creds, _ := loadCredentials() // best-effort; env vars take precedence
 	catalog := router.NewRegistry()
 	disabled := loadDisabledModels()
+	preferences := loadCandidatePreferences()
 	reg := &providerRegistry{
 		executors: make(map[string]executor.RuntimeAdapter),
 		caps:      make(map[string]router.ModelCapabilities),
@@ -630,6 +636,15 @@ func buildProviderRegistry() (*providerRegistry, error) {
 		}
 		if modelExecutor != nil {
 			addBuiltin(model, modelExecutor)
+		}
+	}
+	if key := providerKeys["openrouter"]; key != "" {
+		home, homeErr := os.UserHomeDir()
+		if homeErr == nil && home != "" {
+			models, catalogErr := loadOpenRouterCatalogModels(key, openRouterCatalogCachePath(filepath.Join(home, ".veto")), offline)
+			if catalogErr == nil {
+				addOpenRouterCatalogModels(reg, key, models, preferences)
+			}
 		}
 	}
 	if key := getKey("XAI_API_KEY", creds); key != "" {

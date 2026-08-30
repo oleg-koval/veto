@@ -44,6 +44,7 @@ func TestProviderRegistryModelCapsUseEffectiveTransportTools(t *testing.T) {
 		got[cap.Name] = cap
 	}
 	assert.Empty(t, got["api"].SupportsTools)
+	assert.NotNil(t, got["api"].SupportsTools)
 	assert.Equal(t, []string{"read"}, got["cli"].SupportsTools)
 	assert.Empty(t, got["missing"].SupportsTools)
 	assert.Equal(t, "test-text", got["api"].Runtime)
@@ -144,7 +145,7 @@ func TestPrintUsageContainsRootHelpContent(t *testing.T) {
 			t.Fatalf("usage does not contain %q", want)
 		}
 	}
-	assert.Contains(t, usage, "OPENROUTER_API_KEY    1 routable model: meta-llama/llama-4-maverick")
+	assert.Contains(t, usage, "OPENROUTER_API_KEY    1 built-in model plus the dynamic catalog: meta-llama/llama-4-maverick")
 	assert.NotContains(t, usage, "100+ more")
 }
 
@@ -166,7 +167,7 @@ func TestProvidersReportsOpenRouterRoutableCount(t *testing.T) {
 	}
 
 	providers := string(output)
-	assert.Contains(t, providers, "1 routable model: meta-llama/llama-4-maverick")
+	assert.Contains(t, providers, "1 built-in model plus the dynamic catalog: meta-llama/llama-4-maverick")
 	assert.Contains(t, providers, "1 model(s) available for routing")
 	assert.NotContains(t, providers, "100+")
 }

@@ -10,7 +10,7 @@ import (
 func TestCatalogModelDescriptionReportsOpenRouterRoutableCount(t *testing.T) {
 	assert.Equal(
 		t,
-		"1 routable model: meta-llama/llama-4-maverick",
+		"1 built-in model plus the dynamic catalog: meta-llama/llama-4-maverick",
 		catalogModelDescription("openrouter"),
 	)
 }
