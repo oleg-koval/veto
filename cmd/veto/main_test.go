@@ -132,4 +132,29 @@ func TestPrintUsageContainsRootHelpContent(t *testing.T) {
 			t.Fatalf("usage does not contain %q", want)
 		}
 	}
+	assert.Contains(t, usage, "OPENROUTER_API_KEY    1 routable model: meta-llama/llama-4-maverick")
+	assert.NotContains(t, usage, "100+ more")
+}
+
+func TestProvidersReportsOpenRouterRoutableCount(t *testing.T) {
+	if os.Getenv("VETO_TEST_OPENROUTER_PROVIDERS") == "1" {
+		cmdProviders()
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestProvidersReportsOpenRouterRoutableCount$")
+	cmd.Env = []string{
+		"HOME=" + t.TempDir(),
+		"OPENROUTER_API_KEY=test-key",
+		"VETO_TEST_OPENROUTER_PROVIDERS=1",
+	}
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("providers exited with error: %v\n%s", err, output)
+	}
+
+	providers := string(output)
+	assert.Contains(t, providers, "1 routable model: meta-llama/llama-4-maverick")
+	assert.Contains(t, providers, "1 model(s) available for routing")
+	assert.NotContains(t, providers, "100+")
 }

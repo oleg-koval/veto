@@ -489,11 +489,15 @@ If no model accepts, the command exits non-zero and emits:
 | Anthropic (subscription) | `haiku`, `sonnet`, `opus` | `CLAUDE_SUBSCRIPTION=true` + `claude` CLI logged in |
 | Anthropic (API key) | `haiku`, `sonnet`, `opus` | `ANTHROPIC_API_KEY` |
 | OpenAI | `gpt-4.1`, `gpt-4.1-mini`, `sol`, `terra`, `luna` | `OPENAI_API_KEY` |
-| OpenRouter | `meta-llama/llama-4-maverick` (and 100+ more via API) | `OPENROUTER_API_KEY` |
+| OpenRouter | `meta-llama/llama-4-maverick` (1 currently routable model) | `OPENROUTER_API_KEY` |
 | xAI (Grok) | `grok-4.5`, `grok-4.3`, `grok-3`, `grok-3-mini` | `XAI_API_KEY` |
 | Local / self-hosted | any name you choose | `veto login` → option 5 (guided Ollama install, LM Studio, or manual) |
 
 Subscription mode takes precedence over API key when both are configured. Claude subscription mode uses the `claude` CLI and is the only current transport with executable tools (`bash`, `read`, `write`, and `edit`). Anthropic/OpenAI/OpenRouter APIs and local OpenAI-compatible servers are text-only through veto, even when the underlying model advertises function calling; they cannot inspect or modify your files. Local inference has $0 provider billing, but still consumes your machine's resources. `veto providers` shows which mode is active and lists all local models.
+
+OpenRouter itself offers a much larger catalog, but this version of veto only
+registers the model listed above for routing. Dynamic OpenRouter catalog support
+is planned and is not implied by connecting an API key.
 
 **Ollama models curated for routing:**
 
