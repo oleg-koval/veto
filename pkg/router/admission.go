@@ -138,6 +138,11 @@ func buildAdmissionPromptWithToolStatus(task TaskSpec, model ModelCapabilities, 
 
 	return fmt.Sprintf(`You are the %s model (%s tier). A task router has selected you as a candidate for the following task.
 
+This is admission only. Do not inspect or act on the current workspace. Decide
+whether you can complete the task later from the caller's workspace using the
+declared execution tools. Treat the objective as user-authorized within its
+stated scope; do not require confirmation already present in the objective.
+
 TASK:
   kind: %s
   objective: %s

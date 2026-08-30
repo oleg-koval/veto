@@ -14,6 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAgenticRunTimeoutDefaults(t *testing.T) {
+	assert.GreaterOrEqual(t, defaultRunTimeout, 15*time.Minute)
+	assert.GreaterOrEqual(t, defaultAdmissionTimeout, 45*time.Second)
+	assert.Less(t, defaultAdmissionTimeout, defaultRunTimeout)
+}
+
 func TestValidateExecutionResultRejectsTruncation(t *testing.T) {
 	err := validateExecutionResult(executor.Result{
 		Output:       "partial output",

@@ -18,6 +18,11 @@ import (
 	"github.com/oleg-koval/veto/pkg/router"
 )
 
+const (
+	defaultRunTimeout       = 30 * time.Minute
+	defaultAdmissionTimeout = 60 * time.Second
+)
+
 // cmdRun routes the task then executes it on the winning model, printing the response.
 func cmdRun(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
@@ -25,7 +30,8 @@ func cmdRun(args []string) {
 	kindFlag := fs.String("kind", "", "task kind (auto-detected if omitted)")
 	risk := fs.String("risk", "medium", "risk level: low|medium|high")
 	maxCost := fs.Float64("max-cost", 0, "estimated preflight cost ceiling in USD (0 = none)")
-	timeout := fs.Duration("timeout", 120*time.Second, "total timeout (routing + execution)")
+	timeout := fs.Duration("timeout", defaultRunTimeout, "total timeout (routing + execution)")
+	admissionTimeout := fs.Duration("admission-timeout", defaultAdmissionTimeout, "timeout for each model admission decision")
 	quiet := fs.Bool("quiet", false, "suppress routing pipeline — print model output only")
 	criteriaFlag := fs.String("criteria", "", "comma-separated acceptance criteria; review runs after execution")
 	maxOutputTokens := fs.Int("max-output-tokens", executor.DefaultExecutionMaxTokens, "maximum output tokens for task execution")
@@ -66,6 +72,7 @@ func cmdRun(args []string) {
 
 	modelReg := router.NewRegistryFromModels(reg.modelCaps())
 	gate := router.NewAdmissionGateWithFactory(reg)
+	gate.SetTimeout(*admissionTimeout)
 	store := router.NewFileStore(historyPath())
 	mgr := router.NewManager(modelReg, gate, store)
 	mgr.SetCandidatePreferences(loadCandidatePreferences())
