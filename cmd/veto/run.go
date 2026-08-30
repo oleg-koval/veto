@@ -31,6 +31,7 @@ func cmdRun(args []string) {
 	maxOutputTokens := fs.Int("max-output-tokens", executor.DefaultExecutionMaxTokens, "maximum output tokens for task execution")
 	outputPath := fs.String("output", "", "write task output to a relative file path")
 	forceOutput := fs.Bool("force", false, "overwrite an existing --output file")
+	noFeedback := fs.Bool("no-feedback", false, "disable the opt-in post-run feedback prompt")
 	_ = fs.Parse(args)
 
 	objective := *taskObj
@@ -242,6 +243,9 @@ func cmdRun(args []string) {
 		if !result.Passed {
 			os.Exit(1)
 		}
+	}
+	if !*noFeedback {
+		maybeOfferPostRunFeedback("run", *risk, model.Name)
 	}
 }
 

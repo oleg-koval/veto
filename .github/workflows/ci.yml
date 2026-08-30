@@ -53,3 +53,9 @@ jobs:
             "$RUNNER_TEMP/veto-release-dist/SHA256SUMS" \
             "$RUNNER_TEMP/veto.rb"
           grep -Fq '/v0.0.0/veto_0.0.0_darwin_arm64.tar.gz' "$RUNNER_TEMP/veto.rb"
+
+      - name: Validate GitHub issue forms
+        run: python3 scripts/validate-github-forms.py
+
+      - name: Test contributor governance rules
+        run: node --test .github/scripts/contributor-governance.test.js

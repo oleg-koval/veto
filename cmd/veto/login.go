@@ -508,8 +508,8 @@ func readMaskedLine() (string, error) {
 	return scanner.Text(), scanner.Err()
 }
 
-// openBrowser opens url in the default browser. Failure is silent — URL is always shown.
-func openBrowser(url string) {
+// openBrowserURL opens url in the default browser and reports handoff errors.
+func openBrowserURL(url string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
@@ -519,7 +519,12 @@ func openBrowser(url string) {
 	case "windows":
 		cmd = exec.Command("cmd", "/c", "start", url)
 	default:
-		return
+		return fmt.Errorf("browser handoff is unsupported on %s", runtime.GOOS)
 	}
-	_ = cmd.Start()
+	return cmd.Start()
+}
+
+// openBrowser preserves the existing best-effort behavior for login/dashboard.
+func openBrowser(url string) {
+	_ = openBrowserURL(url)
 }

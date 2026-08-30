@@ -25,6 +25,7 @@ func cmdExec(args []string) {
 	timeout := fs.Duration("timeout", 60*time.Second, "per-step timeout")
 	maxOutputTokens := fs.Int("max-output-tokens", executor.DefaultExecutionMaxTokens, "maximum output tokens per step")
 	onFailure := fs.String("on-failure", "", "abort-ask|abort|continue (default from config or abort-ask)")
+	noFeedback := fs.Bool("no-feedback", false, "disable the opt-in post-run feedback prompt")
 	_ = fs.Parse(args)
 
 	if len(fs.Args()) == 0 {
@@ -181,6 +182,9 @@ func cmdExec(args []string) {
 		fmt.Printf("\n  Summary: %d ok, %d failed (steps: %s)\n",
 			len(plan.Steps)-len(failed), len(failed), joinInts(failed))
 		os.Exit(1)
+	}
+	if !*noFeedback {
+		maybeOfferPostRunFeedback("exec", "medium", "")
 	}
 }
 

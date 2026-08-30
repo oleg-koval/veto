@@ -32,7 +32,7 @@ func main() {
 		return
 	}
 	// Notify once if new skills are pending approval (non-blocking).
-	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" {
+	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" && os.Args[1] != "feedback" {
 		checkPendingSkills()
 	}
 	switch os.Args[1] {
@@ -44,6 +44,8 @@ func main() {
 		cmdVerifyModels(os.Args[2:])
 	case "doctor":
 		cmdDoctor(os.Args[2:])
+	case "feedback":
+		cmdFeedback(os.Args[2:])
 	case "run":
 		cmdRun(os.Args[2:])
 	case "providers":
@@ -104,6 +106,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  benchmark          replay an offline routing corpus and emit JSON metrics")
 	fmt.Fprintln(o, "  verify-models      verify catalog IDs against one provider account")
 	fmt.Fprintln(o, "  doctor             diagnose installation and ~/.veto integrity")
+	fmt.Fprintln(o, "  feedback           prepare a redacted bug, feature, or optimization report")
 	fmt.Fprintln(o, "  providers          show which providers are configured")
 	fmt.Fprintln(o, "  version            print veto version")
 	fmt.Fprintln(o, "  install-git-hook   add veto to your git workflow")
@@ -124,6 +127,21 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  --no-resume ignore a saved checkpoint and start fresh")
 	fmt.Fprintln(o, "  --dashboard open a live routing view in your browser")
 	fmt.Fprintln(o, "  --criteria  comma-separated acceptance criteria; run a QA review after execution")
+	fmt.Fprintln(o)
+	fmt.Fprintln(o, "FEEDBACK FLAGS")
+	fmt.Fprintln(o, "  --kind       bug|feature|optimization (or success for post-run reports)")
+	fmt.Fprintln(o, "  --summary    concise report summary")
+	fmt.Fprintln(o, "  --expected   expected behavior")
+	fmt.Fprintln(o, "  --actual     actual behavior")
+	fmt.Fprintln(o, "  --reproduction  reproduction steps or current context")
+	fmt.Fprintln(o, "  --scope      affected scope and safe environment context")
+	fmt.Fprintln(o, "  --acceptance-criteria  criteria separated by newlines or semicolons")
+	fmt.Fprintln(o, "  --baseline / --target  performance or cost measurements")
+	fmt.Fprintln(o, "  --regression  regression assessment")
+	fmt.Fprintln(o, "  --stdin      read the report fields as JSON from stdin")
+	fmt.Fprintln(o, "  --json       emit one machine-readable result object")
+	fmt.Fprintln(o, "  --include-provider  explicitly include the provider/model name")
+	fmt.Fprintln(o, "  --no-browser prepare the issue URL without opening a browser")
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "SKILLS")
 	fmt.Fprintln(o, "  Skills are instruction snippets injected into the executor prompt.")

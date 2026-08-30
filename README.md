@@ -341,6 +341,7 @@ stop condition, authorization, and validation.
 | `veto benchmark` | Replay the offline routing corpus and emit JSON metrics |
 | `veto verify-models` | Verify catalog IDs against one provider account |
 | `veto doctor` | Diagnose installation and local-state integrity; optionally repair safe problems |
+| `veto feedback` | Save a redacted report and prepare a GitHub issue |
 | `veto version` | Print veto version |
 | `veto install-git-hook` | Add veto to your git workflow |
 
@@ -359,6 +360,7 @@ Route and execute in one step. The winning model's response is printed to stdout
 | `--output` | *(none)* | Explicit relative file path for saving output |
 | `--force` | `false` | Allow `--output` to replace an existing file |
 | `--criteria` | *(none)* | Comma-separated acceptance criteria; a review pass runs after execution |
+| `--no-feedback` | `false` | Disable the opt-in post-run feedback prompt |
 
 ```bash
 # route and execute, full pipeline visible
@@ -393,6 +395,7 @@ Execute a multi-step plan file. Each step is routed independently to the best mo
 | `--timeout` | `60s` | Per-step timeout (routing + execution) |
 | `--max-output-tokens` | `8192` | Bounded output budget for each step |
 | `--on-failure` | `abort-ask` | What to do when a step fails: `abort-ask` (prompt), `abort`, or `continue` |
+| `--no-feedback` | `false` | Disable the opt-in post-run feedback prompt |
 
 ```bash
 # preview what will run
@@ -550,7 +553,8 @@ routing; catalog-wide shortlist policy is not active yet. See the
 ~/.veto/
   credentials.json                      # stored API keys and subscription marker (0600)
   models.json                           # local / self-hosted model definitions (0600)
-  config.json                           # settings: on_failure, skills approval state, disabled_models
+  config.json                           # settings: on_failure, post_run_feedback, skills approval, disabled_models
+  feedback/<timestamp>-<slug>.json      # redacted local feedback reports (0600)
   skills/<kind>.md                      # cached skill snippets (auto-generated, editable)
   checkpoints/<hash>.json               # resume state for interrupted routing
   plans/<timestamp>-<slug>-converted.md # auto-converted plan files

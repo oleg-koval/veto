@@ -372,6 +372,23 @@ unavailable.
 
 `TaskSpec.SkipModels` is a general mechanism: it causes the Manager to skip those model names in the admission loop. It is also used by checkpoint resume (already-tried models are skipped on re-entry).
 
+## Feedback reports (`cmd/veto/feedback.go`)
+
+`veto feedback` is a separate, scriptable reporting path. It collects the issue
+form vocabulary (kind, summary, reproduction/context, expected and actual
+behavior, scope, acceptance criteria, and optional performance evidence),
+redacts secrets and local paths, writes a `0600` report below
+`~/.veto/feedback/`, and optionally opens a bounded prefilled GitHub issue URL.
+It does not read credentials, task text, provider responses, terminal history,
+or Veto state to populate a report. Provider/model metadata is excluded unless
+the user explicitly opts in. `--stdin --json` is the agent/script interface;
+the JSON result includes the saved path and whether browser payload shortening
+was required. GitHub authentication remains the user's responsibility.
+
+The post-run prompt is disabled by default, is only available on a TTY, and can
+be enabled with `post_run_feedback: true` in `~/.veto/config.json`. `run` and
+`exec` accept `--no-feedback` as an explicit per-invocation opt-out.
+
 ## Installation diagnostics (`cmd/veto/doctor.go`)
 
 `veto doctor` is a separate, provider-free command path. Dispatch bypasses the
