@@ -119,8 +119,9 @@ func skillSourceDirs() []string {
 	return dirs
 }
 
-// loadSkills reads all approved skills from all source directories.
-// Skills in ~/.veto/skills/ are always approved. Others must be in cfg.ApprovedFiles or cfg.ApprovedDirs.
+// loadSkills reads flat skill files and packaged <name>/SKILL.md entrypoints
+// from all approved source directories. Skills in ~/.veto/skills/ are always
+// approved. Others must be in cfg.ApprovedFiles or cfg.ApprovedDirs.
 func loadSkills() []skill {
 	cfg := loadSkillsConfig()
 	approvedFiles := make(map[string]bool, len(cfg.ApprovedFiles))
@@ -136,10 +137,18 @@ func loadSkills() []skill {
 			continue
 		}
 		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			path := filepath.Join(dir, e.Name())
+			if e.IsDir() {
+				// Agent Skills packages, including Impeccable's bundle, keep
+				// their entrypoint at <skill>/SKILL.md. Preserve the older
+				// flat <kind>.md format for Veto-generated skills.
+				path = filepath.Join(path, "SKILL.md")
+				if _, err := os.Stat(path); err != nil {
+					continue
+				}
+			} else if !strings.HasSuffix(e.Name(), ".md") {
 				continue
 			}
-			path := filepath.Join(dir, e.Name())
 			// veto-generated dir: always approved. Others: must be in approved list.
 			if dir != vetoDir && !containsStr(cfg.ApprovedDirs, dir) && !approvedFiles[path] {
 				continue

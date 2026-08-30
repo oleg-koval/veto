@@ -124,6 +124,19 @@ func TestLoadSkills_MissingDir(t *testing.T) {
 	assert.Nil(t, loadSkills())
 }
 
+func TestLoadSkills_PackagedSkillDirectory(t *testing.T) {
+	dir := setTempSkillsDir(t)
+	packageDir := filepath.Join(dir, "impeccable")
+	require.NoError(t, os.MkdirAll(packageDir, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(packageDir, "SKILL.md"), []byte("---\nname: impeccable\ndescription: Design guidance\n---\nUse the design guidance.\n"), 0600))
+
+	loaded := loadSkills()
+	require.Len(t, loaded, 1)
+	assert.Equal(t, "impeccable", loaded[0].Name)
+	assert.Equal(t, filepath.Join(packageDir, "SKILL.md"), loaded[0].Source)
+	assert.Contains(t, loaded[0].Body, "design guidance")
+}
+
 // TestScanUnapprovedSkills_FileApproval — per-file approval removes the file from the unapproved list.
 func TestScanUnapprovedSkills_FileApproval(t *testing.T) {
 	dir := t.TempDir()

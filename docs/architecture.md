@@ -482,17 +482,21 @@ keywords: []            # empty = no keyword filter
 - Other directories (e.g. `~/.claude/skills/`) — must be explicitly approved via `veto setup`
 - Individual files — can be approved one-by-one via `veto setup` if directory-level approval is declined
 
+The managed directory supports both flat skill files and packaged Agent Skills
+with a `<name>/SKILL.md` entrypoint. A packaged skill is still just prompt
+guidance to Veto: bundled references and scripts are not executed by Veto.
+
 Approval state is stored in `~/.veto/config.json` under the `"skills"` key as `approved_dirs`, `approved_files`, and `auto_approve_new`. At startup (for any command except `setup` and `version`), `checkPendingSkills` scans approved directories for unapproved new files and prints a one-line reminder if any are found.
 
 **`veto setup`** runs the interactive discovery and approval flow. It scans candidate directories (currently `~/.claude/skills/`), displays each skill file with its name, and offers approval per-directory or per-file.
 
 **Resolution flow** for each `veto run` call:
 
-1. `loadSkills()` reads all `.md` files from `skillSourceDirs()` (the union of `~/.veto/skills/` and user-approved dirs), filtering to only approved files in unapproved dirs.
+1. `loadSkills()` reads flat `.md` files and packaged `<name>/SKILL.md` entrypoints from `skillSourceDirs()` (the union of `~/.veto/skills/` and user-approved dirs), filtering to only approved files in unapproved dirs.
 2. `matchSkills(spec)` separates matches into kind-specific (skill has `kinds` list that includes the task kind) and generic (empty `kinds`). Kind-specific are preferred; combined list capped at 2.
 3. `withSkills(objective, bodies)` prepends matched skill bodies under `## Relevant skills` before the task objective. Internal/meta routes (review, plan conversion) pass `nil` to avoid recursion.
 
-Skills are **never auto-generated during a routing call**. `resolveSkills` only reads from pre-existing approved files — there is no hidden upstream routing call before the animation starts. `generateSkill` still exists for offline/manual skill creation but is no longer part of the hot path. Skills can be hand-written and placed in `~/.veto/skills/<kind>.md`; veto uses the file as-is on the next call.
+Skills are **never auto-generated during a routing call**. `resolveSkills` only reads from pre-existing approved files — there is no hidden upstream routing call before the animation starts. `generateSkill` still exists for offline/manual skill creation but is no longer part of the hot path. Skills can be hand-written and placed in `~/.veto/skills/<kind>.md`, or installed as an Agent Skills package under `~/.veto/skills/<name>/SKILL.md`; veto uses the entrypoint as-is on the next call. Packaged reference files and scripts remain available to the consuming harness but are not executed by veto.
 
 ## Acceptance-criteria review (`internal/application/review.go`, `cmd/veto/review.go`)
 

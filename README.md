@@ -458,6 +458,27 @@ veto run "extract all TODO comments from the codebase"
 veto route "extract all TODO comments from the codebase" --kind extract
 ```
 
+## Use Veto as an agent harness
+
+Veto is a scriptable model-routing harness: it can select a model for an
+external coding agent, or execute a text task through the selected provider.
+It is not a replacement for a coding-agent host and does not provide a native
+hook system. Its agent integration is the repository-local `$veto-routing`
+skill and the reusable skill library under `~/.veto/skills/`.
+
+Impeccable can target Veto as a harness and install its packaged skill into
+Veto's managed skill directory:
+
+```bash
+npx impeccable install --providers=veto --scope=global
+```
+
+Use an Impeccable build that includes the Veto provider. Veto consumes the
+installed `~/.veto/skills/impeccable/SKILL.md` guidance during routing; it does
+not run Impeccable's native edit hooks or browser commands. Those capabilities
+remain available when Impeccable is also installed in the coding-agent host
+that performs the edits.
+
 ## Use Veto from coding agents
 
 Compatible coding agents can discover the repository-local
@@ -692,7 +713,7 @@ veto route --json "summarize this PR"
 
 **End-to-end execution** — `veto run` routes and then calls the winning model with your task using the separate execution budget, printing the response to stdout. Streaming output is used automatically when the executor supports it: Claude subscription mode streams `claude -p`; Codex subscription mode consumes `codex exec --json`, prints agent updates, and records safe tool and usage events; OpenCode server mode streams session text while mapping tool, approval, artifact, usage, cancellation, and failure events into Veto's ledger. HTTP/API and local OpenAI-compatible transports remain text only.
 
-**Skill injection** — before executing, veto looks up reusable instruction snippets that match the task kind. Skills in `~/.veto/skills/` are always available (hand-written or previously generated via `generateSkill`). Skills from other directories (e.g. `~/.claude/skills/`) can be approved via `veto setup`. At startup, veto silently checks for unapproved skill files and reminds you to run `veto setup` if any are found. Kind-specific skills are preferred over generic ones; cap is 2 per execution. Skills are never auto-generated during a routing call — only pre-existing approved files are used, so there is no hidden warm-up cost at the start of each invocation.
+**Skill injection** — before executing, veto looks up reusable instruction snippets that match the task kind. Skills in `~/.veto/skills/` are always available (hand-written, previously generated via `generateSkill`, or packaged as `~/.veto/skills/<name>/SKILL.md`, as used by Impeccable). Skills from other directories (e.g. `~/.claude/skills/`) can be approved via `veto setup`. At startup, veto silently checks for unapproved skill files and reminds you to run `veto setup` if any are found. Kind-specific skills are preferred over generic ones; cap is 2 per execution. Skills are never auto-generated during a routing call — only pre-existing approved files are used, so there is no hidden warm-up cost at the start of each invocation.
 
 **Acceptance-criteria review** — `--criteria "..."` on `veto run` triggers a second routing call after execution. A different model (not the one that did the work) grades the output against each criterion and returns a structured pass/fail. Exits 1 if any criterion fails, or if the review is unavailable, malformed, incomplete, or internally inconsistent — making a requested review a fail-closed quality gate.
 
@@ -801,7 +822,8 @@ is not invented. See the [catalog cache contract](docs/openrouter-catalog.md).
   models.json                           # local / self-hosted model definitions (0600)
   config.json                           # settings: routing, feedback, skills, disabled models, analytics preference
   feedback/<timestamp>-<slug>.json      # redacted local feedback reports (0600)
-  skills/<kind>.md                      # cached skill snippets (auto-generated, editable)
+  skills/<kind>.md                      # cached flat skill snippets (auto-generated, editable)
+  skills/<name>/SKILL.md                # packaged Agent Skills (for example Impeccable)
   checkpoints/<hash>.json               # resume state for interrupted routing
   plans/<timestamp>-<slug>-converted.md # auto-converted plan files
   logs/veto-YYYY-MM-DD.log              # JSON-line routing history (7-day rolling)
