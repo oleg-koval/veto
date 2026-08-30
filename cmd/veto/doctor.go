@@ -103,6 +103,7 @@ type doctorDeps struct {
 	inspectOpenRouterCatalog func(string) (openroutercatalog.Snapshot, error)
 }
 
+// defaultDoctorDeps returns the production dependencies used by the doctor command.
 func defaultDoctorDeps() doctorDeps {
 	return doctorDeps{
 		fs:                osDoctorFilesystem{},
@@ -158,6 +159,7 @@ func runDoctorCommand(args []string, stdout, stderr io.Writer, deps doctorDeps) 
 	return 0
 }
 
+// The options control checks that support repair or offline behavior.
 func runDoctor(options doctorOptions, deps doctorDeps) doctorReport {
 	checks := []doctorCheck{
 		checkDoctorExecutable(deps),
@@ -315,6 +317,9 @@ type doctorStateEntry struct {
 
 var doctorManagedDirs = []string{"skills", "plans", "checkpoints", "logs", "cache"}
 
+// checkDoctorState inspects managed state entries for safe ownership, file types, and permissions,
+// optionally creating missing directories and correcting permissions when requested. It returns
+// diagnostic checks describing the state shape and permissions.
 func checkDoctorState(root string, options doctorOptions, deps doctorDeps) []doctorCheck {
 	inspection := inspectDoctorState(root, deps.fs)
 	created := 0
@@ -454,6 +459,7 @@ func inspectDoctorStateEntry(path string, info os.FileInfo, inspection *doctorSt
 	}
 }
 
+// checkDoctorJSON validates existing managed JSON files and reports whether they are readable and well formed.
 func checkDoctorJSON(root string, deps doctorDeps) doctorCheck {
 	paths := []string{
 		filepath.Join(root, "credentials.json"),
@@ -493,6 +499,7 @@ func checkDoctorJSON(root string, deps doctorDeps) doctorCheck {
 	return doctorCheck{ID: "state.json", Status: doctorPass, Message: fmt.Sprintf("%d managed JSON file(s) are valid", valid)}
 }
 
+// checkDoctorOpenRouterCatalog validates the cached OpenRouter model catalog and reports whether it is valid and current.
 func checkDoctorOpenRouterCatalog(root string, deps doctorDeps) doctorCheck {
 	path := filepath.Join(root, "cache", "openrouter-models.json")
 	info, err := deps.fs.Lstat(path)
@@ -517,6 +524,9 @@ func checkDoctorOpenRouterCatalog(root string, deps doctorDeps) doctorCheck {
 	return check
 }
 
+// readDoctorModels reads local model definitions from a regular JSON file.
+// It returns no models when the file does not exist and an error when the file
+// is inaccessible, unsafe, oversized, or contains invalid JSON.
 func readDoctorModels(path string, filesystem doctorFilesystem) ([]LocalModel, error) {
 	info, err := filesystem.Lstat(path)
 	if errors.Is(err, fs.ErrNotExist) {

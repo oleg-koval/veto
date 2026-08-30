@@ -45,7 +45,7 @@ type Client struct {
 }
 
 // New returns a bounded OpenRouter catalog client. The API key is used only
-// for requests and is never written to the catalog cache.
+// New creates an OpenRouter catalog client configured with the supplied API key and cache path.
 func New(apiKey, cachePath string) *Client {
 	return &Client{
 		apiKey: apiKey, cachePath: cachePath, endpoint: defaultEndpoint,
@@ -166,6 +166,7 @@ func (c *Client) fetch(ctx context.Context, etag string) ([]Model, string, bool,
 	return models, responseETag, false, nil
 }
 
+// sameOrigin reports whether two URLs use the same scheme and host.
 func sameOrigin(a, b *url.URL) bool {
 	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Host, b.Host)
 }
@@ -197,6 +198,8 @@ type rawPricing struct {
 	Completion *string `json:"completion"`
 }
 
+// parseResponse validates an OpenRouter catalog response and returns its models sorted by ID.
+// It rejects malformed, partial, empty, oversized, or duplicate-containing responses.
 func parseResponse(body []byte) ([]Model, error) {
 	var response rawResponse
 	if err := json.Unmarshal(body, &response); err != nil {
@@ -226,6 +229,9 @@ func parseResponse(body []byte) ([]Model, error) {
 	return models, nil
 }
 
+// validateModel validates and normalizes a raw catalog model.
+// Models with valid expiration dates are marked as scheduled for removal.
+// It returns the normalized model or an error for invalid model data.
 func validateModel(raw rawModel) (Model, error) {
 	raw.ID = strings.TrimSpace(raw.ID)
 	raw.Name = strings.TrimSpace(raw.Name)
@@ -275,6 +281,9 @@ func validateModel(raw rawModel) (Model, error) {
 	return model, nil
 }
 
+// parsePrice parses a prompt or completion price from the catalog pricing data.
+// It returns nil when the pricing data or selected price is absent, and rejects
+// invalid, non-finite, or negative values.
 func parsePrice(pricing *rawPricing, prompt bool) (*float64, error) {
 	if pricing == nil {
 		return nil, nil
@@ -293,6 +302,9 @@ func parsePrice(pricing *rawPricing, prompt bool) (*float64, error) {
 	return &value, nil
 }
 
+// normalizeStrings trims, validates, deduplicates, and sorts capability values.
+// It returns an error if the list or any value exceeds its allowed size, is empty,
+// or contains control characters.
 func normalizeStrings(values []string) ([]string, error) {
 	if values == nil {
 		return nil, nil
@@ -316,6 +328,7 @@ func normalizeStrings(values []string) ([]string, error) {
 	return result, nil
 }
 
+// validExpirationDate reports whether value is a valid date-only or RFC3339 timestamp.
 func validExpirationDate(value string) bool {
 	for _, layout := range []string{"2006-01-02", time.RFC3339} {
 		if _, err := time.Parse(layout, value); err == nil {
@@ -325,10 +338,12 @@ func validExpirationDate(value string) bool {
 	return false
 }
 
+// hasControl reports whether value contains a Unicode control character.
 func hasControl(value string) bool {
 	return strings.IndexFunc(value, unicode.IsControl) >= 0
 }
 
+// newHTTPClient creates an HTTP client with a cloned transport, a minimum TLS version of 1.2, a default timeout, and redirects disabled.
 func newHTTPClient() *http.Client {
 	transport, ok := http.DefaultTransport.(*http.Transport)
 	if ok {

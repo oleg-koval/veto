@@ -46,6 +46,7 @@ type LocalModel struct {
 // localModelsPathOverride lets tests redirect the models file to a temp path.
 var localModelsPathOverride string
 
+// localModelsPath returns the configured local models file path, or the default path in the user's home directory.
 func localModelsPath() string {
 	if localModelsPathOverride != "" {
 		return localModelsPathOverride
@@ -54,6 +55,7 @@ func localModelsPath() string {
 	return filepath.Join(home, ".veto", "models.json")
 }
 
+// openRouterCatalogCachePath returns the path to the cached OpenRouter model catalog, or an empty string when the user's home directory cannot be determined.
 func openRouterCatalogCachePath() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -62,10 +64,14 @@ func openRouterCatalogCachePath() string {
 	return openRouterCatalogCachePathForHome(home)
 }
 
+// openRouterCatalogCachePathForHome returns the path to the cached OpenRouter model catalog within the specified home directory.
 func openRouterCatalogCachePathForHome(home string) string {
 	return filepath.Join(home, ".veto", "cache", "openrouter-models.json")
 }
 
+// loadLocalModels reads the configured local model definitions.
+// It returns an empty result when the model file does not exist and returns
+// an error for other file access or JSON decoding failures.
 func loadLocalModels() ([]LocalModel, error) {
 	data, err := os.ReadFile(localModelsPath())
 	if os.IsNotExist(err) {

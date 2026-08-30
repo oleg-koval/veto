@@ -22,6 +22,8 @@ type persistedCache struct {
 	Models    []Model   `json:"models"`
 }
 
+// snapshotFromCache creates a snapshot from persisted cache data and determines whether it is fresh based on its age.
+// The snapshot preserves the cached models, fetch timestamp, ETag, and offline status.
 func snapshotFromCache(cache persistedCache, now time.Time, maxAge time.Duration, offline bool) Snapshot {
 	state := StateStale
 	age := now.Sub(cache.FetchedAt)
@@ -34,6 +36,8 @@ func snapshotFromCache(cache persistedCache, now time.Time, maxAge time.Duration
 	}
 }
 
+// readCacheFile reads and validates a persisted cache file.
+// It returns the cached data or an error if the file is missing, inaccessible, oversized, malformed, or contains invalid models.
 func readCacheFile(path string, maxBytes int64) (persistedCache, error) {
 	if path == "" {
 		return persistedCache{}, errors.New("cache path is empty")
@@ -75,6 +79,7 @@ func readCacheFile(path string, maxBytes int64) (persistedCache, error) {
 	return cache, nil
 }
 
+// validateStoredModels validates and normalizes persisted models, ensuring their identifiers, metadata, pricing, modalities, parameters, and status-dependent expiration values are valid.
 func validateStoredModels(models []Model) ([]Model, error) {
 	if len(models) == 0 || len(models) > maxCatalogModels {
 		return nil, errors.New("invalid model count")
@@ -114,10 +119,12 @@ func validateStoredModels(models []Model) ([]Model, error) {
 	return models, nil
 }
 
+// validStoredPrice reports whether a stored price is absent or finite and greater than or equal to zero.
 func validStoredPrice(price *float64) bool {
 	return price == nil || (!math.IsNaN(*price) && !math.IsInf(*price, 0) && *price >= 0)
 }
 
+// writeCacheFile validates and atomically writes persisted cache data to path.
 func writeCacheFile(path string, cache persistedCache) error {
 	if path == "" {
 		return errors.New("cache path is empty")
@@ -181,6 +188,7 @@ func writeCacheFile(path string, cache persistedCache) error {
 	return nil
 }
 
+// pathHasSymlink reports whether the path or either of its two parent directories is a symbolic link or cannot be inspected.
 func pathHasSymlink(path string) bool {
 	clean := filepath.Clean(path)
 	for _, candidate := range []string{clean, filepath.Dir(clean), filepath.Dir(filepath.Dir(clean))} {
@@ -195,6 +203,7 @@ func pathHasSymlink(path string) bool {
 	return false
 }
 
+// replaceCacheFile atomically replaces the cache file at path with the temporary file at tempPath.
 func replaceCacheFile(tempPath, path string) error {
 	if err := os.Rename(tempPath, path); err == nil {
 		return nil
