@@ -244,6 +244,33 @@ All-synthetic continuations also bypass routing. `/veto-off` is a visible,
 in-memory per-session override; explicit `/veto-route` still works while it is
 off. The plugin exposes no permission hook and never approves a tool call.
 
+`integrations/hermes` embeds a standalone Hermes plugin in the Veto binary.
+The installer writes four private managed files under
+`<HERMES_HOME>/plugins/veto`, rejects symlink-shaped directories and collisions,
+and removes only checksum-identical content. It deliberately does not edit
+Hermes' enabled-plugin list or provider configuration; the operator validates
+and enables it through `hermes plugins doctor` and `hermes plugins enable`.
+
+The plugin registers six namespaced tools (`veto_status`, `veto_route`,
+`veto_run`, `veto_models`, `veto_cost`, and `veto_cancel`) and five slash
+commands (`/veto`, `/models`, `/route`, `/cost`, and `/veto-off`). Handlers
+invoke an exact `VETO_BINARY` or `veto` argument array without a shell, set
+`VETO_ROUTING_ORIGIN=hermes-plugin`, cap objective and response sizes, apply
+timeouts, and terminate the owned subprocess (including its POSIX process group)
+on timeout or explicit cancellation. A caller-supplied execution ID lets
+`veto_cancel` target one
+plugin-owned process; it cannot cancel unrelated processes.
+
+`veto hermes api --json` is the version-1 compatibility handshake. Missing,
+older, malformed, and incompatible binaries become structured tool results
+rather than plugin registration or session failures. `veto models --json`
+provides a stable version-1 list of effective source/provider/model/runtime
+identities and retains known zero cost separately from unknown cost or tool
+support. The cost tool reports routing savings as an estimate, never as actual
+provider billing. This explicit plugin does not register middleware or a
+permission hook; automatic Hermes routing is a separate opt-in integration
+slice.
+
 **Per-model disable/enable** — `buildProviderRegistry` calls `loadDisabledModels()` which reads `~/.veto/config.json` under the `"disabled_models"` key. Any model name found there is silently skipped when registering executors — it is invisible to the router and never appears as a candidate. `veto disable <model...>` adds names to this list; `veto enable <model...>` removes them. Both commands persist changes back to `config.json` and take effect on the next invocation.
 
 The optional `routing` section in `config.json` adds pinned/favorite/allowed

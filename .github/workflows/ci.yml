@@ -62,3 +62,12 @@ jobs:
 
       - name: Test OpenCode integration contracts
         run: node --test integrations/opencode/*.test.mjs
+
+      - name: Test Hermes integration contracts
+        env:
+          HERMES_HOME: ${{ runner.temp }}/hermes-home
+        run: |
+          python3 -m unittest integrations/hermes/veto/runtime_test.py
+          "$RUNNER_TEMP/veto-onboarding" hermes plugin install
+          "$RUNNER_TEMP/veto-onboarding" hermes plugin status
+          "$RUNNER_TEMP/veto-onboarding" hermes plugin uninstall
