@@ -65,8 +65,10 @@ type TaskSpec struct {
 // ModelCapabilities describes what a model can and cannot handle.
 type ModelCapabilities struct {
 	Name               string
+	Source             string
 	Provider           string
 	APIModel           string
+	Runtime            string
 	Tier               string // "small" | "mid" | "large"
 	MaxContextTokens   int
 	SupportsTools      []string
@@ -74,6 +76,30 @@ type ModelCapabilities struct {
 	CostPer1kOutputUSD float64
 	Strengths          []TaskKind
 	Weaknesses         []TaskKind
+}
+
+// ModelIdentity identifies a routable model independently from its display
+// name. Source describes where metadata came from, Provider owns the model,
+// Model is the provider-facing ID, and Runtime is the active execution adapter.
+type ModelIdentity struct {
+	Source   string
+	Provider string
+	Model    string
+	Runtime  string
+}
+
+// Identity returns the stable routing identity for a model binding.
+func (m ModelCapabilities) Identity() ModelIdentity {
+	model := m.APIModel
+	if model == "" {
+		model = m.Name
+	}
+	return ModelIdentity{
+		Source:   m.Source,
+		Provider: m.Provider,
+		Model:    model,
+		Runtime:  m.Runtime,
+	}
 }
 
 // AdmissionDecision is the structured response a model returns when asked

@@ -77,8 +77,7 @@ func (g *AdmissionGate) Ask(ctx context.Context, task TaskSpec, model ModelCapab
 	// HTTP executors are text-only — no tools pass through a plain chat completion.
 	// Only CLIExecutor (claude -p) runs with real tool access.
 	effectiveTools := model.SupportsTools
-	type toolProvider interface{ EffectiveTools() []string }
-	if tp, ok := exec.(toolProvider); ok {
+	if tp, ok := exec.(executor.ToolProvider); ok {
 		effectiveTools = tp.EffectiveTools()
 	} else {
 		effectiveTools = nil // text-only: advertise no tools so model can reject accurately

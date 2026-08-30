@@ -570,7 +570,7 @@ func catalogModelDescription(provider string) string {
 // providerRegistry maps model names to their executors and capabilities.
 // Lives here so cmd imports both pkg/executor and pkg/router without circular deps.
 type providerRegistry struct {
-	executors map[string]router.Executor
+	executors map[string]executor.RuntimeAdapter
 	caps      map[string]router.ModelCapabilities
 }
 
@@ -583,12 +583,11 @@ func (r *providerRegistry) For(name string) (router.Executor, bool) {
 func (r *providerRegistry) modelCaps() []router.ModelCapabilities {
 	caps := make([]router.ModelCapabilities, 0, len(r.caps))
 	for name, c := range r.caps {
+		c.Runtime = ""
+		c.SupportsTools = nil
 		if exec := r.executors[name]; exec != nil {
-			if tools, ok := exec.(executor.ToolProvider); ok {
-				c.SupportsTools = append([]string(nil), tools.EffectiveTools()...)
-			} else {
-				c.SupportsTools = nil
-			}
+			c.Runtime = exec.RuntimeID()
+			c.SupportsTools = append([]string(nil), exec.EffectiveTools()...)
 		}
 		caps = append(caps, c)
 	}
@@ -600,11 +599,11 @@ func buildProviderRegistry() (*providerRegistry, error) {
 	catalog := router.NewRegistry()
 	disabled := loadDisabledModels()
 	reg := &providerRegistry{
-		executors: make(map[string]router.Executor),
+		executors: make(map[string]executor.RuntimeAdapter),
 		caps:      make(map[string]router.ModelCapabilities),
 	}
 
-	addBuiltin := func(model router.ModelCapabilities, exec router.Executor) {
+	addBuiltin := func(model router.ModelCapabilities, exec executor.RuntimeAdapter) {
 		if disabled[model.Name] {
 			return
 		}
@@ -621,7 +620,7 @@ func buildProviderRegistry() (*providerRegistry, error) {
 		"openrouter": getKey("OPENROUTER_API_KEY", creds),
 	}
 	for _, model := range catalog.All() {
-		var modelExecutor router.Executor
+		var modelExecutor executor.RuntimeAdapter
 		switch model.Provider {
 		case "anthropic":
 			if subscription {
@@ -652,9 +651,10 @@ func buildProviderRegistry() (*providerRegistry, error) {
 
 	// Local / self-hosted models (OpenAI-compatible endpoints).
 	locals, _ := loadLocalModels()
-	for _, lm := range locals {
+	localCaps, _ := (localModelSource{models: locals}).Models(context.Background())
+	for i, lm := range locals {
 		reg.executors[lm.Name] = executor.NewOpenAICompatibleExecutor(lm.APIKey, lm.Model, lm.Endpoint)
-		reg.caps[lm.Name] = lm.capabilities()
+		reg.caps[lm.Name] = localCaps[i]
 	}
 
 	if len(reg.executors) == 0 {
