@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="title desc">
+  <title id="title">Admission Gate</title>
+  <desc id="desc">Two open brackets frame a decisive check mark.</desc>
+  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M34 24H25a6 6 0 0 0-6 6v40a6 6 0 0 0 6 6h9" stroke-width="4" opacity=".38"/>
+    <path d="M66 24h9a6 6 0 0 1 6 6v40a6 6 0 0 1-6 6h-9" stroke-width="4" opacity=".38"/>
+    <path d="m34 50 11 11 22-25" stroke-width="7"/>
+  </g>
+</svg>

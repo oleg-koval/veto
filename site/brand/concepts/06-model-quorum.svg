@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="title desc">
+  <title id="title">Model Quorum</title>
+  <desc id="desc">Candidate nodes feed a central admission gate and selected output.</desc>
+  <g fill="none" stroke="currentColor" stroke-linecap="round">
+    <path d="M24 27Q40 27 45 42M24 50h19M24 73q16 0 21-15M58 50h18" stroke-width="3" opacity=".38"/>
+    <rect x="43" y="38" width="18" height="24" rx="6" stroke-width="4"/>
+  </g>
+  <g fill="currentColor">
+    <circle cx="24" cy="27" r="5" opacity=".5"/>
+    <circle cx="24" cy="50" r="5"/>
+    <circle cx="24" cy="73" r="5" opacity=".5"/>
+    <circle cx="78" cy="50" r="7"/>
+  </g>
+</svg>

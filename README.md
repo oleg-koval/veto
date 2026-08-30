@@ -8,8 +8,18 @@
 </p>
 
 <p align="center">
+  <a href="https://oleg-koval.github.io/veto/"><img src="./site/assets/logo.svg" width="120" height="120" alt="Veto logo"></a>
+</p>
+
+<p align="center">
   Cost-aware AI model routing with explicit model admission.<br>
   <strong>Stop hardcoding which AI model gets every task.</strong>
+</p>
+
+<p align="center">
+  <a href="https://oleg-koval.github.io/veto/">Website</a> ·
+  <a href="https://github.com/oleg-koval/veto/releases/latest">Latest release</a> ·
+  <a href="docs/architecture.md">Architecture</a>
 </p>
 
 ---
