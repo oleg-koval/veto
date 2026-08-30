@@ -17,8 +17,9 @@
     "trusted_automation": [
       {
         "login": "github-actions[bot]",
-        "head_prefix": "release-please--branches--main--components--",
-        "reason": "Release Please aggregates changes already reviewed in source pull requests"
+        "head_prefix": "*",
+        "same_repository": true,
+        "reason": "Repository-owned GitHub Actions are trusted automation"
       }
     ]
   }

@@ -41,10 +41,15 @@ function trustedAutomationEntry(policy, pullRequest) {
     : [];
   const login = pullRequest && pullRequest.user && pullRequest.user.login;
   const headRef = pullRequest && pullRequest.head && pullRequest.head.ref;
+  const headRepo = pullRequest && pullRequest.head && pullRequest.head.repo && pullRequest.head.repo.full_name;
+  const baseRepo = pullRequest && pullRequest.base && pullRequest.base.repo && pullRequest.base.repo.full_name;
   return entries.find((entry) => (
     entry && normalizeLogin(entry.login) === normalizeLogin(login)
       && typeof entry.head_prefix === 'string'
-      && String(headRef || '').startsWith(entry.head_prefix)
+      && (entry.head_prefix === '*' || String(headRef || '').startsWith(entry.head_prefix))
+      && (entry.same_repository !== true || (
+        headRepo && baseRepo && normalizeLogin(headRepo) === normalizeLogin(baseRepo)
+      ))
   ));
 }
 
