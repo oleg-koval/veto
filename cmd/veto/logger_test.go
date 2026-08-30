@@ -17,7 +17,11 @@ func TestSetupLoggerWritesReplayablePrivateLedger(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	previous := eventLedger
-	t.Cleanup(func() { eventLedger = previous })
+	previousRunID := eventRunID
+	t.Cleanup(func() {
+		eventLedger = previous
+		eventRunID = previousRunID
+	})
 
 	setupLogger()
 	logEvent("task-1", "plan", "low", router.ProgressEvent{
@@ -38,13 +42,21 @@ func TestSetupLoggerWritesReplayablePrivateLedger(t *testing.T) {
 	assert.Zero(t, corrupt)
 	require.Len(t, events, 1)
 	assert.Equal(t, ledger.EventFilterPass, events[0].Type)
+	assert.Equal(t, "task-1", events[0].TaskID)
+	assert.Regexp(t, `^run-[0-9a-f]{32}$`, events[0].RunID)
+	assert.NotEqual(t, events[0].TaskID, events[0].RunID)
 }
 
 func TestLogEventIncludesProviderErrorDetail(t *testing.T) {
 	var output bytes.Buffer
 	previous := eventLedger
+	previousRunID := eventRunID
 	eventLedger = ledger.NewWriter(&output)
-	t.Cleanup(func() { eventLedger = previous })
+	eventRunID = "run-test"
+	t.Cleanup(func() {
+		eventLedger = previous
+		eventRunID = previousRunID
+	})
 
 	logEvent("plan a QA pass", "plan", "low", router.ProgressEvent{
 		Kind:   router.EventAskError,
@@ -57,14 +69,21 @@ func TestLogEventIncludesProviderErrorDetail(t *testing.T) {
 	assert.Equal(t, "openai api: unsupported parameter", event["detail"])
 	assert.Equal(t, float64(ledger.SchemaVersion), event["schema_version"])
 	assert.Equal(t, "admission.error", event["type"])
+	assert.Equal(t, "run-test", event["run_id"])
+	assert.Equal(t, "plan a QA pass", event["task_id"])
 	assert.NotContains(t, event, "task_obj")
 }
 
 func TestLogExecutionPreservesKnownUsage(t *testing.T) {
 	var output bytes.Buffer
 	previous := eventLedger
+	previousRunID := eventRunID
 	eventLedger = ledger.NewWriter(&output)
-	t.Cleanup(func() { eventLedger = previous })
+	eventRunID = "run-test"
+	t.Cleanup(func() {
+		eventLedger = previous
+		eventRunID = previousRunID
+	})
 
 	logExecution("task-1", ledger.EventExecutionCompleted, router.ModelCapabilities{
 		Name: "model", Runtime: "openai-api",
@@ -79,6 +98,32 @@ func TestLogExecutionPreservesKnownUsage(t *testing.T) {
 	assert.Equal(t, 15, event.Usage.TotalTokens)
 	require.NotNil(t, event.CostUSD)
 	assert.Equal(t, 0.01, *event.CostUSD)
+}
+
+func TestLogEventPreservesAcceptedZeroEstimates(t *testing.T) {
+	var output bytes.Buffer
+	previous := eventLedger
+	previousRunID := eventRunID
+	eventLedger = ledger.NewWriter(&output)
+	eventRunID = "run-test"
+	t.Cleanup(func() {
+		eventLedger = previous
+		eventRunID = previousRunID
+	})
+
+	logEvent("task-1", "extract", "low", router.ProgressEvent{
+		Kind: router.EventAskAccept, Model: "local", Confidence: 0.9,
+		EstTokens: 0, EstCost: 0,
+	})
+
+	var event ledger.Event
+	require.NoError(t, json.Unmarshal(output.Bytes(), &event))
+	require.NotNil(t, event.Confidence)
+	assert.Equal(t, 0.9, *event.Confidence)
+	require.NotNil(t, event.EstimatedTokens)
+	assert.Zero(t, *event.EstimatedTokens)
+	require.NotNil(t, event.EstimatedCostUSD)
+	assert.Zero(t, *event.EstimatedCostUSD)
 }
 
 func TestLedgerTypeMapsRouterEventsAndRejectsUnknown(t *testing.T) {

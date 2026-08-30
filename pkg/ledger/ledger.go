@@ -85,6 +85,16 @@ func NewWriter(out io.Writer) *Writer {
 	return &Writer{out: out, now: time.Now}
 }
 
+// NewRunID returns a process-run correlation ID suitable for grouping events
+// from one veto command invocation. Task IDs remain stable task correlations.
+func NewRunID() (string, error) {
+	id, err := newID()
+	if err != nil {
+		return "", fmt.Errorf("ledger run id: %w", err)
+	}
+	return "run-" + id, nil
+}
+
 func (w *Writer) Append(event Event) error {
 	if strings.TrimSpace(event.RunID) == "" {
 		return fmt.Errorf("ledger: run_id is required")
@@ -92,9 +102,9 @@ func (w *Writer) Append(event Event) error {
 	if strings.TrimSpace(string(event.Type)) == "" {
 		return fmt.Errorf("ledger: type is required")
 	}
-	id, err := newEventID()
+	id, err := newID()
 	if err != nil {
-		return err
+		return fmt.Errorf("ledger event id: %w", err)
 	}
 	event.SchemaVersion = SchemaVersion
 	event.Timestamp = w.now().UTC()
@@ -136,14 +146,18 @@ func Read(in io.Reader) ([]Event, int, error) {
 }
 
 var (
-	credentialPattern = regexp.MustCompile(`(?i)\b([a-z0-9_-]*api[_-]?key|authorization|access[_-]?token|token|password)\b\s*[:=]\s*(?:bearer\s+)?[^\s,;]+`)
-	bearerPattern     = regexp.MustCompile(`(?i)\bbearer\s+[a-z0-9._~+/=-]+`)
-	knownKeyPattern   = regexp.MustCompile(`(?i)\b(?:sk-(?:ant-|or-)?|xai-)[a-z0-9._-]{4,}`)
+	jsonCredentialPattern = regexp.MustCompile(`(?i)("(?:[a-z0-9_-]*api[_-]?key|authorization|access[_-]?token|token|password|cookie)"\s*:\s*")(?:bearer\s+)?[^"]*(")`)
+	credentialPattern     = regexp.MustCompile(`(?i)\b([a-z0-9_-]*api[_-]?key|authorization|access[_-]?token|token|password|cookie)\b\s*[:=]\s*(?:bearer\s+)?[^\s,;]+`)
+	urlUserinfoPattern    = regexp.MustCompile(`(?i)(https?://[^:/@\s]+:)[^@\s]+(@)`)
+	bearerPattern         = regexp.MustCompile(`(?i)\bbearer\s+[a-z0-9._~+/=-]+`)
+	knownKeyPattern       = regexp.MustCompile(`(?i)\b(?:sk-(?:ant-|or-)?|xai-)[a-z0-9._-]{4,}`)
 )
 
 func Redact(detail string) string {
 	detail = strings.Join(strings.Fields(detail), " ")
+	detail = jsonCredentialPattern.ReplaceAllString(detail, `$1[REDACTED]$2`)
 	detail = credentialPattern.ReplaceAllString(detail, "$1=[REDACTED]")
+	detail = urlUserinfoPattern.ReplaceAllString(detail, `$1[REDACTED]$2`)
 	detail = bearerPattern.ReplaceAllString(detail, "Bearer [REDACTED]")
 	detail = knownKeyPattern.ReplaceAllString(detail, "[REDACTED]")
 	if len(detail) > 500 {
@@ -152,10 +166,10 @@ func Redact(detail string) string {
 	return detail
 }
 
-func newEventID() (string, error) {
+func newID() (string, error) {
 	var id [16]byte
 	if _, err := rand.Read(id[:]); err != nil {
-		return "", fmt.Errorf("ledger event id: %w", err)
+		return "", err
 	}
 	return hex.EncodeToString(id[:]), nil
 }

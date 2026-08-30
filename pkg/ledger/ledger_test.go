@@ -34,6 +34,17 @@ func TestWriterAppendsVersionedRedactedEnvelope(t *testing.T) {
 	assert.NotContains(t, output.String(), "objective")
 }
 
+func TestRedactRemovesStructuredCredentialForms(t *testing.T) {
+	for _, detail := range []string{
+		`provider error: {"api_key":"plain-secret"}`,
+		`provider error: {"password": "plain-secret"}`,
+		`request failed for https://user:plain-secret@example.com/v1`,
+		`Cookie: session=plain-secret`,
+	} {
+		assert.NotContains(t, Redact(detail), "plain-secret", detail)
+	}
+}
+
 func TestReadSkipsCorruptLines(t *testing.T) {
 	input := strings.Join([]string{
 		`{"schema_version":1,"timestamp":"2026-08-30T07:00:00Z","event_id":"one","run_id":"run","type":"route.filter_pass"}`,
@@ -55,6 +66,17 @@ func TestWriterRejectsMissingRequiredEnvelopeFields(t *testing.T) {
 	assert.Error(t, w.Append(Event{Type: EventFilterPass}))
 	assert.Error(t, w.Append(Event{RunID: "run"}))
 	assert.Empty(t, output.String())
+}
+
+func TestNewRunIDReturnsDistinctPrefixedIDs(t *testing.T) {
+	first, err := NewRunID()
+	require.NoError(t, err)
+	second, err := NewRunID()
+	require.NoError(t, err)
+
+	assert.Regexp(t, `^run-[0-9a-f]{32}$`, first)
+	assert.Regexp(t, `^run-[0-9a-f]{32}$`, second)
+	assert.NotEqual(t, first, second)
 }
 
 func TestEventTypesCoverPlannedLifecycle(t *testing.T) {
