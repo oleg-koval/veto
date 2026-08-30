@@ -54,6 +54,10 @@ func localModelsPath() string {
 	return filepath.Join(home, ".veto", "models.json")
 }
 
+func openRouterCatalogCachePath(root string) string {
+	return filepath.Join(root, "cache", "openrouter-models.json")
+}
+
 func loadLocalModels() ([]LocalModel, error) {
 	data, err := os.ReadFile(localModelsPath())
 	if os.IsNotExist(err) {

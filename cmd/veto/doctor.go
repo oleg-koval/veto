@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -17,6 +18,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/oleg-koval/veto/pkg/openroutercatalog"
 	"github.com/oleg-koval/veto/pkg/router"
 )
 
@@ -85,19 +87,20 @@ func (osDoctorFilesystem) Open(path string) (*os.File, error) { return os.Open(p
 func (osDoctorFilesystem) Remove(path string) error           { return os.Remove(path) }
 
 type doctorDeps struct {
-	fs                doctorFilesystem
-	userHome          func() (string, error)
-	executable        func() (string, error)
-	pathEnv           func() string
-	getenv            func(string) string
-	lookPath          func(string) (string, error)
-	readBuildInfo     func() (*debug.BuildInfo, bool)
-	linkerVersion     string
-	buildProvenance   string
-	goos              string
-	goarch            string
-	httpDo            func(*http.Request) (*http.Response, error)
-	validateCandidate func(string, string) error
+	fs                       doctorFilesystem
+	userHome                 func() (string, error)
+	executable               func() (string, error)
+	pathEnv                  func() string
+	getenv                   func(string) string
+	lookPath                 func(string) (string, error)
+	readBuildInfo            func() (*debug.BuildInfo, bool)
+	linkerVersion            string
+	buildProvenance          string
+	goos                     string
+	goarch                   string
+	httpDo                   func(*http.Request) (*http.Response, error)
+	validateCandidate        func(string, string) error
+	inspectOpenRouterCatalog func(string) (openroutercatalog.Snapshot, error)
 }
 
 func defaultDoctorDeps() doctorDeps {
@@ -115,6 +118,9 @@ func defaultDoctorDeps() doctorDeps {
 		goarch:            runtime.GOARCH,
 		httpDo:            newDoctorReleaseHTTPClient().Do,
 		validateCandidate: validateDoctorCandidateVersion,
+		inspectOpenRouterCatalog: func(path string) (openroutercatalog.Snapshot, error) {
+			return openroutercatalog.New("", path).Load(context.Background(), true)
+		},
 	}
 }
 
@@ -166,6 +172,7 @@ func runDoctor(options doctorOptions, deps doctorDeps) doctorReport {
 			doctorCheck{ID: "state.shape", Status: doctorFail, Message: "cannot resolve the user home directory"},
 			doctorCheck{ID: "state.permissions", Status: doctorFail, Message: "state permissions cannot be inspected"},
 			doctorCheck{ID: "state.json", Status: doctorFail, Message: "state files cannot be inspected"},
+			doctorCheck{ID: "state.openrouter_catalog", Status: doctorFail, Message: "OpenRouter catalog cache cannot be inspected"},
 			doctorCheck{ID: "state.local_models", Status: doctorFail, Message: "local models cannot be inspected"},
 			doctorCheck{ID: "state.skill_approvals", Status: doctorFail, Message: "skill approvals cannot be inspected"},
 			doctorCheck{ID: "dependencies.cli", Status: doctorFail, Message: "configured CLI dependencies cannot be inspected"},
@@ -174,6 +181,7 @@ func runDoctor(options doctorOptions, deps doctorDeps) doctorReport {
 		root := filepath.Join(home, ".veto")
 		checks = append(checks, checkDoctorState(root, options, deps)...)
 		checks = append(checks, checkDoctorJSON(root, deps))
+		checks = append(checks, checkDoctorOpenRouterCatalog(root, deps))
 		models, modelsErr := readDoctorModels(filepath.Join(root, "models.json"), deps.fs)
 		checks = append(checks, checkDoctorModels(models, modelsErr))
 		checks = append(checks, checkDoctorSkills(root, deps))
@@ -305,7 +313,7 @@ type doctorStateEntry struct {
 	mode os.FileMode
 }
 
-var doctorManagedDirs = []string{"skills", "plans", "checkpoints", "logs"}
+var doctorManagedDirs = []string{"skills", "plans", "checkpoints", "logs", "cache"}
 
 func checkDoctorState(root string, options doctorOptions, deps doctorDeps) []doctorCheck {
 	inspection := inspectDoctorState(root, deps.fs)
@@ -452,6 +460,7 @@ func checkDoctorJSON(root string, deps doctorDeps) doctorCheck {
 		filepath.Join(root, "config.json"),
 		filepath.Join(root, "models.json"),
 		filepath.Join(root, "history.json"),
+		filepath.Join(root, "cache", "openrouter-models.json"),
 	}
 	checkpointDir := filepath.Join(root, "checkpoints")
 	if entries, err := deps.fs.ReadDir(checkpointDir); err == nil {
@@ -482,6 +491,30 @@ func checkDoctorJSON(root string, deps doctorDeps) doctorCheck {
 		return doctorCheck{ID: "state.json", Status: doctorFail, Message: fmt.Sprintf("%d managed JSON file(s) are unreadable or malformed", invalid)}
 	}
 	return doctorCheck{ID: "state.json", Status: doctorPass, Message: fmt.Sprintf("%d managed JSON file(s) are valid", valid)}
+}
+
+func checkDoctorOpenRouterCatalog(root string, deps doctorDeps) doctorCheck {
+	path := openRouterCatalogCachePath(root)
+	info, err := deps.fs.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return doctorCheck{ID: "state.openrouter_catalog", Status: doctorPass, Message: "OpenRouter catalog is not cached yet"}
+	}
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return doctorCheck{ID: "state.openrouter_catalog", Status: doctorFail, Message: "OpenRouter catalog cache has an unsafe file shape"}
+	}
+	snapshot, err := deps.inspectOpenRouterCatalog(path)
+	if err != nil {
+		return doctorCheck{ID: "state.openrouter_catalog", Status: doctorFail, Message: "OpenRouter catalog cache is unreadable or malformed"}
+	}
+	check := doctorCheck{
+		ID: "state.openrouter_catalog", Status: doctorPass,
+		Message: fmt.Sprintf("%d cached OpenRouter model(s) are valid", len(snapshot.Models)),
+	}
+	if snapshot.State == openroutercatalog.StateStale {
+		check.Status = doctorWarn
+		check.Message = fmt.Sprintf("%d cached OpenRouter model(s) are valid but stale", len(snapshot.Models))
+	}
+	return check
 }
 
 func readDoctorModels(path string, filesystem doctorFilesystem) ([]LocalModel, error) {

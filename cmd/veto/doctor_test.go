@@ -9,7 +9,9 @@ import (
 	"runtime/debug"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/oleg-koval/veto/pkg/openroutercatalog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +27,7 @@ func TestDoctorOfflineHealthyState(t *testing.T) {
 	home := t.TempDir()
 	root := filepath.Join(home, ".veto")
 	require.NoError(t, os.Mkdir(root, 0700))
-	for _, dir := range []string{"skills", "plans", "checkpoints", "logs"} {
+	for _, dir := range []string{"skills", "plans", "checkpoints", "logs", "cache"} {
 		require.NoError(t, os.Mkdir(filepath.Join(root, dir), 0700))
 	}
 	writeDoctorTestFile(t, filepath.Join(root, "credentials.json"), `{"CLAUDE_SUBSCRIPTION":"false"}`)
@@ -42,10 +44,61 @@ func TestDoctorOfflineHealthyState(t *testing.T) {
 	assertDoctorCheck(t, report, "install.executable", doctorPass)
 	assertDoctorCheck(t, report, "state.permissions", doctorPass)
 	assertDoctorCheck(t, report, "state.json", doctorPass)
+	assertDoctorCheck(t, report, "state.openrouter_catalog", doctorPass)
 	assertDoctorCheck(t, report, "state.local_models", doctorPass)
 	assertDoctorCheck(t, report, "state.skill_approvals", doctorPass)
 	assertDoctorCheck(t, report, "dependencies.cli", doctorPass)
 	assertDoctorCheck(t, report, "release.integrity", doctorWarn)
+}
+
+func TestDoctorValidatesOpenRouterCatalogCache(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".veto")
+	cacheDir := filepath.Join(root, "cache")
+	require.NoError(t, os.MkdirAll(cacheDir, 0700))
+	executable := writeDoctorTestExecutable(t, t.TempDir(), "veto")
+	cachePath := filepath.Join(cacheDir, "openrouter-models.json")
+
+	valid := map[string]any{
+		"version":    1,
+		"fetched_at": time.Now().UTC(),
+		"models": []map[string]any{{
+			"id": "openai/test", "name": "Test", "status": "available",
+			"input_modalities": []string{"text"}, "output_modalities": []string{"text"},
+			"supported_parameters": []string{},
+		}},
+	}
+	body, err := json.Marshal(valid)
+	require.NoError(t, err)
+	writeDoctorTestFile(t, cachePath, string(body))
+
+	healthy := runDoctor(doctorOptions{offline: true}, newDoctorTestDeps(home, executable))
+	assertDoctorCheck(t, healthy, "state.openrouter_catalog", doctorPass)
+
+	writeDoctorTestFile(t, cachePath, `{"version":1,"models":[]}`)
+	broken := runDoctor(doctorOptions{offline: true}, newDoctorTestDeps(home, executable))
+	assert.False(t, broken.OK)
+	assertDoctorCheck(t, broken, "state.openrouter_catalog", doctorFail)
+}
+
+func TestDoctorWarnsForStaleOpenRouterCatalogCache(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".veto")
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "cache"), 0700))
+	cachePath := filepath.Join(root, "cache", "openrouter-models.json")
+	writeDoctorTestFile(t, cachePath, `{}`)
+	executable := writeDoctorTestExecutable(t, t.TempDir(), "veto")
+	deps := newDoctorTestDeps(home, executable)
+	deps.inspectOpenRouterCatalog = func(path string) (openroutercatalog.Snapshot, error) {
+		assert.Equal(t, cachePath, path)
+		return openroutercatalog.Snapshot{
+			Models: []openroutercatalog.Model{{ID: "model"}}, State: openroutercatalog.StateStale, Offline: true,
+		}, nil
+	}
+
+	report := runDoctor(doctorOptions{offline: true}, deps)
+	assert.True(t, report.OK, report.Checks)
+	assertDoctorCheck(t, report, "state.openrouter_catalog", doctorWarn)
 }
 
 func TestDoctorFixesSafePermissionsWithoutRewritingJSON(t *testing.T) {
