@@ -247,6 +247,29 @@ Set `VETO_OPENCODE_AUTO=0` to default all sessions off,
 answers OpenCode permission requests. `plugin uninstall` removes only files
 that still match the running Veto build; modified files are preserved.
 
+To use Veto natively inside Hermes Agent, install the embedded plugin, validate
+it with Hermes' runtime doctor, and enable it explicitly:
+
+```bash
+veto hermes plugin install
+hermes plugins doctor veto --ci
+hermes plugins enable veto --no-allow-tool-override
+```
+
+After restarting Hermes, `/veto`, `/models`, `/route <objective>`,
+`/cost <objective>`, and `/veto-off` are available. The plugin also registers
+the `veto_status`, `veto_route`, `veto_run`, `veto_models`, `veto_cost`, and
+`veto_cancel` tools. This first Hermes slice is explicit-only: automatic
+first-turn routing is not installed yet. `/veto-off` records the process-local
+preference that the next middleware slice will honor.
+
+The plugin never reads Hermes credentials or overrides built-in tools. It runs
+Veto without a shell, bounds time and output, marks plugin-originated calls to
+prevent future recursion, and returns structured errors when Veto is absent or
+incompatible. Disable it with `hermes plugins disable veto` before
+`veto hermes plugin uninstall`; uninstall removes only unchanged Veto-owned
+files and does not edit Hermes configuration.
+
 For local / self-hosted models, choose option 5. veto guides you through three paths:
 
 - **Ollama** — veto checks if Ollama is installed, lets you pick a model from a curated list (Qwen 2.5 Coder, Llama 3.2, Mistral), pulls it, and registers the model automatically. At inference time, if `ollama serve` isn't running, veto starts it in the background and waits up to 5s for it to become ready — no manual server management needed. Install Ollama from its official distribution instructions; veto does not execute a remote install script.
@@ -378,6 +401,15 @@ that OpenCode scans, such as `~/.agents/skills`. See OpenCode's
 [Agent Skills documentation](https://opencode.ai/docs/skills/) for its supported
 project and global locations.
 
+### Hermes Agent
+
+Hermes loads the native integration from `~/.hermes/plugins/veto` after the
+operator enables it. Use `veto hermes plugin status` to compare installed files
+with the current Veto build, and `/veto` inside Hermes to verify plugin API
+compatibility. Explicit route/run tools use Veto's configured providers; they
+do not copy or inspect Hermes provider credentials. Automatic Hermes model
+rewriting is intentionally deferred to the next middleware task.
+
 The same skill is distributed as
 [`olko:veto-routing`](https://github.com/oleg-koval/agent-skills/tree/main/plugins/olko-skill-meta/skills/veto-routing)
 in the `olko-skill-meta` marketplace plugin. For Claude Code:
@@ -415,12 +447,14 @@ stop condition, authorization, and validation.
 | `veto enable <model...>` | Re-include a previously disabled model |
 | `veto setup` | Discover and approve skill files from your skill directories |
 | `veto providers` | Show which providers are configured and how |
+| `veto models [--json] [--offline]` | List effective models, runtimes, tool knowledge, and known/unknown prices |
 | `veto benchmark` | Replay the offline routing corpus and emit JSON metrics |
 | `veto verify-models` | Verify catalog IDs against one provider account |
 | `veto doctor` | Diagnose installation and local-state integrity; optionally repair safe problems |
 | `veto feedback` | Save a redacted report and prepare a GitHub issue |
 | `veto opencode <connect\|status\|disconnect>` | Manage an OpenCode runtime connection without copying credentials |
 | `veto opencode plugin <install\|status\|uninstall>` | Manage automatic routing, commands, and tools inside OpenCode |
+| `veto hermes plugin <install\|status\|uninstall>` | Manage the explicit native Hermes plugin without changing Hermes provider settings |
 | `veto version` | Print veto version |
 | `veto install-git-hook` | Add veto to your git workflow |
 
