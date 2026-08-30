@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	opencodeintegration "github.com/oleg-koval/veto/integrations/opencode"
 	opencodert "github.com/oleg-koval/veto/pkg/opencode"
 )
 
@@ -45,6 +46,8 @@ func runOpenCodeCommand(args []string, stdout, stderr io.Writer, deps opencodert
 		}
 		fmt.Fprintln(stdout, "OpenCode disconnected from Veto; OpenCode credentials were not changed.")
 		return 0
+	case "plugin":
+		return runOpenCodePlugin(args[1:], stdout, stderr)
 	case "help", "--help", "-h":
 		printOpenCodeUsage(stdout)
 		return 0
@@ -53,6 +56,80 @@ func runOpenCodeCommand(args []string, stdout, stderr io.Writer, deps opencodert
 		printOpenCodeUsage(stderr)
 		return 2
 	}
+}
+
+func runOpenCodePlugin(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "usage: veto opencode plugin <install|status|uninstall> [--config-dir PATH] [--force]")
+		return 2
+	}
+	flags := flag.NewFlagSet("opencode plugin "+args[0], flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	configDir := flags.String("config-dir", "", "OpenCode configuration directory")
+	force := flags.Bool("force", false, "replace conflicting integration files (install only)")
+	if err := flags.Parse(args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if flags.NArg() != 0 || (*force && args[0] != "install") {
+		fmt.Fprintln(stderr, "unexpected OpenCode plugin arguments")
+		return 2
+	}
+	dir, err := openCodeConfigDir(*configDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "resolve OpenCode config directory: %v\n", err)
+		return 1
+	}
+	var state opencodeintegration.State
+	switch args[0] {
+	case "install":
+		state, err = opencodeintegration.Install(dir, *force)
+	case "status":
+		state, err = opencodeintegration.Status(dir)
+	case "uninstall":
+		state, err = opencodeintegration.Uninstall(dir)
+	default:
+		fmt.Fprintf(stderr, "unknown OpenCode plugin command: %s\n", args[0])
+		return 2
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "OpenCode plugin %s: %v\n", args[0], err)
+		return 1
+	}
+	if args[0] == "install" {
+		fmt.Fprintf(stdout, "Veto OpenCode integration installed in %s (%d files). Restart OpenCode to load it.\n", dir, state.Installed)
+	} else if args[0] == "uninstall" {
+		fmt.Fprintf(stdout, "Veto OpenCode integration removed from %s.\n", dir)
+	} else if state.Missing == 0 && state.Modified == 0 {
+		fmt.Fprintf(stdout, "Veto OpenCode integration is installed and current in %s (%d files).\n", dir, state.Installed)
+	} else {
+		fmt.Fprintf(stdout, "Veto OpenCode integration is not current in %s (installed=%d missing=%d modified=%d).\n", dir, state.Installed, state.Missing, state.Modified)
+		return 1
+	}
+	return 0
+}
+
+func openCodeConfigDir(explicit string) (string, error) {
+	if explicit != "" {
+		return filepath.Abs(explicit)
+	}
+	if configured := os.Getenv("OPENCODE_CONFIG_DIR"); configured != "" {
+		return filepath.Abs(configured)
+	}
+	if configured := os.Getenv("XDG_CONFIG_HOME"); configured != "" {
+		base, err := filepath.Abs(configured)
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(base, "opencode"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "opencode"), nil
 }
 
 func runOpenCodeConnect(args []string, stdout, stderr io.Writer, deps opencodert.Dependencies, configPath string) int {
@@ -148,12 +225,15 @@ func runOpenCodeStatus(args []string, stdout, stderr io.Writer, deps opencodert.
 }
 
 func printOpenCodeUsage(w io.Writer) {
-	fmt.Fprintln(w, "usage: veto opencode <connect|status|disconnect>")
+	fmt.Fprintln(w, "usage: veto opencode <connect|status|disconnect|plugin>")
 	fmt.Fprintln(w, "  veto opencode connect                         # CLI fallback")
 	fmt.Fprintln(w, "  veto opencode connect --server http://127.0.0.1:4096")
 	fmt.Fprintln(w, "  veto opencode connect --managed [--server http://127.0.0.1:4096]")
 	fmt.Fprintln(w, "  veto opencode status [--json]")
 	fmt.Fprintln(w, "  veto opencode disconnect")
+	fmt.Fprintln(w, "  veto opencode plugin install [--config-dir PATH] [--force]")
+	fmt.Fprintln(w, "  veto opencode plugin status [--config-dir PATH]")
+	fmt.Fprintln(w, "  veto opencode plugin uninstall [--config-dir PATH]")
 }
 
 func loadOpenCodeConfig(path string) (opencodert.Config, bool, error) {

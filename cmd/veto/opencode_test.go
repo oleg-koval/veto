@@ -144,3 +144,40 @@ func TestOpenCodeProcessJSONHasNoPendingSkillNotice(t *testing.T) {
 	assert.Equal(t, "1.18.5", status.Version)
 	assert.NotContains(t, string(output), "notice:")
 }
+
+func TestOpenCodePluginCommandLifecycle(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "opencode")
+	var stdout, stderr bytes.Buffer
+
+	code := runOpenCodeCommand([]string{"plugin", "install", "--config-dir", dir}, &stdout, &stderr, opencodert.Dependencies{}, "")
+	require.Equal(t, 0, code, stderr.String())
+	assert.Contains(t, stdout.String(), "6 files")
+	assert.FileExists(t, filepath.Join(dir, "plugins", "veto.js"))
+
+	stdout.Reset()
+	stderr.Reset()
+	code = runOpenCodeCommand([]string{"plugin", "status", "--config-dir", dir}, &stdout, &stderr, opencodert.Dependencies{}, "")
+	require.Equal(t, 0, code, stderr.String())
+	assert.Contains(t, stdout.String(), "installed and current")
+
+	stdout.Reset()
+	stderr.Reset()
+	code = runOpenCodeCommand([]string{"plugin", "uninstall", "--config-dir", dir}, &stdout, &stderr, opencodert.Dependencies{}, "")
+	require.Equal(t, 0, code, stderr.String())
+	assert.NoFileExists(t, filepath.Join(dir, "plugins", "veto.js"))
+}
+
+func TestOpenCodePluginConfigDirFollowsOpenCodeXDGContract(t *testing.T) {
+	t.Setenv("OPENCODE_CONFIG_DIR", "")
+	xdg := filepath.Join(t.TempDir(), "xdg")
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	got, err := openCodeConfigDir("")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(xdg, "opencode"), got)
+
+	explicit := filepath.Join(t.TempDir(), "explicit")
+	t.Setenv("OPENCODE_CONFIG_DIR", explicit)
+	got, err = openCodeConfigDir("")
+	require.NoError(t, err)
+	assert.Equal(t, explicit, got)
+}

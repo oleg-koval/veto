@@ -195,6 +195,7 @@ veto opencode connect                                      # CLI fallback
 veto opencode connect --server http://127.0.0.1:4096       # attach
 veto opencode connect --managed                            # Veto-managed server
 veto opencode status --json
+veto opencode plugin install                              # OpenCode-side routing
 ```
 
 Attach mode accepts only an explicit HTTP loopback URL and never scans ports.
@@ -217,6 +218,34 @@ uses `opencode run --format json --model provider/model`. Veto never passes
 so a routing probe cannot act. Execution keeps OpenCode's existing permission
 policy, but any new approval request is rejected because Veto does not yet
 provide an interactive approval surface.
+
+To make Veto the model selector inside OpenCode, install the embedded local
+integration and restart OpenCode:
+
+```bash
+veto opencode plugin install
+veto opencode plugin status
+```
+
+Each genuine new user turn is routed through the connected OpenCode runtime by
+default. The selected exact `provider/model` is applied before OpenCode sends
+the prompt, and a toast shows the decision. `/veto-off` disables automatic
+routing for the current session, `/veto-on` restores it, `/veto-status` shows
+the current mode, and `/veto-route <task>` routes one task explicitly even when
+automatic mode is off. The `veto_status` and `veto_route` tools expose the same
+safe inspection path to the agent; status verifies Veto availability/version
+without loading providers or returning executable paths.
+
+Veto-owned sessions, inherited routing subprocesses, and synthetic internal
+continuations bypass the plugin, preventing recursive admission loops. Routing
+has an eight-second default timeout and fails open: on timeout, invalid output,
+or no candidate, OpenCode keeps its current model and shows a warning. The
+session switch is intentionally in memory and resets when OpenCode restarts.
+Set `VETO_OPENCODE_AUTO=0` to default all sessions off,
+`VETO_OPENCODE_TIMEOUT_MS` to a value from 1000 through 30000, or
+`VETO_BINARY` to an exact Veto executable. The integration never intercepts or
+answers OpenCode permission requests. `plugin uninstall` removes only files
+that still match the running Veto build; modified files are preserved.
 
 For local / self-hosted models, choose option 5. veto guides you through three paths:
 
@@ -328,7 +357,9 @@ separate. The runtime connection lets Veto discover, route, and execute
 OpenCode's connected models; the skill below teaches OpenCode when to call Veto
 from the other direction.
 
-OpenCode discovers the shared `.agents/skills/veto-routing/SKILL.md` directly;
+For automatic model selection and native commands/tools, install the local
+integration with `veto opencode plugin install`. OpenCode discovers the shared
+`.agents/skills/veto-routing/SKILL.md` directly;
 no duplicate `.opencode/skills` copy or project configuration is required. Run
 OpenCode from this checkout and ask it to use the `veto-routing` skill:
 
@@ -389,6 +420,7 @@ stop condition, authorization, and validation.
 | `veto doctor` | Diagnose installation and local-state integrity; optionally repair safe problems |
 | `veto feedback` | Save a redacted report and prepare a GitHub issue |
 | `veto opencode <connect\|status\|disconnect>` | Manage an OpenCode runtime connection without copying credentials |
+| `veto opencode plugin <install\|status\|uninstall>` | Manage automatic routing, commands, and tools inside OpenCode |
 | `veto version` | Print veto version |
 | `veto install-git-hook` | Add veto to your git workflow |
 
@@ -492,6 +524,7 @@ Route only — select the best model without executing the task. Useful when you
 | `--quiet` | `false` | Print selected model name only (machine-readable) |
 | `--json` | `false` | Print one JSON result line; implies `--quiet` and `--no-resume` |
 | `--no-resume` | `false` | Ignore saved checkpoint and start fresh |
+| `--runtime` | *(all)* | Restrict candidates to one executable runtime, such as `opencode` |
 | `--dashboard` | `false` | Open a live routing view in your browser |
 
 ```bash
@@ -539,7 +572,7 @@ echo "Using: $MODEL"
 **JSON mode for agent infrastructure** — `--json` on `veto route` suppresses animation and checkpoint resume, then emits one JSON line on stdout:
 
 ```json
-{"model":"sonnet","tier":"mid","kind":"summarize","risk":"medium","complexity":"simple","confidence":0.93,"saved_usd":0.0123}
+{"model":"opencode:anthropic/claude-sonnet","source":"opencode","provider":"anthropic","api_model":"claude-sonnet","runtime":"opencode","tier":"mid","kind":"summarize","risk":"medium","complexity":"simple","confidence":0.93,"saved_usd":0.0123}
 ```
 
 If no model accepts, the command exits non-zero and emits:
