@@ -1,18 +1,19 @@
 package main
 
 import (
-	"log/slog"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/oleg-koval/veto/pkg/ledger"
 	"github.com/oleg-koval/veto/pkg/router"
 )
 
-var routeLog *slog.Logger
+var eventLedger *ledger.Writer
 
-// setupLogger opens today's log file, rotates old ones, and sets routeLog.
+// setupLogger opens today's log file, rotates old ones, and sets eventLedger.
 // Logs are written to ~/.veto/logs/veto-YYYY-MM-DD.log as JSON lines.
 func setupLogger() {
 	home, _ := os.UserHomeDir()
@@ -37,41 +38,89 @@ func setupLogger() {
 	f, err := os.OpenFile(filepath.Join(logDir, name), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		// fallback: discard logs silently — routing still works
-		routeLog = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+		eventLedger = ledger.NewWriter(io.Discard)
 		return
 	}
-	routeLog = slog.New(slog.NewJSONHandler(f, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	eventLedger = ledger.NewWriter(f)
 }
 
 // logEvent writes a routing pipeline event as a structured JSON log line.
-func logEvent(task, kind, risk string, e router.ProgressEvent) {
-	if routeLog == nil {
+func logEvent(runID, kind, risk string, e router.ProgressEvent) {
+	if eventLedger == nil {
 		return
 	}
-	attrs := []any{
-		slog.String("task_kind", kind),
-		slog.String("task_risk", risk),
-		slog.String("task_obj", truncate(task, 120)),
-		slog.String("event", string(e.Kind)),
-		slog.String("model", e.Model),
+	eventType, ok := ledgerType(e.Kind)
+	if !ok {
+		return
 	}
-	if len(e.Reasons) > 0 {
-		attrs = append(attrs, slog.String("reasons", strings.Join(e.Reasons, ",")))
+	event := ledger.Event{
+		RunID: runID, TaskID: runID, Type: eventType,
+		TaskKind: kind, Risk: risk, Model: e.Model,
+		Reasons: append([]string(nil), e.Reasons...), Detail: e.Detail,
 	}
 	if e.Confidence > 0 {
-		attrs = append(attrs, slog.Float64("confidence", e.Confidence))
+		event.Confidence = &e.Confidence
+	}
+	if e.EstTokens > 0 {
+		event.EstimatedTokens = &e.EstTokens
 	}
 	if e.EstCost > 0 {
-		attrs = append(attrs, slog.Float64("est_cost_usd", e.EstCost))
+		event.EstimatedCostUSD = &e.EstCost
 	}
-	if e.Detail != "" {
-		attrs = append(attrs, slog.String("detail", normalizeErrorDetail(e.Detail)))
+	_ = eventLedger.Append(event)
+}
+
+func logExecution(runID string, eventType ledger.EventType, model router.ModelCapabilities, metrics router.ExecutionMetrics, detail string) {
+	if eventLedger == nil {
+		return
 	}
-	routeLog.Debug("route_event", attrs...)
+	event := ledger.Event{
+		RunID: runID, TaskID: runID, Type: eventType, Model: model.Name,
+		Runtime: model.Runtime, Status: metrics.Status, Detail: detail,
+	}
+	if metrics.UsageKnown {
+		event.Usage = &ledger.Usage{
+			InputTokens: metrics.InputTokens, OutputTokens: metrics.OutputTokens, TotalTokens: metrics.TotalTokens,
+		}
+	}
+	if metrics.CostKnown {
+		event.CostUSD = &metrics.CostUSD
+	}
+	if metrics.LatencyKnown {
+		event.LatencyMS = &metrics.LatencyMs
+	}
+	_ = eventLedger.Append(event)
+}
+
+func logLifecycle(runID string, eventType ledger.EventType, status, detail string) {
+	if eventLedger == nil || runID == "" {
+		return
+	}
+	_ = eventLedger.Append(ledger.Event{
+		RunID: runID, TaskID: runID, Type: eventType, Status: status, Detail: detail,
+	})
+}
+
+func ledgerType(kind router.EventKind) (ledger.EventType, bool) {
+	switch kind {
+	case router.EventFilterPass:
+		return ledger.EventFilterPass, true
+	case router.EventFilterFail:
+		return ledger.EventFilterFail, true
+	case router.EventAskStart:
+		return ledger.EventAdmissionStarted, true
+	case router.EventAskAccept:
+		return ledger.EventAdmissionAccepted, true
+	case router.EventAskReject:
+		return ledger.EventAdmissionRejected, true
+	case router.EventAskError:
+		return ledger.EventAdmissionError, true
+	}
+	return "", false
 }
 
 func normalizeErrorDetail(detail string) string {
-	detail = strings.Join(strings.Fields(detail), " ")
+	detail = ledger.Redact(strings.Join(strings.Fields(detail), " "))
 	return truncate(detail, 500)
 }
 
