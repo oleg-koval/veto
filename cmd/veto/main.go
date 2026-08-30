@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/oleg-koval/veto/pkg/executor"
+	opencodert "github.com/oleg-koval/veto/pkg/opencode"
 	"github.com/oleg-koval/veto/pkg/router"
 )
 
@@ -604,7 +605,11 @@ func (r *providerRegistry) modelCaps() []router.ModelCapabilities {
 		c.SupportsTools = []string{}
 		if exec := r.executors[name]; exec != nil {
 			c.Runtime = exec.RuntimeID()
-			c.SupportsTools = append([]string{}, exec.EffectiveTools()...)
+			if status, ok := exec.(executor.ToolCapabilityStatus); ok && !status.EffectiveToolsKnown() {
+				c.SupportsTools = nil
+			} else {
+				c.SupportsTools = append([]string{}, exec.EffectiveTools()...)
+			}
 		}
 		caps = append(caps, c)
 	}
@@ -686,6 +691,22 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 	for i, lm := range locals {
 		reg.executors[lm.Name] = executor.NewOpenAICompatibleExecutor(lm.APIKey, lm.Model, lm.Endpoint)
 		reg.caps[lm.Name] = localCaps[i]
+	}
+
+	openCodeConfig, openCodeConfigured, openCodeConfigErr := loadOpenCodeConfig(vetoCfgPath())
+	if openCodeConfigErr != nil {
+		return nil, fmt.Errorf("read OpenCode connection: %w", openCodeConfigErr)
+	}
+	if openCodeConfigured {
+		deps := opencodert.DefaultDependencies()
+		ctx, cancel := context.WithTimeout(context.Background(), openCodeCommandTimeout)
+		discovery, discoverErr := opencodert.Discover(ctx, openCodeConfig, deps)
+		cancel()
+		if discoverErr == nil {
+			addOpenCodeModels(reg, openCodeConfig, discovery, deps, disabled)
+		} else if len(reg.executors) == 0 {
+			return nil, fmt.Errorf("connect configured OpenCode runtime: %w", discoverErr)
+		}
 	}
 
 	if len(reg.executors) == 0 {

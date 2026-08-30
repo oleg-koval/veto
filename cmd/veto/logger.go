@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/oleg-koval/veto/pkg/executor"
 	"github.com/oleg-koval/veto/pkg/ledger"
 	"github.com/oleg-koval/veto/pkg/router"
 )
@@ -113,6 +114,52 @@ func logLifecycle(taskID string, eventType ledger.EventType, status, detail stri
 	_ = eventLedger.Append(ledger.Event{
 		RunID: currentRunID(taskID), TaskID: taskID, Type: eventType, Status: status, Detail: detail,
 	})
+}
+
+func logRuntimeEvent(taskID string, model router.ModelCapabilities, runtimeEvent executor.RuntimeEvent) {
+	if eventLedger == nil || taskID == "" {
+		return
+	}
+	eventType, ok := runtimeLedgerType(runtimeEvent.Kind)
+	if !ok {
+		return
+	}
+	detail := ""
+	if runtimeEvent.Name != "" {
+		detail = "name=" + runtimeEvent.Name
+	}
+	if runtimeEvent.Count > 0 {
+		if detail != "" {
+			detail += " "
+		}
+		detail += fmt.Sprintf("count=%d", runtimeEvent.Count)
+	}
+	_ = eventLedger.Append(ledger.Event{
+		RunID: currentRunID(taskID), TaskID: taskID, Type: eventType,
+		Model: model.Name, Runtime: model.Runtime, Status: runtimeEvent.Status,
+		Detail: normalizeErrorDetail(detail),
+	})
+}
+
+func runtimeLedgerType(kind executor.RuntimeEventKind) (ledger.EventType, bool) {
+	switch kind {
+	case executor.RuntimeToolStarted:
+		return ledger.EventToolStarted, true
+	case executor.RuntimeToolCompleted:
+		return ledger.EventToolCompleted, true
+	case executor.RuntimeToolError:
+		return ledger.EventToolError, true
+	case executor.RuntimeApprovalRequested:
+		return ledger.EventApprovalRequested, true
+	case executor.RuntimeApprovalGranted:
+		return ledger.EventApprovalGranted, true
+	case executor.RuntimeApprovalDenied:
+		return ledger.EventApprovalDenied, true
+	case executor.RuntimeArtifactCreated:
+		return ledger.EventArtifactCreated, true
+	default:
+		return "", false
+	}
 }
 
 func currentRunID(taskID string) string {

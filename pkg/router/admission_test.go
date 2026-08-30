@@ -133,6 +133,10 @@ func TestBuildAdmissionPrompt(t *testing.T) {
 	// text-only executor: tools line must say "none (text-output mode...)"
 	textPrompt := buildAdmissionPrompt(task, model, nil)
 	assert.Contains(t, textPrompt, "text-output mode")
+
+	unknownPrompt := buildAdmissionPromptWithToolStatus(task, model, nil, false)
+	assert.Contains(t, unknownPrompt, "available tools (actual, not theoretical): unknown")
+	assert.Contains(t, unknownPrompt, "do not assume shell, file, browser, or network access")
 }
 
 func TestParseAdmissionJSON(t *testing.T) {

@@ -87,6 +87,7 @@ type Process interface {
 type Dependencies struct {
 	LookPath func(string) (string, error)
 	Run      func(context.Context, string, ...string) ([]byte, error)
+	Stream   func(context.Context, string, []string, []string, io.Writer, io.Writer) error
 	Start    func(string, []string, []string) (Process, error)
 	Do       func(*http.Request) (*http.Response, error)
 	Getenv   func(string) string
@@ -97,6 +98,12 @@ type Connection struct {
 	Discovery Discovery
 	process   Process
 	wait      <-chan error
+	username  string
+	password  string
+}
+
+func (c *Connection) authPair() (string, string) {
+	return c.username, c.password
 }
 
 // Close releases a managed server. Attach and CLI connections are no-ops.
@@ -121,8 +128,10 @@ func (c *Connection) Close() error {
 
 // DefaultDependencies returns bounded production process and HTTP boundaries.
 func DefaultDependencies() Dependencies {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = 5 * time.Second
 	client := &http.Client{
-		Timeout: 5 * time.Second,
+		Transport: transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return errors.New("OpenCode server redirects are not allowed")
 		},
@@ -130,6 +139,7 @@ func DefaultDependencies() Dependencies {
 	return Dependencies{
 		LookPath: exec.LookPath,
 		Run:      runCommand,
+		Stream:   streamCommand,
 		Start:    startProcess,
 		Do:       client.Do,
 		Getenv:   os.Getenv,
@@ -174,7 +184,11 @@ func Connect(ctx context.Context, config Config, deps Dependencies) (*Connection
 		if err != nil {
 			return nil, err
 		}
-		return &Connection{Discovery: discovery}, nil
+		return &Connection{
+			Discovery: discovery,
+			username:  deps.Getenv("OPENCODE_SERVER_USERNAME"),
+			password:  deps.Getenv("OPENCODE_SERVER_PASSWORD"),
+		}, nil
 	case ModeManaged:
 		return connectManaged(ctx, config, deps)
 	case ModeCLI:
@@ -229,6 +243,9 @@ func fillDependencies(deps Dependencies) Dependencies {
 	}
 	if deps.Run == nil {
 		deps.Run = defaults.Run
+	}
+	if deps.Stream == nil {
+		deps.Stream = defaults.Stream
 	}
 	if deps.Start == nil {
 		deps.Start = defaults.Start
@@ -509,7 +526,10 @@ func connectManaged(ctx context.Context, config Config, deps Dependencies) (*Con
 	}
 	wait := make(chan error, 1)
 	go func() { wait <- process.Wait() }()
-	connection := &Connection{process: process, wait: wait}
+	connection := &Connection{
+		process: process, wait: wait,
+		username: "opencode", password: password,
+	}
 	startCtx, cancel := context.WithTimeout(ctx, managedWait)
 	defer cancel()
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -575,6 +595,18 @@ func runCommand(ctx context.Context, path string, args ...string) ([]byte, error
 		return nil, err
 	}
 	return output.buffer.Bytes(), nil
+}
+
+func streamCommand(ctx context.Context, path string, args, env []string, stdout, stderr io.Writer) error {
+	command := exec.CommandContext(ctx, path, args...)
+	command.Env = mergeEnvironment(os.Environ(), env)
+	command.Stdout = stdout
+	command.Stderr = stderr
+	err := command.Run()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
 }
 
 type limitedBuffer struct {

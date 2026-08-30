@@ -204,8 +204,19 @@ fallback uses the exact `opencode` executable found on `PATH` and the documented
 loopback server to validate compatibility, then records that Veto should own
 the server lifecycle. Veto never reads or copies OpenCode's provider credential
 files. `veto opencode disconnect` (or `veto logout opencode`) removes only the
-Veto connection entry. This release discovers the runtime; routing and session
-execution through OpenCode are delivered in the next integration slice.
+Veto connection entry.
+
+Once connected, OpenCode models join normal routing as
+`opencode:<provider>/<model>` bindings. `veto route`, `veto run`, and plan steps
+can admit and execute them without copying provider credentials into Veto. Each
+admission and execution starts a fresh internal session with an opaque
+`veto:admission:*` or `veto:execution:*` title; server sessions are deleted when
+the call ends. Server mode streams documented SSE events, while CLI fallback
+uses `opencode run --format json --model provider/model`. Veto never passes
+`--auto`, `--yolo`, or `--dangerously-skip-permissions`. Admission denies tools
+so a routing probe cannot act. Execution keeps OpenCode's existing permission
+policy, but any new approval request is rejected because Veto does not yet
+provide an interactive approval surface.
 
 For local / self-hosted models, choose option 5. veto guides you through three paths:
 
@@ -313,8 +324,9 @@ discovery can select it automatically or invoke it explicitly as
 ### OpenCode
 
 Runtime connection (`veto opencode ...`) and agent-side skill discovery are
-separate. The runtime connection lets Veto discover OpenCode's connected
-models; the skill below teaches OpenCode when to call Veto.
+separate. The runtime connection lets Veto discover, route, and execute
+OpenCode's connected models; the skill below teaches OpenCode when to call Veto
+from the other direction.
 
 OpenCode discovers the shared `.agents/skills/veto-routing/SKILL.md` directly;
 no duplicate `.opencode/skills` copy or project configuration is required. Run
@@ -415,7 +427,7 @@ veto run "refactor the auth middleware" \
   --criteria "no third-party JWT dep,all existing tests pass,function names unchanged"
 ```
 
-`veto run` makes two distinct calls when needed. Admission is a short JSON-only probe capped at 512 output tokens. Execution is a separate bounded response, defaulting to 8192 output tokens and controlled by `--max-output-tokens`; the admission limit never truncates the task result. If a provider reports that execution reached its output limit, Veto exits non-zero and does not save or review the partial output. Increase `--max-output-tokens` and retry.
+`veto run` makes two distinct calls when needed. Admission is a short JSON-only probe capped at 512 output tokens. Execution is a separate bounded response, defaulting to 8192 output tokens and controlled by `--max-output-tokens`; the admission limit never truncates the task result. OpenCode does not expose a portable per-prompt token-limit field, so its adapter instead uses the command timeout and an 8 MiB event/text safety bound while preserving any provider-reported output-length failure. If a provider reports that execution reached its output limit, Veto exits non-zero and does not save or review the partial output. Increase `--max-output-tokens` where the transport supports it and retry.
 
 `--output` is the only way for `veto run` to write a file. The path must be relative to the current directory, cannot traverse upward or target hidden files/directories, and is created with mode `0600`. Existing files are protected; pass `--force` to replace one. Objective text such as “save as report.md” does not write a file by itself.
 
@@ -505,7 +517,7 @@ veto route --json "summarize this PR"
 
 **Checkpoint resume** — if routing is interrupted (Ctrl+C, timeout, network blip), veto saves which models already responded. Re-run the same command to pick up where you left off. Use `--no-resume` to start fresh.
 
-**End-to-end execution** — `veto run` routes and then calls the winning model with your task using the separate execution budget, printing the response to stdout. Streaming output is used automatically when the executor supports it (subscription mode via `claude -p` streams tokens as they arrive). HTTP/API and local OpenAI-compatible transports return text only; they do not get the Claude CLI's file, shell, or edit tools.
+**End-to-end execution** — `veto run` routes and then calls the winning model with your task using the separate execution budget, printing the response to stdout. Streaming output is used automatically when the executor supports it: subscription mode streams `claude -p`, and OpenCode server mode streams session text while mapping tool, approval, artifact, usage, cancellation, and failure events into Veto's ledger. HTTP/API and local OpenAI-compatible transports remain text only.
 
 **Skill injection** — before executing, veto looks up reusable instruction snippets that match the task kind. Skills in `~/.veto/skills/` are always available (hand-written or previously generated via `generateSkill`). Skills from other directories (e.g. `~/.claude/skills/`) can be approved via `veto setup`. At startup, veto silently checks for unapproved skill files and reminds you to run `veto setup` if any are found. Kind-specific skills are preferred over generic ones; cap is 2 per execution. Skills are never auto-generated during a routing call — only pre-existing approved files are used, so there is no hidden warm-up cost at the start of each invocation.
 
@@ -589,9 +601,10 @@ automatically. See [the event schema](docs/event-ledger.md).
 | OpenAI | `gpt-4.1`, `gpt-4.1-mini`, `sol`, `terra`, `luna` | `OPENAI_API_KEY` |
 | OpenRouter | built-in fallback plus the validated dynamic catalog | `veto login` browser OAuth or `OPENROUTER_API_KEY` |
 | xAI (Grok) | `grok-4.5`, `grok-4.3`, `grok-3`, `grok-3-mini` | `XAI_API_KEY` |
+| OpenCode runtime | connected `provider/model` bindings | `veto opencode connect` |
 | Local / self-hosted | any name you choose | `veto login` → option 5 (guided Ollama install, LM Studio, or manual) |
 
-Subscription mode takes precedence over API key when both are configured. Claude subscription mode uses the `claude` CLI and is the only current transport with executable tools (`bash`, `read`, `write`, and `edit`). Anthropic/OpenAI/OpenRouter APIs and local OpenAI-compatible servers are text-only through veto, even when the underlying model advertises function calling; they cannot inspect or modify your files. Local inference has $0 provider billing, but still consumes your machine's resources. `veto providers` shows which mode is active and lists all local models.
+Subscription mode takes precedence over API key when both are configured. Claude subscription mode exposes its CLI tools. OpenCode can execute tools already allowed by the user's OpenCode policy; Veto does not infer a tool or browser capability from the model name and never auto-approves a new permission request. Anthropic/OpenAI/OpenRouter APIs and local OpenAI-compatible servers are text-only through Veto, even when the underlying model advertises function calling. Local inference has $0 provider billing, but still consumes your machine's resources. `veto providers` shows which mode is active and lists all local models.
 
 Veto fetches and safely caches OpenRouter's larger catalog, filters it locally,
 and sends admission requests to at most three candidates. Models with unknown

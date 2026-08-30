@@ -36,6 +36,12 @@ Event types are namespaced under `route`, `admission`, `execution`, `tool`,
 `approval`, `artifact`, `review`, and `goal`. New fields may be added within
 schema version 1. Breaking interpretation changes require a new version.
 
+Agent runtimes map tool state, approval decisions, and artifact existence into
+those namespaces. The optional detail contains only a bounded tool/artifact
+kind and count (for example `name=patch count=2`), never tool arguments, tool
+output, paths, file contents, or raw provider events. OpenCode usage and cost
+are persisted only when OpenCode reports them.
+
 ## Privacy and recovery
 
 The envelope has no objective, prompt, response, credential, cookie, or raw
