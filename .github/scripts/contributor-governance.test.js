@@ -10,19 +10,38 @@ test('classifies logins case-insensitively and leaves unknown users grey', () =>
   assert.equal(governance.classifyContributor(policy, 'new-user').classification, 'grey');
 });
 
-test('matches only the explicitly configured Release Please automation', () => {
+test('matches explicitly configured automation scopes', () => {
   const policy = {
     settings: {
-      trusted_automation: [{ login: 'github-actions[bot]', head_prefix: 'release-please--branches--main--components--' }],
+      trusted_automation: [
+        { login: 'github-actions[bot]', head_prefix: '*', same_repository: true },
+        { login: 'release-bot', head_prefix: 'release/' },
+      ],
     },
   };
-  const releasePR = { user: { login: 'GitHub-Actions[Bot]' }, head: { ref: 'release-please--branches--main--components--veto' } };
+  const repository = { full_name: 'oleg-koval/veto' };
+  const releasePR = {
+    user: { login: 'GitHub-Actions[Bot]' },
+    head: { ref: 'release-please--branches--main--components--veto', repo: repository },
+    base: { repo: repository },
+  };
   assert.ok(governance.trustedAutomationEntry(policy, releasePR));
-  assert.equal(governance.trustedAutomationEntry(policy, { user: { login: 'github-actions[bot]' }, head: { ref: 'feature/release' } }), undefined);
+  assert.ok(governance.trustedAutomationEntry(policy, {
+    user: { login: 'github-actions[bot]' },
+    head: { ref: 'feature/release', repo: repository },
+    base: { repo: repository },
+  }));
+  assert.equal(governance.trustedAutomationEntry(policy, {
+    user: { login: 'github-actions[bot]' },
+    head: { ref: 'feature/release', repo: { full_name: 'fork-owner/veto' } },
+    base: { repo: repository },
+  }), undefined);
+  assert.ok(governance.trustedAutomationEntry(policy, { user: { login: 'release-bot' }, head: { ref: 'release/v1' } }));
+  assert.equal(governance.trustedAutomationEntry(policy, { user: { login: 'release-bot' }, head: { ref: 'feature/release' } }), undefined);
   assert.equal(governance.trustedAutomationEntry(policy, { user: { login: 'dependabot' }, head: { ref: 'release-please--branches--main--components--veto' } }), undefined);
 });
 
-test('skips duplicate issue validation for the configured Release Please PR', async () => {
+test('skips duplicate issue validation for configured GitHub Actions PRs', async () => {
   const notices = [];
   const failures = [];
   const comments = [];
@@ -42,7 +61,8 @@ test('skips duplicate issue validation for the configured Release Please PR', as
         pull_request: {
           number: 23,
           user: { login: 'github-actions[bot]' },
-          head: { ref: 'release-please--branches--main--components--veto' },
+          head: { ref: 'automation/update', repo: { full_name: 'oleg-koval/veto' } },
+          base: { repo: { full_name: 'oleg-koval/veto' } },
           body: '',
         },
       },
