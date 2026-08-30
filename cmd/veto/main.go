@@ -242,7 +242,7 @@ func cmdRoute(args []string) {
 	var providerErrors []routeJSONProviderError
 	mgr.OnEvent = func(e router.ProgressEvent) {
 		render.OnEvent(e)
-		logEvent(objective, kind, *risk, e)
+		logEvent(hash, kind, *risk, e)
 		if dash != nil {
 			dash.OnEvent(e)
 		}
@@ -325,15 +325,6 @@ func cmdRoute(args []string) {
 	} else if *quiet {
 		// quiet mode: machine-readable single line (model name only)
 		fmt.Printf("%s\n", model.Name)
-	}
-
-	if routeLog != nil {
-		routeLog.Info("route_done",
-			"model", model.Name,
-			"tier", model.Tier,
-			"confidence", decision.Confidence,
-			"task", objective,
-		)
 	}
 
 	if dash != nil {

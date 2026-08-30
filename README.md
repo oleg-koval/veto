@@ -480,7 +480,11 @@ If no model accepts, the command exits non-zero and emits:
 
 **Per-model disable/enable** — `veto disable haiku gpt-4.1` excludes those models from all future routing without removing their credentials. `veto enable haiku` brings them back. Disabled model names are stored in `~/.veto/config.json` under `"disabled_models"` — edit the file directly for bulk changes.
 
-**7-day rotating logs** — every routing decision is logged as JSON lines to `~/.veto/logs/veto-YYYY-MM-DD.log`. Files older than 7 days are pruned automatically.
+**7-day event ledger** — routing, execution, artifact, and review lifecycle
+events are logged as versioned JSON lines to
+`~/.veto/logs/veto-YYYY-MM-DD.log`. The ledger omits objectives, prompts, and
+responses and redacts bounded error detail. Files older than 7 days are pruned
+automatically. See [the event schema](docs/event-ledger.md).
 
 ## Providers and models
 

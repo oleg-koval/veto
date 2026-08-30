@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/oleg-koval/veto/pkg/executor"
+	"github.com/oleg-koval/veto/pkg/ledger"
 	"github.com/oleg-koval/veto/pkg/router"
 )
 
@@ -96,7 +97,7 @@ func cmdRun(args []string) {
 
 	mgr.OnEvent = func(e router.ProgressEvent) {
 		render.OnEvent(e)
-		logEvent(objective, kind, *risk, e)
+		logEvent(spec.ID, kind, *risk, e)
 	}
 
 	model, _, err := mgr.Route(ctx, spec)
@@ -138,15 +139,21 @@ func cmdRun(args []string) {
 	}
 	var output string
 	started := time.Now()
+	logExecution(spec.ID, ledger.EventExecutionStarted, model, router.ExecutionMetrics{Status: "started"}, "")
+	recordExecution := func(metrics router.ExecutionMetrics, eventType ledger.EventType, detail string) {
+		mgr.RecordExecution(spec, model.Name, metrics)
+		logExecution(spec.ID, eventType, model, metrics, detail)
+	}
 	if s, ok := exec.(streamer); ok {
 		// When criteria are set, tee stream output to a buffer so the reviewer can read it.
 		if len(criteria) > 0 || *outputPath != "" {
 			var buf strings.Builder
 			w := io.MultiWriter(os.Stdout, &buf)
 			if serr := s.Stream(ctx, prompt, w); serr != nil {
-				mgr.RecordExecution(spec, model.Name, router.ExecutionMetrics{
+				metrics := router.ExecutionMetrics{
 					Status: executionStatus(ctx, "error"), LatencyMs: time.Since(started).Milliseconds(), LatencyKnown: true,
-				})
+				}
+				recordExecution(metrics, ledger.EventExecutionError, serr.Error())
 				fmt.Fprintf(os.Stderr, "run failed: %v\n", serr)
 				os.Exit(1)
 			}
@@ -154,9 +161,10 @@ func cmdRun(args []string) {
 			output = buf.String()
 		} else {
 			if serr := s.Stream(ctx, prompt, os.Stdout); serr != nil {
-				mgr.RecordExecution(spec, model.Name, router.ExecutionMetrics{
+				metrics := router.ExecutionMetrics{
 					Status: executionStatus(ctx, "error"), LatencyMs: time.Since(started).Milliseconds(), LatencyKnown: true,
-				})
+				}
+				recordExecution(metrics, ledger.EventExecutionError, serr.Error())
 				fmt.Fprintf(os.Stderr, "run failed: %v\n", serr)
 				os.Exit(1)
 			}
@@ -174,14 +182,15 @@ func cmdRun(args []string) {
 			if result.Truncated {
 				status = "truncated"
 			}
-			mgr.RecordExecution(spec, model.Name, executionMetrics(model, result, time.Since(started), status))
+			metrics := executionMetrics(model, result, time.Since(started), status)
+			recordExecution(metrics, ledger.EventExecutionError, resultErr.Error())
 			fmt.Fprintf(os.Stderr, "run failed: %v\n", resultErr)
 			os.Exit(1)
 		}
 		output = result.Output
 		fmt.Println(output)
 		metrics := executionMetrics(model, result, time.Since(started), "success")
-		mgr.RecordExecution(spec, model.Name, metrics)
+		recordExecution(metrics, ledger.EventExecutionCompleted, "")
 		if !*quiet {
 			if metrics.CostKnown {
 				fmt.Fprintf(os.Stderr, "  actual provider cost: $%.6f (%d input, %d output tokens)\n", metrics.CostUSD, metrics.InputTokens, metrics.OutputTokens)
@@ -194,9 +203,10 @@ func cmdRun(args []string) {
 		}
 	}
 	if _, streaming := exec.(streamer); streaming {
-		mgr.RecordExecution(spec, model.Name, router.ExecutionMetrics{
+		metrics := router.ExecutionMetrics{
 			Status: "success", LatencyMs: time.Since(started).Milliseconds(), LatencyKnown: true,
-		})
+		}
+		recordExecution(metrics, ledger.EventExecutionCompleted, "")
 		if !*quiet {
 			fmt.Fprintln(os.Stderr, "  actual provider cost: unavailable")
 		}
@@ -214,6 +224,7 @@ func cmdRun(args []string) {
 		if !*quiet {
 			fmt.Printf("\n  → saved %s\n", *outputPath)
 		}
+		logLifecycle(spec.ID, ledger.EventArtifactCreated, "created", "")
 	}
 
 	// final QA: check acceptance criteria when --criteria was supplied
@@ -340,7 +351,10 @@ func routeAndCapture(ctx context.Context, reg *providerRegistry, mgr *router.Man
 
 func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr *router.Manager, render *Renderer, spec router.TaskSpec, skills []string, options executor.ExecutionOptions) (string, string, error) {
 	prev := mgr.OnEvent
-	mgr.OnEvent = func(e router.ProgressEvent) { render.OnEvent(e) }
+	mgr.OnEvent = func(e router.ProgressEvent) {
+		render.OnEvent(e)
+		logEvent(spec.ID, string(spec.Kind), string(spec.Risk), e)
+	}
 	defer func() { mgr.OnEvent = prev }()
 	model, _, err := mgr.Route(ctx, spec)
 	if err != nil {
@@ -359,16 +373,21 @@ func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr 
 		return model.Name, "", fmt.Errorf("executor for %q does not support task execution", model.Name)
 	}
 	started := time.Now()
+	logExecution(spec.ID, ledger.EventExecutionStarted, model, router.ExecutionMetrics{Status: "started"}, "")
 	result := taskExec.Execute(ctx, prompt, options)
 	if resultErr := validateExecutionResult(result); resultErr != nil {
 		status := executionStatus(ctx, "error")
 		if result.Truncated {
 			status = "truncated"
 		}
-		mgr.RecordExecution(spec, model.Name, executionMetrics(model, result, time.Since(started), status))
+		metrics := executionMetrics(model, result, time.Since(started), status)
+		mgr.RecordExecution(spec, model.Name, metrics)
+		logExecution(spec.ID, ledger.EventExecutionError, model, metrics, resultErr.Error())
 		return model.Name, "", resultErr
 	}
-	mgr.RecordExecution(spec, model.Name, executionMetrics(model, result, time.Since(started), "success"))
+	metrics := executionMetrics(model, result, time.Since(started), "success")
+	mgr.RecordExecution(spec, model.Name, metrics)
+	logExecution(spec.ID, ledger.EventExecutionCompleted, model, metrics, "")
 	return model.Name, result.Output, nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/oleg-koval/veto/pkg/ledger"
 	"github.com/oleg-koval/veto/pkg/router"
 )
 
@@ -114,6 +115,7 @@ func reviewOutput(
 	if len(original.SuccessCriteria) == 0 {
 		return ReviewResult{}, nil
 	}
+	logLifecycle(original.ID, ledger.EventReviewStarted, "started", "")
 
 	prompt := buildReviewPrompt(original, output)
 	skip := []string{}
@@ -131,15 +133,23 @@ func reviewOutput(
 	render := NewRenderer(true) // quiet: suppress nested pipeline noise
 	_, reviewOutput, err := routeAndCapture(ctx, reg, mgr, render, reviewSpec, nil)
 	if err != nil {
+		logLifecycle(original.ID, ledger.EventReviewError, "error", err.Error())
 		return ReviewResult{}, fmt.Errorf("review unavailable: %w", err)
 	}
 
 	result, ok := parseReviewJSON(reviewOutput)
 	if !ok {
+		logLifecycle(original.ID, ledger.EventReviewError, "error", "reviewer returned unparseable output")
 		return ReviewResult{}, errors.New("reviewer returned unparseable output")
 	}
 	if err := validateReviewResult(original.SuccessCriteria, result); err != nil {
+		logLifecycle(original.ID, ledger.EventReviewError, "error", err.Error())
 		return ReviewResult{}, err
 	}
+	status := "failed"
+	if result.Passed {
+		status = "passed"
+	}
+	logLifecycle(original.ID, ledger.EventReviewCompleted, status, "")
 	return result, nil
 }

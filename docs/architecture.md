@@ -408,4 +408,14 @@ Local model definitions are stored separately in `~/.veto/models.json` (mode 060
 
 ## Logging
 
-One log file per calendar day: `~/.veto/logs/veto-YYYY-MM-DD.log`. Format is JSON lines via `log/slog`. Files older than 7 days are pruned on each `veto route` invocation. If the log file can't be created, routing continues silently (logs go to stderr at ERROR level only).
+One log file per calendar day: `~/.veto/logs/veto-YYYY-MM-DD.log`. Each line is
+a versioned, allowlisted lifecycle envelope defined in
+[`docs/event-ledger.md`](event-ledger.md). Run and task IDs correlate routing,
+execution, artifact, and review events without persisting objectives, prompts,
+or responses. Sensitive error detail is redacted and bounded before writing.
+Files older than 7 days are pruned on each routing invocation. If the log file
+cannot be created, routing continues with the ledger discarded.
+
+`history.json` remains separate: it preserves backward-compatible admission
+and execution aggregates used by the scorer. Corrupt or legacy history falls
+back conservatively and is not rewritten by the event ledger.
