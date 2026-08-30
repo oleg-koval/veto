@@ -27,6 +27,7 @@ func TestInferComplexity(t *testing.T) {
 		{"deploy the api pipeline to staging", KindCodeChange, ComplexityModerate},
 		{"debug the payment service crash", KindDebug, ComplexityModerate},
 		{"integrate stripe with the checkout flow", KindCodeChange, ComplexityModerate},
+		{"fix and resolve all codex comments in this pr, push when you done https://github.com/oleg-koval/roazon/pull/1513", KindCodeChange, ComplexityModerate},
 
 		// simple — short, everyday tasks
 		{"create simple html page containing short history of Amsterdam", KindCodeChange, ComplexitySimple},

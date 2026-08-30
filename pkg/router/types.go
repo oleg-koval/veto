@@ -51,19 +51,20 @@ const (
 
 // TaskSpec describes a unit of work to be routed and executed.
 type TaskSpec struct {
-	ID              string
-	Kind            TaskKind
-	Complexity      Complexity // "" = inferred by Manager from Objective+Kind
-	Objective       string
-	Context         string
-	Constraints     []string
-	RequiredTools   []string
-	SuccessCriteria []string
-	Risk            Risk
-	MaxCostUSD      float64  // 0 = no limit
-	MaxTokens       int      // 0 = no limit
-	Source          string   // "user" | "cron" | "webhook" | "system"
-	SkipModels      []string // resume: models already decided in a prior interrupted run
+	ID                      string
+	Kind                    TaskKind
+	Complexity              Complexity // "" = inferred by Manager from Objective+Kind
+	Objective               string
+	Context                 string
+	Constraints             []string
+	RequiredTools           []string
+	RequiresExecutableTools bool
+	SuccessCriteria         []string
+	Risk                    Risk
+	MaxCostUSD              float64  // 0 = no limit
+	MaxTokens               int      // 0 = no limit
+	Source                  string   // "user" | "cron" | "webhook" | "system"
+	SkipModels              []string // resume: models already decided in a prior interrupted run
 }
 
 // ModelCapabilities describes what a model can and cannot handle.

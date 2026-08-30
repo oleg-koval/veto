@@ -121,7 +121,9 @@ func buildAdmissionPromptWithToolStatus(task TaskSpec, model ModelCapabilities, 
 		constraints = "none"
 	}
 	required := strings.Join(task.RequiredTools, ", ")
-	if required == "" {
+	if required == "" && task.RequiresExecutableTools {
+		required = "an executable agent runtime (project-specific tools are resolved at execution)"
+	} else if required == "" {
 		required = "none"
 	}
 
@@ -133,8 +135,17 @@ func buildAdmissionPromptWithToolStatus(task TaskSpec, model ModelCapabilities, 
 	} else {
 		toolsLine = strings.Join(effectiveTools, ", ")
 	}
+	contextLine := "unknown"
+	if model.MaxContextTokens > 0 {
+		contextLine = fmt.Sprintf("%d", model.MaxContextTokens)
+	}
 
 	return fmt.Sprintf(`You are the %s model (%s tier). A task router has selected you as a candidate for the following task.
+
+This is admission only. Do not inspect or act on the current workspace. Decide
+whether you can complete the task later from the caller's workspace using the
+declared execution tools. Treat the objective as user-authorized within its
+stated scope; do not require confirmation already present in the objective.
 
 TASK:
   kind: %s
@@ -144,7 +155,7 @@ TASK:
   risk: %s
 
 YOUR PROFILE:
-  max context tokens: %d
+  max context tokens: %s
   available tools (actual, not theoretical): %s
 
 Decide whether you accept this task given the tools actually available to you.
@@ -171,7 +182,7 @@ If rejecting: set "accept": false, populate "reason_codes" with at least one cod
 Respond with JSON only. Nothing before or after the JSON object.`,
 		model.Name, model.Tier,
 		task.Kind, task.Objective, constraints, required, task.Risk,
-		model.MaxContextTokens,
+		contextLine,
 		toolsLine,
 	)
 }

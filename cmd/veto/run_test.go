@@ -3,7 +3,10 @@ package main
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +16,109 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const reportedAgenticObjective = "fix and resolve all codex comments in this pr, push when you done https://github.com/oleg-koval/roazon/pull/1513"
+
+func TestAgenticRunTimeoutDefaults(t *testing.T) {
+	assert.GreaterOrEqual(t, defaultRunTimeout, 90*time.Minute)
+	assert.GreaterOrEqual(t, defaultAdmissionTimeout, 45*time.Second)
+	assert.Less(t, defaultAdmissionTimeout, defaultRunTimeout)
+}
+
+func TestExecutionPromptRequiresLivePRThreadAudit(t *testing.T) {
+	prompt := executionPrompt(reportedAgenticObjective, []string{"- follow repository conventions"})
+
+	assert.Contains(t, prompt, "reviewThreads(first:100)")
+	assert.Contains(t, prompt, "pageInfo.hasNextPage")
+	assert.Contains(t, prompt, "endCursor")
+	assert.Contains(t, prompt, "zero unresolved matching threads")
+	assert.Contains(t, prompt, "reply to and resolve")
+	assert.Contains(t, prompt, "commit and push")
+}
+
+func TestExecutionPromptRecognizesStandardPRShorthand(t *testing.T) {
+	prompt := executionPrompt("resolve CodeRabbit comments on PR #123 and push changes", nil)
+	assert.Contains(t, prompt, "Required live pull-request workflow")
+}
+
+func TestExecutionPromptLeavesOrdinaryTasksUnchanged(t *testing.T) {
+	assert.Equal(t, "summarize the release", executionPrompt("summarize the release", nil))
+}
+
+func TestClaudeAgenticRunProcess(t *testing.T) {
+	if os.Getenv("VETO_TEST_CLAUDE_AGENTIC_RUN") != "1" {
+		return
+	}
+	cmdRun([]string{"--quiet", "--no-feedback", "--kind", "code-change", reportedAgenticObjective})
+}
+
+func TestRunExactAgenticObjectiveUsesStructuredAdmissionThenExecution(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	home := t.TempDir()
+	bin := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".veto"), 0700))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(home, ".veto", "credentials.json"),
+		[]byte(`{"CLAUDE_SUBSCRIPTION":"true"}`),
+		0600,
+	))
+
+	script := `#!/bin/sh
+case "$*" in
+  *"--output-format json"*)
+	case "$*" in
+	  *"--safe-mode"*"--json-schema"*) ;;
+	  *) exit 4 ;;
+	esac
+	printf '%s\n' 'admission' >> "$HOME/claude-calls.log"
+    printf '%s\n' '{"is_error":false,"result":"fallback","structured_output":{"accept":true,"confidence":0.95,"reason_codes":[],"estimated_tokens":100,"estimated_cost_usd":0,"suggested_alternative_model":"","required_task_changes":[]}}'
+    ;;
+  *"--output-format text"*)
+	case "$*" in
+	  *"reviewThreads(first:100)"*"zero unresolved matching threads"*) ;;
+	  *) exit 5 ;;
+	esac
+	printf '%s\n' 'execution' >> "$HOME/claude-calls.log"
+    printf '%s\n' 'agentic execution complete'
+    ;;
+  *) exit 2 ;;
+esac
+`
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700))
+
+	command := exec.Command(os.Args[0], "-test.run=^TestClaudeAgenticRunProcess$")
+	command.Env = append(cleanRunTestEnv(os.Environ()),
+		"VETO_TEST_CLAUDE_AGENTIC_RUN=1",
+		"HOME="+home,
+		"PATH="+bin+string(os.PathListSeparator)+"/usr/bin"+string(os.PathListSeparator)+"/bin",
+	)
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, string(output))
+	assert.Contains(t, string(output), "agentic execution complete")
+
+	calls, err := os.ReadFile(filepath.Join(home, "claude-calls.log"))
+	require.NoError(t, err)
+	assert.Equal(t, "admission\nexecution\n", string(calls))
+}
+
+func cleanRunTestEnv(env []string) []string {
+	clean := make([]string, 0, len(env))
+	for _, value := range env {
+		if strings.HasPrefix(value, "HOME=") || strings.HasPrefix(value, "PATH=") ||
+			strings.HasPrefix(value, "VETO_TEST_CLAUDE_AGENTIC_RUN=") ||
+			strings.HasPrefix(value, "ANTHROPIC_API_KEY=") ||
+			strings.HasPrefix(value, "OPENAI_API_KEY=") ||
+			strings.HasPrefix(value, "OPENROUTER_API_KEY=") ||
+			strings.HasPrefix(value, "XAI_API_KEY=") ||
+			strings.HasPrefix(value, "CLAUDE_SUBSCRIPTION=") {
+			continue
+		}
+		clean = append(clean, value)
+	}
+	return clean
+}
 
 func TestValidateExecutionResultRejectsTruncation(t *testing.T) {
 	err := validateExecutionResult(executor.Result{

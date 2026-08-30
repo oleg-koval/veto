@@ -85,6 +85,7 @@ var medComplexKeywords = []string{
 var lowComplexKeywords = []string{
 	"e2e", "end-to-end", "end to end", "infra", "pipeline",
 	"service", "implement", "deploy", "integrate",
+	"all codex comments", "all review comments", "all review threads",
 }
 
 // simpleKeywords are signals that the task is straightforward.

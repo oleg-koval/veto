@@ -26,6 +26,42 @@ func TestExecutorsExposeSeparateTaskExecutionContract(t *testing.T) {
 	var _ TaskExecutor = (*CLIExecutor)(nil)
 }
 
+func TestClaudeCLIAdmissionArgsAreStructuredAndIsolated(t *testing.T) {
+	exec := NewClaudeCLIExecutor("claude-haiku")
+	args := exec.admissionArgs("decide")
+
+	assert.Contains(t, args, "--safe-mode")
+	assert.Contains(t, args, "--no-session-persistence")
+	assert.Contains(t, args, "--json-schema")
+	assert.Contains(t, args, admissionJSONSchema)
+	assert.Contains(t, args, "--tools")
+	assert.Contains(t, args, "")
+	assert.Contains(t, args, "json")
+	assert.NotContains(t, args, "--dangerously-skip-permissions")
+}
+
+func TestClaudeCLIExecutionArgsRetainProjectRuntime(t *testing.T) {
+	exec := NewClaudeCLIExecutor("claude-sonnet")
+	args := exec.executionArgs("execute")
+
+	assert.Contains(t, args, "text")
+	assert.NotContains(t, args, "--safe-mode")
+	assert.NotContains(t, args, "--json-schema")
+	assert.NotContains(t, args, "--dangerously-skip-permissions")
+}
+
+func TestParseClaudeStructuredResult(t *testing.T) {
+	output, err := parseClaudeStructuredResult([]byte(`{"is_error":false,"result":"fallback","structured_output":{"accept":true,"confidence":0.91,"reason_codes":[]}}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"accept":true,"confidence":0.91,"reason_codes":[]}`, output)
+}
+
+func TestParseClaudeStructuredResultFallsBackToResult(t *testing.T) {
+	output, err := parseClaudeStructuredResult([]byte(`{"is_error":false,"result":"{\"accept\":false,\"confidence\":0.8,\"reason_codes\":[\"RISK_TOO_HIGH\"]}"}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"accept":false,"confidence":0.8,"reason_codes":["RISK_TOO_HIGH"]}`, output)
+}
+
 // roundTripFunc lets tests inject a custom http.RoundTripper without a real server.
 type roundTripFunc func(*http.Request) (*http.Response, error)
 

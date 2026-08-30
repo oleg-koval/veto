@@ -55,6 +55,8 @@ The cost estimate at this stage is intentionally rough (assumes 1000 input token
 
 **Complexity enforcement** — `tierMeetsComplexity` maps `Complexity` values to a minimum tier: `complex` → `large` only; `moderate` → `mid` or `large`; `simple` → any tier. `task.Complexity` is auto-inferred by `Manager.Route` before the filter runs (see "Complexity inference" below). Models below the required tier are pruned here, before the self-admission gate, so they are never asked.
 
+**Executable runtime enforcement** — `veto run` marks objectives with explicit repository mutation signals such as fixing a pull request and pushing the result. For these tasks, known text-only transports are rejected with `MISSING_REQUIRED_TOOL` before admission. Runtimes with a known executable tool set and agent runtimes whose tools are discovered only during execution remain eligible.
+
 ## Stage 2: Scorer (`pkg/router/scorer.go`)
 
 Ranks the survivors by a weighted score (range 0.0–1.0):
@@ -97,7 +99,9 @@ The model must respond with a JSON object. The parser (`parseAdmissionJSON`) sca
 
 **Confidence gate:** any model accepting with confidence < 0.7 is treated as a rejection (`LOW_CONFIDENCE`). This prevents models from accepting out of politeness without real certainty.
 
-**Per-model timeout:** each executor call in `Ask` runs under a child context capped at `admissionModelTimeout` (20s), derived from the outer context. A hung model — API outage, slow `claude -p` — is cut off after 20s and treated as a rejection (`PARSE_FAILURE`), so routing continues to the next candidate rather than blocking indefinitely. The outer `--timeout` (default 120s) still bounds the whole routing session.
+**Per-model timeout:** each executor call in `Ask` runs under a child context derived from the outer context. The gate default is 20 seconds; `veto run` raises it to the configurable `--admission-timeout` default of 60 seconds because subscription CLI startup routinely exceeds 20 seconds. A hung model is treated as a rejection so routing continues to the next candidate. The outer `veto run --timeout` default of two hours still bounds admission plus execution.
+
+**Claude CLI admission:** subscription admission uses `claude -p` in safe mode with tools disabled, session persistence disabled, and a native JSON schema matching `AdmissionDecision`. Veto extracts the CLI envelope's `structured_output` value before passing it to the shared parser. The later execution call does not use these admission-only restrictions and runs in the caller's working directory.
 
 **Fail-safe:** two distinct failure paths:
 - **Executor error** (API auth failure, rate limit, network error): `Ask` returns the executor's error directly. The manager surfaces it as the real message in `EventAskError.Detail` — the routing UI shows e.g. `! openai: 429 rate limited` rather than a generic label.
@@ -121,7 +125,7 @@ if task.Complexity == "" {
 |------|-------------|-----------------|
 | High | +3 each | `cqrs`, `event sourcing`, `microservices`, `distributed system`, `multi-tenant` |
 | Medium | +2 each | `architecture`, `infrastructure`, `scalable`, `enterprise`, `system design` |
-| Low | +1 each | `e2e`, `pipeline`, `service`, `deploy`, `integrate` |
+| Low | +1 each | `e2e`, `pipeline`, `service`, `deploy`, `integrate`, batch review-comment remediation |
 | Simple signals | −2 each | `simple`, `basic`, `quick`, `hello world` |
 
 Task kind adjusts the score too: `plan` adds 2; `debug` adds 1; `extract`/`summarize` subtract 2.
@@ -166,7 +170,7 @@ pkg/router/admission.go   ExecutorFactory (interface)
 cmd/veto/main.go          providerRegistry (concrete factory)
                               ↓
 pkg/executor/             AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor, CLIExecutor,
-                          OpenAICompatibleExecutor (local/self-hosted)
+                          CodexCLIExecutor, OpenAICompatibleExecutor (local/self-hosted)
 ```
 
 `providerRegistry` exposes two views of the model set: `For(name)` (executor lookup, used by admission and execution) and `modelCaps()` (capability slice, used to build the `router.Registry`). `modelCaps()` intersects catalog metadata with the active transport's effective tools before hard filtering. This allows local models added via `veto login` to participate in scoring and filtering alongside built-ins without claiming capabilities their transport cannot provide.
@@ -290,10 +294,21 @@ network-free.
 | `OpenAIExecutor` | OpenAI Responses for GPT-5.6; Chat Completions for GPT-4.1 (HTTP) | `OPENAI_API_KEY` set |
 | `OpenRouterExecutor` | OpenRouter API (HTTP) | `OPENROUTER_API_KEY` set |
 | `CLIExecutor` | `claude -p` subprocess | `CLAUDE_SUBSCRIPTION=true` |
+| `CodexCLIExecutor` | `codex exec` subprocess | Codex CLI has an active ChatGPT login |
 | `opencode.Runtime` | OpenCode session SSE or JSON CLI subprocess | `veto opencode connect` |
 | `OpenAICompatibleExecutor` | any OpenAI-compatible endpoint (HTTP) | local model configured via `veto login` |
 
 **Subscription mode** (`CLIExecutor`) shells out to the `claude` CLI with `-p` (print mode) and `--output-format text`. This bypasses the Anthropic API entirely — cost is $0 per route because it runs under the user's flat Claude Max / Pro subscription. Subscription takes precedence over API key when both are configured.
+
+**Codex subscription mode** (`CodexCLIExecutor`) is registered automatically
+when `codex login status` succeeds. Admission runs ephemerally in a temporary
+read-only workspace, ignores user config and exec-policy rules, and writes the
+schema-constrained decision to a dedicated output file. Full execution runs a
+normal ephemeral Codex agent in the caller's working directory so repository
+instructions, tools, hooks, and the user's approval policy remain effective.
+Authentication comes from the existing Codex CLI login. Veto distinguishes a
+ChatGPT subscription login (known zero marginal provider cost) from API-key or
+unrecognized CLI authentication, whose cost remains unknown.
 
 All concrete transports implement the short `Run` admission path and the
 separate `Execute` task path. HTTP executors send the provider-specific bounded
@@ -376,7 +391,7 @@ Each step has `task` (objective), `kind`, `risk`, optional `depends_on` (forward
 
 **Streaming:** `cmdRun` first checks for `executor.EventTaskExecutor`, which
 returns full result telemetry while streaming text and structured runtime
-events. OpenCode implements this path. It then falls back to the legacy
+events. OpenCode and Codex implement this path. It then falls back to the legacy
 optional `streamer` interface:
 
 ```go
@@ -386,7 +401,9 @@ type streamer interface {
 ```
 
 The Claude subscription CLI implements the legacy path. Other executors use
-their buffered `Execute` method. OpenCode exposes provider-reported usage and
+their buffered `Execute` method. Codex consumes its bounded JSONL event stream,
+prints completed agent messages, records only allowlisted tool lifecycle names,
+and reports CLI token usage with known zero marginal subscription cost. OpenCode exposes provider-reported usage and
 cost when present; unknown pricing is not recomputed as a known zero. Its API
 does not expose a portable per-prompt output-token field, so Veto still enforces
 the command timeout and bounded 8 MiB event/text safety limit, while reporting
@@ -401,9 +418,13 @@ failure is logged with its normalized detail and consumes one of the three
 admission calls for that run; checkpoint resume can continue with untried
 candidates later.
 
-The timeout on `veto run` (default 120s) covers both routing and execution, unlike `veto route` which only times out the admission phase. When the `CLIExecutor` (`claude -p`) is killed by a timeout, it reports `"claude cli: timed out (use --timeout to increase)"` rather than the raw `"signal: killed"` from the subprocess.
+The timeout on `veto run` (default two hours) covers both routing and execution, unlike `veto route` which only times out the admission phase. `veto run --admission-timeout` separately bounds each admission attempt and defaults to 60 seconds. When the `CLIExecutor` (`claude -p`) is killed by a timeout, it distinguishes `"claude cli admission: timed out"` from `"claude cli execution: timed out"` rather than exposing the raw `"signal: killed"` from the subprocess.
+
+On Unix, subscription CLI processes run in a dedicated process group. On macOS and Linux, cancellation also snapshots and kills descendants that created their own process groups, so agent-spawned tests, hooks, and pushes cannot survive a Veto timeout and continue mutating the repository in the background. Other platforms retain group or standard process cancellation behavior.
 
 **Shared helper: `routeAndCaptureWithOptions`** — both `cmdRun` and `cmdExec` (for plan steps) share the execution helper in `run.go`. It wires `mgr.OnEvent`, calls `mgr.Route`, looks up the executor, calls its full `Execute` method with explicit options, and returns `(modelName, output, error)`. Internal conversion/review paths use the bounded default. This keeps each command's routing setup in one place (`prepareRouting`) and prevents admission and execution transports from drifting.
+
+**Pull-request review execution:** when an objective explicitly asks the executor to fix review comments on a pull request, `executionPrompt` adds a narrow live-verification contract. The executor must query GitHub inline `reviewThreads`, address and resolve the requested reviewer's unresolved threads, push when requested, and re-query before claiming completion. Ordinary tasks receive no added instructions.
 
 **Explicit output files:** only `--output <relative-path>` writes a file. The
 path must remain inside the current working directory and cannot target hidden

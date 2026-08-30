@@ -135,3 +135,73 @@
 **Verification:** protocol reviewed locally; actual external trials explicitly remain pending.
 
 **Dependencies:** Tasks 13, 16.
+
+## Task 19: Filter text-only transports for explicit repository mutations
+
+**Acceptance criteria:** the reported PR-fix-and-push objective requires an executable runtime; API and local text-only transports are filtered before admission; ordinary content-only code generation remains eligible.
+
+**Verification:** focused inference and router filter tests fail first, then pass.
+
+**Dependencies:** Task 4.
+
+## Task 20: Harden Claude subscription admission
+
+**Acceptance criteria:** admission uses Claude safe mode, disabled tools, no session persistence, and native schema output; execution retains normal project tools and permission policy; admission has its own configurable deadline.
+
+**Verification:** CLI argument and JSON-envelope tests fail first, then pass; a real subscription route returns a valid decision.
+
+**Dependencies:** Task 19.
+
+## Task 21: Verify the exact agentic run flow
+
+**Acceptance criteria:** `veto run` has enough default wall time for repository work; a fake Claude CLI proves admission then execution for the exact objective; the fresh binary runs the exact command from the Roazon PR branch and reaches a truthful terminal result.
+
+**Verification:** focused subprocess test, race suite, vet, build, onboarding smoke, benchmark, and live PR-state audit.
+
+**Dependencies:** Tasks 19-20.
+
+## Task 22: Require a live pull-request thread workflow
+
+**Acceptance criteria:** PR review-fix objectives instruct the selected agent to inspect inline review threads, address and resolve the requested reviewer's findings, push when requested, and re-query zero unresolved matching threads before reporting completion; ordinary objectives remain unchanged.
+
+**Verification:** prompt unit tests and the exact fake CLI integration test fail first, then pass; the live PR run no longer reports false zero findings.
+
+**Dependencies:** Task 21.
+
+## Task 23: Route batch PR-review remediation above small tier
+
+**Acceptance criteria:** objectives that explicitly ask to fix all Codex or review threads infer moderate complexity, excluding small-tier executors while preserving simple one-file fixes.
+
+**Verification:** the exact objective complexity test fails first, then passes; the live command asks Sonnet rather than Haiku.
+
+**Dependencies:** Task 22.
+
+## Task 24: Extend the default agentic delivery deadline
+
+**Acceptance criteria:** the default total run deadline accommodates repeated repository pre-push test and review gates while remaining explicitly bounded and configurable.
+
+**Verification:** the minimum-deadline regression test fails first, then passes; the live exact command completes without the 30-minute execution timeout.
+
+**Dependencies:** Task 23.
+
+## Task 25: Cancel the complete subscription CLI process tree
+
+**Acceptance criteria:** on Unix, a timed-out Claude execution cannot leave agent-spawned commands running after Veto reports failure; non-Unix behavior remains build-compatible.
+
+**Verification:** a fake CLI child-process regression test fails first, then proves the descendant no longer exists after cancellation.
+
+**Dependencies:** Task 24.
+
+## Task 26: Add a native Codex subscription runtime
+
+**Acceptance criteria:** an installed Codex CLI with a successful
+`codex login status` is registered automatically as an executable `codex`
+model; admission is ephemeral, schema-constrained, read-only, and isolated from
+user config and rules; execution uses the normal caller repository policy; no
+`OPENAI_API_KEY` is required.
+
+**Verification:** fake-CLI argument and authentication tests fail first, then
+pass; the installed CLI reports a ChatGPT login; the exact live PR-fix command
+selects Codex and reaches a truthful terminal result.
+
+**Dependencies:** Tasks 19 and 25.

@@ -180,6 +180,12 @@ For Anthropic, veto asks whether you use a **subscription** (Claude Max / Pro) o
 
 For subscription mode, veto verifies the `claude` CLI is present and saves a `CLAUDE_SUBSCRIPTION=true` marker. For API key mode, it opens the keys page in your browser and stores the key (masked input) at `~/.veto/credentials.json` (mode 0600).
 
+Veto also detects an installed Codex CLI whose `codex login status` succeeds.
+It registers the `codex` agent automatically. A ChatGPT login uses subscription
+access with known zero marginal provider cost; an API-key or unrecognized login
+keeps cost unknown rather than pretending it is free. OpenAI API models remain
+a separate, text-only provider path configured with `OPENAI_API_KEY`.
+
 For OpenRouter, `veto login` recommends browser authorization. Veto binds an
 ephemeral `127.0.0.1` callback, uses S256 PKCE plus an unguessable callback-path
 nonce, exchanges the one-time code, and stores only the returned API key. The
@@ -463,14 +469,15 @@ stop condition, authorization, and validation.
 
 ### `veto run` flags
 
-Route and execute in one step. The winning model's response is printed to stdout. Streaming output is used automatically when the executor supports it (e.g. subscription mode via `claude -p`).
+Route and execute in one step. The winning model's response is printed to stdout. Streaming output is used automatically when the executor supports it (for example, Claude or Codex subscription CLIs).
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--kind` | *(auto-detected)* | Task type (see below) |
 | `--risk` | `medium` | Impact level: `low`, `medium`, `high` |
 | `--max-cost` | `0` (no limit) | Estimated preflight cost ceiling in USD |
-| `--timeout` | `120s` | Total timeout (routing + execution) |
+| `--timeout` | `2h` | Total timeout (routing + execution) |
+| `--admission-timeout` | `60s` | Per-model admission timeout |
 | `--quiet` | `false` | Suppress routing animation — print model output only |
 | `--max-output-tokens` | `8192` | Bounded output budget for the execution response |
 | `--output` | *(none)* | Explicit relative file path for saving output |
@@ -496,7 +503,11 @@ veto run "refactor the auth middleware" \
   --criteria "no third-party JWT dep,all existing tests pass,function names unchanged"
 ```
 
-`veto run` makes two distinct calls when needed. Admission is a short JSON-only probe capped at 512 output tokens. Execution is a separate bounded response, defaulting to 8192 output tokens and controlled by `--max-output-tokens`; the admission limit never truncates the task result. OpenCode does not expose a portable per-prompt token-limit field, so its adapter instead uses the command timeout and an 8 MiB event/text safety bound while preserving any provider-reported output-length failure. If a provider reports that execution reached its output limit, Veto exits non-zero and does not save or review the partial output. Increase `--max-output-tokens` where the transport supports it and retry.
+`veto run` makes two distinct calls when needed. Admission is a short JSON-only probe capped at 512 output tokens. Claude CLI admission runs in safe mode with tools disabled; Codex CLI admission uses an isolated read-only temporary workspace without user config or rules. Both use native JSON schema output. Execution remains a separate normal agent run in the caller's working directory. Execution has a bounded response, defaulting to 8192 output tokens and controlled by `--max-output-tokens`; the admission limit never truncates the task result. Codex and OpenCode do not expose a portable per-prompt token-limit field, so their adapters instead use command timeouts and bounded event streams; Codex rejects custom `--max-output-tokens` values rather than silently ignoring them. If a provider reports that execution reached its output limit, Veto exits non-zero and does not save or review the partial output. Increase `--max-output-tokens` where the transport supports it and retry.
+
+Objectives that explicitly ask Veto to modify, commit, or push repository work require an executable agent runtime. Known text-only API and local transports are filtered before admission so they cannot consume the bounded admission attempts. Agent runtimes whose tool set is discovered only at execution time remain eligible.
+
+For tasks that fix pull-request review comments, the execution prompt requires a live inline-thread audit before and after the changes. This avoids false “no findings” results from PR summary views that omit GitHub review threads.
 
 `--output` is the only way for `veto run` to write a file. The path must be relative to the current directory, cannot traverse upward or target hidden files/directories, and is created with mode `0600`. Existing files are protected; pass `--force` to replace one. Objective text such as “save as report.md” does not write a file by itself.
 
@@ -587,7 +598,7 @@ veto route --json "summarize this PR"
 
 **Checkpoint resume** — if routing is interrupted (Ctrl+C, timeout, network blip), veto saves which models already responded. Re-run the same command to pick up where you left off. Use `--no-resume` to start fresh.
 
-**End-to-end execution** — `veto run` routes and then calls the winning model with your task using the separate execution budget, printing the response to stdout. Streaming output is used automatically when the executor supports it: subscription mode streams `claude -p`, and OpenCode server mode streams session text while mapping tool, approval, artifact, usage, cancellation, and failure events into Veto's ledger. HTTP/API and local OpenAI-compatible transports remain text only.
+**End-to-end execution** — `veto run` routes and then calls the winning model with your task using the separate execution budget, printing the response to stdout. Streaming output is used automatically when the executor supports it: Claude subscription mode streams `claude -p`; Codex subscription mode consumes `codex exec --json`, prints agent updates, and records safe tool and usage events; OpenCode server mode streams session text while mapping tool, approval, artifact, usage, cancellation, and failure events into Veto's ledger. HTTP/API and local OpenAI-compatible transports remain text only.
 
 **Skill injection** — before executing, veto looks up reusable instruction snippets that match the task kind. Skills in `~/.veto/skills/` are always available (hand-written or previously generated via `generateSkill`). Skills from other directories (e.g. `~/.claude/skills/`) can be approved via `veto setup`. At startup, veto silently checks for unapproved skill files and reminds you to run `veto setup` if any are found. Kind-specific skills are preferred over generic ones; cap is 2 per execution. Skills are never auto-generated during a routing call — only pre-existing approved files are used, so there is no hidden warm-up cost at the start of each invocation.
 
@@ -666,6 +677,7 @@ automatically. See [the event schema](docs/event-ledger.md).
 
 | Provider | Models | Set up with |
 |----------|--------|-------------|
+| Codex (ChatGPT subscription) | `codex` | `codex` CLI logged in with ChatGPT |
 | Anthropic (subscription) | `haiku`, `sonnet`, `opus` | `CLAUDE_SUBSCRIPTION=true` + `claude` CLI logged in |
 | Anthropic (API key) | `haiku`, `sonnet`, `opus` | `ANTHROPIC_API_KEY` |
 | OpenAI | `gpt-4.1`, `gpt-4.1-mini`, `sol`, `terra`, `luna` | `OPENAI_API_KEY` |
@@ -674,7 +686,7 @@ automatically. See [the event schema](docs/event-ledger.md).
 | OpenCode runtime | connected `provider/model` bindings | `veto opencode connect` |
 | Local / self-hosted | any name you choose | `veto login` → option 5 (guided Ollama install, LM Studio, or manual) |
 
-Subscription mode takes precedence over API key when both are configured. Claude subscription mode exposes its CLI tools. OpenCode can execute tools already allowed by the user's OpenCode policy; Veto does not infer a tool or browser capability from the model name and never auto-approves a new permission request. Anthropic/OpenAI/OpenRouter APIs and local OpenAI-compatible servers are text-only through Veto, even when the underlying model advertises function calling. Local inference has $0 provider billing, but still consumes your machine's resources. `veto providers` shows which mode is active and lists all local models.
+Subscription mode takes precedence over API key when both are configured. Claude and Codex subscription modes expose their CLI tools and use their existing flat-subscription login instead of API billing. OpenCode can execute tools already allowed by the user's OpenCode policy; Veto does not infer a tool or browser capability from the model name and never auto-approves a new permission request. Anthropic/OpenAI/OpenRouter APIs and local OpenAI-compatible servers are text-only through Veto, even when the underlying model advertises function calling. Local inference has $0 provider billing, but still consumes your machine's resources. `veto providers` shows which mode is active and lists all local models.
 
 Veto fetches and safely caches OpenRouter's larger catalog, filters it locally,
 and sends admission requests to at most three candidates. Models with unknown

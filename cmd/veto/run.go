@@ -18,6 +18,11 @@ import (
 	"github.com/oleg-koval/veto/pkg/router"
 )
 
+const (
+	defaultRunTimeout       = 2 * time.Hour
+	defaultAdmissionTimeout = 60 * time.Second
+)
+
 // cmdRun routes the task then executes it on the winning model, printing the response.
 func cmdRun(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
@@ -25,7 +30,8 @@ func cmdRun(args []string) {
 	kindFlag := fs.String("kind", "", "task kind (auto-detected if omitted)")
 	risk := fs.String("risk", "medium", "risk level: low|medium|high")
 	maxCost := fs.Float64("max-cost", 0, "estimated preflight cost ceiling in USD (0 = none)")
-	timeout := fs.Duration("timeout", 120*time.Second, "total timeout (routing + execution)")
+	timeout := fs.Duration("timeout", defaultRunTimeout, "total timeout (routing + execution)")
+	admissionTimeout := fs.Duration("admission-timeout", defaultAdmissionTimeout, "timeout for each model admission decision")
 	quiet := fs.Bool("quiet", false, "suppress routing pipeline — print model output only")
 	criteriaFlag := fs.String("criteria", "", "comma-separated acceptance criteria; review runs after execution")
 	maxOutputTokens := fs.Int("max-output-tokens", executor.DefaultExecutionMaxTokens, "maximum output tokens for task execution")
@@ -66,6 +72,7 @@ func cmdRun(args []string) {
 
 	modelReg := router.NewRegistryFromModels(reg.modelCaps())
 	gate := router.NewAdmissionGateWithFactory(reg)
+	gate.SetTimeout(*admissionTimeout)
 	store := router.NewFileStore(historyPath())
 	mgr := router.NewManager(modelReg, gate, store)
 	mgr.SetCandidatePreferences(loadCandidatePreferences())
@@ -83,13 +90,14 @@ func cmdRun(args []string) {
 	}
 
 	spec := router.TaskSpec{
-		ID:              taskHash(objective, kind, *risk, *maxCost),
-		Kind:            router.TaskKind(kind),
-		Complexity:      complexity,
-		Objective:       objective,
-		Risk:            router.Risk(*risk),
-		MaxCostUSD:      *maxCost,
-		SuccessCriteria: criteria,
+		ID:                      taskHash(objective, kind, *risk, *maxCost),
+		Kind:                    router.TaskKind(kind),
+		Complexity:              complexity,
+		Objective:               objective,
+		RequiresExecutableTools: requiresExecutableRuntime(objective),
+		Risk:                    router.Risk(*risk),
+		MaxCostUSD:              *maxCost,
+		SuccessCriteria:         criteria,
 	}
 
 	// resolve skills in parallel with no blocking — local match is instant;
@@ -132,7 +140,7 @@ func cmdRun(args []string) {
 	// Skills are injected into the execution prompt; routing used the clean objective.
 	// For text-only executors (HTTP-based, no tool definitions passed), append an
 	// instruction to output content directly — not prose about what they would do.
-	prompt := withSkills(objective, skillBodies)
+	prompt := executionPrompt(objective, skillBodies)
 	if isTextOnlyRuntime(exec) {
 		prompt += "\n\n---\nOutput the requested content directly. No explanation, no description of what you will do, no markdown prose. If the task is to create a file, output the file contents only."
 	}
@@ -403,7 +411,7 @@ func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr 
 	if !ok {
 		return "", "", fmt.Errorf("no executor for model %q", model.Name)
 	}
-	prompt := withSkills(spec.Objective, skills)
+	prompt := executionPrompt(spec.Objective, skills)
 	if isTextOnlyRuntime(exec) {
 		prompt += "\n\n---\nOutput the requested content directly. No explanation, no description of what you will do, no markdown prose. If the task is to create a file, output the file contents only."
 	}
@@ -433,6 +441,31 @@ func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr 
 	mgr.RecordExecution(spec, model.Name, metrics)
 	logExecution(spec.ID, ledger.EventExecutionCompleted, model, metrics, "")
 	return model.Name, result.Output, nil
+}
+
+// executionPrompt adds live verification instructions only when the objective
+// explicitly asks an agent to address pull-request review comments. GitHub's
+// ordinary PR comment views omit inline review threads, which can otherwise
+// make an agent incorrectly report that there is nothing to fix.
+func executionPrompt(objective string, skills []string) string {
+	prompt := withSkills(objective, skills)
+	if !requiresPullRequestThreadWorkflow(objective) {
+		return prompt
+	}
+	return prompt + `
+
+## Required live pull-request workflow
+
+- Inspect the live PR's inline review threads with GitHub GraphQL reviewThreads(first:100). Follow pageInfo.hasNextPage with endCursor until all pages have been inspected; do not infer that there are no findings from gh pr view --comments, reviews, check summaries, or template text.
+- Select unresolved threads from the reviewer named in the task, inspect the referenced code, and address every applicable finding.
+- Run focused verification for each change, then reply to and resolve every requested review thread.
+- After verification, commit and push the changes to the PR head branch when the task requests it.
+- Re-query the live PR before finishing. Do not report completion unless there are zero unresolved matching threads and the requested remote update is present. If access or verification fails, report the task as incomplete instead of claiming success.`
+}
+
+func requiresPullRequestThreadWorkflow(objective string) bool {
+	prTarget, reviewTarget, mutation := pullRequestMutationSignals(objective)
+	return prTarget && reviewTarget && mutation
 }
 
 func hasEffectiveTools(exec router.Executor) bool {

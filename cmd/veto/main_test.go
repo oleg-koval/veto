@@ -5,13 +5,79 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/oleg-koval/veto/pkg/executor"
 	"github.com/oleg-koval/veto/pkg/router"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestCodexCLIAuthenticatedUsesExistingChatGPTLogin(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	script := filepath.Join(bin, "codex")
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\n[ \"$1 $2\" = \"login status\" ] || exit 1\nprintf '%s\\n' 'Logged in using ChatGPT'\n"), 0700))
+	t.Setenv("PATH", bin)
+	assert.Equal(t, codexAuthChatGPT, codexCLIAuthentication())
+
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nexit 1\n"), 0700))
+	assert.Equal(t, codexAuthNone, codexCLIAuthentication())
+}
+
+func TestCodexCLIAuthenticationDistinguishesAPIKey(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "codex"), []byte("#!/bin/sh\nprintf '%s\\n' 'Logged in using an API key'\n"), 0700))
+	t.Setenv("PATH", bin)
+	assert.Equal(t, codexAuthAPIKey, codexCLIAuthentication())
+}
+
+func TestBuildProviderRegistryAddsAuthenticatedCodexCLI(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "codex"), []byte("#!/bin/sh\n[ \"$1 $2\" = \"login status\" ] || exit 1\nprintf '%s\\n' 'Logged in using ChatGPT'\n"), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY", "CLAUDE_SUBSCRIPTION"} {
+		t.Setenv(key, "")
+	}
+
+	reg, err := buildProviderRegistry()
+	require.NoError(t, err)
+	registered, ok := reg.executors["codex"]
+	require.True(t, ok)
+	assert.Equal(t, "codex-cli", registered.RuntimeID())
+	assert.Equal(t, "large", reg.caps["codex"].Tier)
+}
+
+func TestBuildProviderRegistryMarksAPIKeyCodexCostUnknown(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "codex"), []byte("#!/bin/sh\nprintf '%s\\n' 'Logged in using an API key'\n"), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY", "CLAUDE_SUBSCRIPTION"} {
+		t.Setenv(key, "")
+	}
+
+	reg, err := buildProviderRegistry()
+	require.NoError(t, err)
+	require.Contains(t, reg.executors, "codex")
+	assert.True(t, reg.caps["codex"].CostPer1kInputUnknown)
+	assert.True(t, reg.caps["codex"].CostPer1kOutputUnknown)
+}
 
 type textOnlyTestExecutor struct{}
 
@@ -70,11 +136,11 @@ func TestProviderRegistryModelCapsFiltersExactRuntime(t *testing.T) {
 func TestProviderRegistryModelCapsFiltersProviderForHermesPin(t *testing.T) {
 	reg := &providerRegistry{
 		executors: map[string]executor.RuntimeAdapter{
-			"openai": textOnlyTestExecutor{},
+			"openai":    textOnlyTestExecutor{},
 			"anthropic": textOnlyTestExecutor{},
 		},
 		caps: map[string]router.ModelCapabilities{
-			"openai": {Name: "openai", Provider: "openai"},
+			"openai":    {Name: "openai", Provider: "openai"},
 			"anthropic": {Name: "anthropic", Provider: "anthropic"},
 		},
 	}
