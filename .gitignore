@@ -12,4 +12,6 @@ scripts/__pycache__/
 
 # Local/generated outputs
 *.html
+!site/*.html
+!site/**/*.html
 .hermes/

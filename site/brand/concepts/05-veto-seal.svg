@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="title desc">
+  <title id="title">Veto Seal</title>
+  <desc id="desc">A solid decision seal cut by a rounded V.</desc>
+  <defs>
+    <mask id="v-cut">
+      <rect width="100" height="100" fill="white"/>
+      <path d="M31 34 50 67 70 33" fill="none" stroke="black" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    </mask>
+  </defs>
+  <circle cx="50" cy="50" r="34" fill="currentColor" mask="url(#v-cut)"/>
+</svg>

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Veto is a cost-aware AI model router that requires explicit model admission before execution.">
+  <meta name="keywords" content="AI model router, LLM routing, Go CLI, model selection, Anthropic, OpenAI, OpenRouter, xAI">
+  <meta name="author" content="Oleg Koval">
+  <meta name="theme-color" content="#071014">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <link rel="canonical" href="https://oleg-koval.github.io/veto/">
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/logo.png">
+  <link rel="stylesheet" href="styles.css">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Veto">
+  <meta property="og:title" content="Veto — the model should earn the task">
+  <meta property="og:description" content="Cost-aware AI model routing with explicit model admission.">
+  <meta property="og:url" content="https://oleg-koval.github.io/veto/">
+  <meta property="og:image" content="https://oleg-koval.github.io/veto/assets/social-card.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Veto logo and Homebrew installation command">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Veto — the model should earn the task">
+  <meta name="twitter:description" content="Cost-aware AI model routing with explicit model admission.">
+  <meta name="twitter:image" content="https://oleg-koval.github.io/veto/assets/social-card.png">
+  <title>Veto — cost-aware AI model routing</title>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="shell nav">
+    <a class="brand" href="./" aria-label="Veto home"><img src="assets/logo.svg" alt=""><span>veto</span></a>
+    <nav class="nav-links" aria-label="Primary navigation">
+      <a href="#how">How it works</a>
+      <a href="https://github.com/oleg-koval/veto#commands">Commands</a>
+      <a href="https://github.com/oleg-koval/veto/releases/latest">Releases</a>
+      <a href="https://github.com/oleg-koval/veto">GitHub ↗</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="shell hero">
+      <div>
+        <p class="eyebrow">Public beta · Go CLI · multi-provider</p>
+        <h1>The model should <span>earn</span> the task.</h1>
+        <p class="lede">Veto filters AI models by capability, complexity, and estimated cost, then requires a structured admission decision before routing or execution.</p>
+        <div class="install" aria-label="Homebrew installation command">
+          <code>brew install oleg-koval/tap/veto</code>
+          <button class="copy" type="button" data-copy="brew install oleg-koval/tap/veto">Copy</button>
+        </div>
+        <div class="actions">
+          <a class="button primary" href="https://github.com/oleg-koval/veto#quick-start">Quick start</a>
+          <a class="button" href="https://github.com/oleg-koval/veto">View source</a>
+        </div>
+      </div>
+
+      <div class="terminal" aria-label="Example Veto routing output">
+        <div class="terminal-head"><i></i><i></i><i></i><span>veto route</span></div>
+        <div class="terminal-body">
+          <div><span class="prompt">$</span> veto route "review this pull request" --kind review</div>
+          <br>
+          <div class="dim">── filtering candidates ───────────</div>
+          <div>luna&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="pass">pass</span></div>
+          <div>terra&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="pass">pass</span></div>
+          <div>sol&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="pass">pass</span></div>
+          <br>
+          <div class="dim">── asking models ─────────────────</div>
+          <div>luna&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="reject">rejected</span></div>
+          <div>terra&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="accept">accepted · 91%</span></div>
+          <br>
+          <div><span class="accept">→ selected:</span> terra</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="features">
+      <div class="shell">
+        <div class="section-head"><p class="eyebrow">Routing contract</p><h2>Selection you can inspect.</h2><p>Deterministic filtering happens before model judgment. Every admission result stays structured and scriptable.</p></div>
+        <div class="cards">
+          <article class="card"><span class="index">01 / FILTER</span><h3>Capability before confidence</h3><p>Tool access, task kind, complexity, context, disabled models, and cost ceilings remove unfit candidates first.</p></article>
+          <article class="card"><span class="index">02 / ADMIT</span><h3>Models must explicitly accept</h3><p>Surviving candidates return an accept/reject decision, confidence, estimated usage, and machine-readable reasons.</p></article>
+          <article class="card"><span class="index">03 / EXECUTE</span><h3>Routing and execution stay separate</h3><p>Use <code>route</code> for selection, <code>run</code> for one task, or <code>exec</code> for a multi-step plan.</p></article>
+          <article class="card"><span class="index">04 / VERIFY</span><h3>Acceptance review fails closed</h3><p>Requested criteria do not pass when the review is unavailable, malformed, incomplete, or inconsistent.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="how">
+      <div class="shell">
+        <div class="section-head"><p class="eyebrow">How it works</p><h2>From roster to one viable route.</h2></div>
+        <div class="steps">
+          <article class="step"><h3>Connect providers</h3><p>Use API-backed providers, Claude subscription mode, or local OpenAI-compatible models.</p></article>
+          <article class="step"><h3>Describe the task</h3><p>Set kind, risk, timeout, and optional cost or acceptance constraints.</p></article>
+          <article class="step"><h3>Inspect the decision</h3><p>Read the terminal trace or consume one JSON result line in automation.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="shell">
+        <div class="section-head"><p class="eyebrow">Provider roster</p><h2>Cloud, subscription, or local.</h2><p>Configured transports keep their real boundaries: API and local HTTP models are text-only; executable tools are never advertised where they are unavailable.</p></div>
+        <div class="provider-list" aria-label="Supported providers"><span>Anthropic</span><span>OpenAI</span><span>OpenRouter</span><span>xAI</span><span>Ollama</span><span>LM Studio</span><span>OpenAI-compatible</span></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="shell">
+        <div class="notice"><strong>Honest beta boundary.</strong> Offline tests prove routing mechanics, packaging, and integrity checks—not account-specific model access, live pricing, or production calibration. Validate those claims with your own providers and workload.</div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell">
+    <span>© <span data-year>2026</span> <a href="https://github.com/oleg-koval">Oleg Koval</a> · Apache-2.0</span>
+    <nav aria-label="Footer navigation"><a href="https://github.com/oleg-koval/veto">GitHub</a><a href="https://github.com/oleg-koval/veto/issues">Issues</a><a href="https://github.com/oleg-koval/veto/releases">Releases</a><a href="brand/">Brand concepts</a></nav>
+  </footer>
+  <script src="app.js" defer></script>
+</body>
+</html>

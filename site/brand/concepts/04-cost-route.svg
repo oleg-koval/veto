@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="title desc">
+  <title id="title">Cost Route</title>
+  <desc id="desc">Three candidate routes converge on one viable path.</desc>
+  <g fill="none" stroke="currentColor" stroke-linecap="round">
+    <path d="M20 27h16c11 0 13 19 24 19h19" stroke-width="3" opacity=".28"/>
+    <path d="M20 50h59" stroke-width="4"/>
+    <path d="M20 73h16c11 0 13-19 24-19h19" stroke-width="3" opacity=".28"/>
+  </g>
+  <circle cx="20" cy="27" r="4" fill="currentColor" opacity=".35"/>
+  <circle cx="20" cy="50" r="5" fill="currentColor"/>
+  <circle cx="20" cy="73" r="4" fill="currentColor" opacity=".35"/>
+  <circle cx="79" cy="50" r="7" fill="currentColor"/>
+</svg>
