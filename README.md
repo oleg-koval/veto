@@ -470,7 +470,8 @@ Route and execute in one step. The winning model's response is printed to stdout
 | `--kind` | *(auto-detected)* | Task type (see below) |
 | `--risk` | `medium` | Impact level: `low`, `medium`, `high` |
 | `--max-cost` | `0` (no limit) | Estimated preflight cost ceiling in USD |
-| `--timeout` | `120s` | Total timeout (routing + execution) |
+| `--timeout` | `30m` | Total timeout (routing + execution) |
+| `--admission-timeout` | `60s` | Per-model admission timeout |
 | `--quiet` | `false` | Suppress routing animation — print model output only |
 | `--max-output-tokens` | `8192` | Bounded output budget for the execution response |
 | `--output` | *(none)* | Explicit relative file path for saving output |
@@ -496,7 +497,9 @@ veto run "refactor the auth middleware" \
   --criteria "no third-party JWT dep,all existing tests pass,function names unchanged"
 ```
 
-`veto run` makes two distinct calls when needed. Admission is a short JSON-only probe capped at 512 output tokens. Execution is a separate bounded response, defaulting to 8192 output tokens and controlled by `--max-output-tokens`; the admission limit never truncates the task result. OpenCode does not expose a portable per-prompt token-limit field, so its adapter instead uses the command timeout and an 8 MiB event/text safety bound while preserving any provider-reported output-length failure. If a provider reports that execution reached its output limit, Veto exits non-zero and does not save or review the partial output. Increase `--max-output-tokens` where the transport supports it and retry.
+`veto run` makes two distinct calls when needed. Admission is a short JSON-only probe capped at 512 output tokens. Claude CLI admission runs in safe mode with tools disabled and uses its native JSON schema output; execution remains a separate normal agent run in the caller's working directory. Execution has a bounded response, defaulting to 8192 output tokens and controlled by `--max-output-tokens`; the admission limit never truncates the task result. OpenCode does not expose a portable per-prompt token-limit field, so its adapter instead uses the command timeout and an 8 MiB event/text safety bound while preserving any provider-reported output-length failure. If a provider reports that execution reached its output limit, Veto exits non-zero and does not save or review the partial output. Increase `--max-output-tokens` where the transport supports it and retry.
+
+Objectives that explicitly ask Veto to modify, commit, or push repository work require an executable agent runtime. Known text-only API and local transports are filtered before admission so they cannot consume the bounded admission attempts. Agent runtimes whose tool set is discovered only at execution time remain eligible.
 
 `--output` is the only way for `veto run` to write a file. The path must be relative to the current directory, cannot traverse upward or target hidden files/directories, and is created with mode `0600`. Existing files are protected; pass `--force` to replace one. Objective text such as “save as report.md” does not write a file by itself.
 

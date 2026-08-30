@@ -55,6 +55,8 @@ The cost estimate at this stage is intentionally rough (assumes 1000 input token
 
 **Complexity enforcement** — `tierMeetsComplexity` maps `Complexity` values to a minimum tier: `complex` → `large` only; `moderate` → `mid` or `large`; `simple` → any tier. `task.Complexity` is auto-inferred by `Manager.Route` before the filter runs (see "Complexity inference" below). Models below the required tier are pruned here, before the self-admission gate, so they are never asked.
 
+**Executable runtime enforcement** — `veto run` marks objectives with explicit repository mutation signals such as fixing a pull request and pushing the result. For these tasks, known text-only transports are rejected with `MISSING_REQUIRED_TOOL` before admission. Runtimes with a known executable tool set and agent runtimes whose tools are discovered only during execution remain eligible.
+
 ## Stage 2: Scorer (`pkg/router/scorer.go`)
 
 Ranks the survivors by a weighted score (range 0.0–1.0):
@@ -97,7 +99,9 @@ The model must respond with a JSON object. The parser (`parseAdmissionJSON`) sca
 
 **Confidence gate:** any model accepting with confidence < 0.7 is treated as a rejection (`LOW_CONFIDENCE`). This prevents models from accepting out of politeness without real certainty.
 
-**Per-model timeout:** each executor call in `Ask` runs under a child context capped at `admissionModelTimeout` (20s), derived from the outer context. A hung model — API outage, slow `claude -p` — is cut off after 20s and treated as a rejection (`PARSE_FAILURE`), so routing continues to the next candidate rather than blocking indefinitely. The outer `--timeout` (default 120s) still bounds the whole routing session.
+**Per-model timeout:** each executor call in `Ask` runs under a child context derived from the outer context. The gate default is 20 seconds; `veto run` raises it to the configurable `--admission-timeout` default of 60 seconds because subscription CLI startup routinely exceeds 20 seconds. A hung model is treated as a rejection so routing continues to the next candidate. The outer `veto run --timeout` default of 30 minutes still bounds admission plus execution.
+
+**Claude CLI admission:** subscription admission uses `claude -p` in safe mode with tools disabled, session persistence disabled, and a native JSON schema matching `AdmissionDecision`. Veto extracts the CLI envelope's `structured_output` value before passing it to the shared parser. The later execution call does not use these admission-only restrictions and runs in the caller's working directory.
 
 **Fail-safe:** two distinct failure paths:
 - **Executor error** (API auth failure, rate limit, network error): `Ask` returns the executor's error directly. The manager surfaces it as the real message in `EventAskError.Detail` — the routing UI shows e.g. `! openai: 429 rate limited` rather than a generic label.
@@ -401,7 +405,7 @@ failure is logged with its normalized detail and consumes one of the three
 admission calls for that run; checkpoint resume can continue with untried
 candidates later.
 
-The timeout on `veto run` (default 120s) covers both routing and execution, unlike `veto route` which only times out the admission phase. When the `CLIExecutor` (`claude -p`) is killed by a timeout, it reports `"claude cli: timed out (use --timeout to increase)"` rather than the raw `"signal: killed"` from the subprocess.
+The timeout on `veto run` (default 30 minutes) covers both routing and execution, unlike `veto route` which only times out the admission phase. `veto run --admission-timeout` separately bounds each admission attempt and defaults to 60 seconds. When the `CLIExecutor` (`claude -p`) is killed by a timeout, it distinguishes `"claude cli admission: timed out"` from `"claude cli execution: timed out"` rather than exposing the raw `"signal: killed"` from the subprocess.
 
 **Shared helper: `routeAndCaptureWithOptions`** — both `cmdRun` and `cmdExec` (for plan steps) share the execution helper in `run.go`. It wires `mgr.OnEvent`, calls `mgr.Route`, looks up the executor, calls its full `Execute` method with explicit options, and returns `(modelName, output, error)`. Internal conversion/review paths use the bounded default. This keeps each command's routing setup in one place (`prepareRouting`) and prevents admission and execution transports from drifting.
 
