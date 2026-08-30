@@ -1,0 +1,72 @@
+name: Optimization proposal
+description: Propose a measured performance or cost improvement
+title: "[Optimization] "
+labels:
+  - performance
+body:
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction_context
+    attributes:
+      label: Reproduction or context
+      description: Safe workload and measurement method. Do not include secrets or proprietary task text.
+    validations:
+      required: true
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected behavior
+      description: The desired user-visible or operational result.
+    validations:
+      required: true
+  - type: textarea
+    id: actual_behavior
+    attributes:
+      label: Actual behavior
+      description: Current measured behavior and its impact.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and environment
+      description: Veto version, OS, architecture, command name, and affected scope only.
+    validations:
+      required: true
+  - type: input
+    id: baseline_performance
+    attributes:
+      label: Baseline performance
+      description: Current latency, cost, memory, throughput, or other metric.
+    validations:
+      required: true
+  - type: input
+    id: target_performance
+    attributes:
+      label: Target performance
+      description: Measurable target and units.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance criteria
+      description: A checklist of observable conditions that would make this issue complete.
+      placeholder: "- [ ] ..."
+    validations:
+      required: true
+  - type: textarea
+    id: regression_status
+    attributes:
+      label: Regression status
+      description: What was checked for regressions, or state that this is not assessed yet.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Optional safe logs, tests, screenshots, or benchmark evidence. Redact secrets and local paths.

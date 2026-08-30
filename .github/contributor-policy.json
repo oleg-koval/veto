@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "whitelist": [
+    "oleg-koval",
+    "marekloop",
+    "coderabbit",
+    "greptile",
+    "qodo",
+    "github",
+    "dependabot",
+    "gemini"
+  ],
+  "blacklist": [],
+  "settings": {
+    "require_issue_for_grey": true,
+    "maintainer_review_label": "needs-maintainer-review"
+  }
+}

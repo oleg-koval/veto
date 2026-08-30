@@ -1,0 +1,58 @@
+name: Feature request
+description: Propose a focused improvement to Veto
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: Concise description of the requested capability.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction_context
+    attributes:
+      label: Reproduction or context
+      description: Current workflow, limitation, or safe example. Do not include secrets or proprietary task text.
+    validations:
+      required: true
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected behavior
+      description: Describe the user-visible result.
+    validations:
+      required: true
+  - type: textarea
+    id: actual_behavior
+    attributes:
+      label: Current behavior
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and environment
+      description: Who is affected and which Veto command or package is in scope.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance criteria
+      description: A checklist of observable conditions that would make this issue complete.
+      placeholder: "- [ ] ..."
+    validations:
+      required: true
+  - type: textarea
+    id: regression_status
+    attributes:
+      label: Regression status
+      description: What was checked for regressions, or state that this is not assessed yet.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Optional safe logs, tests, screenshots, or benchmark evidence. Redact secrets and local paths.
