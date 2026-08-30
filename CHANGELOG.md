@@ -3,6 +3,19 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0](https://github.com/oleg-koval/veto/compare/v0.3.0...v0.4.0) (2026-08-30)
+
+
+### Features
+
+* execute tasks through OpenCode sessions ([#39](https://github.com/oleg-koval/veto/issues/39)) ([0776aba](https://github.com/oleg-koval/veto/commit/0776aba4c8e7d59477bb86a81e66131a27a05c40))
+* integrate Veto routing with OpenCode ([#42](https://github.com/oleg-koval/veto/issues/42)) ([6b17723](https://github.com/oleg-koval/veto/commit/6b17723eb9377b20dec6edfb74580cfcda1ed634))
+
+
+### Bug Fixes
+
+* polish animated routing flow ([#43](https://github.com/oleg-koval/veto/issues/43)) ([6f7ed39](https://github.com/oleg-koval/veto/commit/6f7ed394f5f4cef8f68b981d831a7af135074f5f))
+
 ## [0.3.0](https://github.com/oleg-koval/veto/compare/v0.2.0...v0.3.0) (2026-08-30)
 
 
