@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	opencodert "github.com/oleg-koval/veto/pkg/opencode"
 	"github.com/oleg-koval/veto/pkg/openroutercatalog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -99,6 +100,43 @@ func TestDoctorWarnsForStaleOpenRouterCatalogCache(t *testing.T) {
 	report := runDoctor(doctorOptions{offline: true}, deps)
 	assert.True(t, report.OK, report.Checks)
 	assertDoctorCheck(t, report, "state.openrouter_catalog", doctorWarn)
+}
+
+func TestDoctorChecksConfiguredOpenCodeRuntime(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".veto")
+	require.NoError(t, os.Mkdir(root, 0700))
+	writeDoctorTestFile(t, filepath.Join(root, "config.json"), `{"opencode":{"mode":"cli"}}`)
+	executable := writeDoctorTestExecutable(t, t.TempDir(), "veto")
+	deps := newDoctorTestDeps(home, executable)
+	deps.inspectOpenCode = func(config opencodert.Config) (opencodert.Discovery, error) {
+		assert.Equal(t, opencodert.ModeCLI, config.Mode)
+		return opencodert.Discovery{Version: "1.18.5"}, nil
+	}
+
+	report := runDoctor(doctorOptions{offline: true}, deps)
+	assert.True(t, report.OK, report.Checks)
+	assertDoctorCheck(t, report, "runtime.opencode", doctorPass)
+
+	deps.inspectOpenCode = func(opencodert.Config) (opencodert.Discovery, error) {
+		return opencodert.Discovery{}, &opencodert.IncompatibleError{Version: "0.1.0", Detail: "missing provider API"}
+	}
+	report = runDoctor(doctorOptions{offline: true}, deps)
+	assert.False(t, report.OK)
+	assertDoctorCheck(t, report, "runtime.opencode", doctorFail)
+}
+
+func TestDoctorWarnsWhenOpenCodeCLIIsDetectedButUnconfigured(t *testing.T) {
+	home := t.TempDir()
+	executable := writeDoctorTestExecutable(t, t.TempDir(), "veto")
+	deps := newDoctorTestDeps(home, executable)
+	deps.lookPath = func(name string) (string, error) {
+		assert.Equal(t, "opencode", name)
+		return `C:\Program Files\OpenCode\opencode.exe`, nil
+	}
+	report := runDoctor(doctorOptions{offline: true}, deps)
+	assert.True(t, report.OK, report.Checks)
+	assertDoctorCheck(t, report, "runtime.opencode", doctorWarn)
 }
 
 func TestDoctorFixesSafePermissionsWithoutRewritingJSON(t *testing.T) {
