@@ -121,7 +121,9 @@ func buildAdmissionPromptWithToolStatus(task TaskSpec, model ModelCapabilities, 
 		constraints = "none"
 	}
 	required := strings.Join(task.RequiredTools, ", ")
-	if required == "" {
+	if required == "" && task.RequiresExecutableTools {
+		required = "an executable agent runtime (project-specific tools are resolved at execution)"
+	} else if required == "" {
 		required = "none"
 	}
 

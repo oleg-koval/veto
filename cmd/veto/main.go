@@ -302,13 +302,14 @@ func cmdRoute(args []string) {
 	}
 
 	spec := router.TaskSpec{
-		ID:         hash,
-		Kind:       router.TaskKind(kind),
-		Complexity: router.Complexity(complexity),
-		Objective:  objective,
-		Risk:       router.Risk(*risk),
-		MaxCostUSD: *maxCost,
-		SkipModels: cp.triedNames(),
+		ID:                      hash,
+		Kind:                    router.TaskKind(kind),
+		Complexity:              router.Complexity(complexity),
+		Objective:               objective,
+		RequiresExecutableTools: requiresExecutableRuntime(objective),
+		Risk:                    router.Risk(*risk),
+		MaxCostUSD:              *maxCost,
+		SkipModels:              cp.triedNames(),
 	}
 
 	model, decision, err := mgr.Route(ctx, spec)
@@ -455,6 +456,23 @@ func inferKind(objective string) string {
 	default:
 		return "code-change"
 	}
+}
+
+// requiresExecutableRuntime recognizes explicit requests to mutate repository
+// state. Content-only code generation remains eligible for text transports.
+func requiresExecutableRuntime(objective string) bool {
+	s := strings.ToLower(objective)
+	if containsAny(s,
+		"git push", "commit and push", "push when", "push once",
+		"modify the repository", "edit the repository", "update the repository",
+		"modify the repo", "edit the repo", "commit the changes",
+	) {
+		return true
+	}
+
+	prTarget := containsAny(s, "pull request", "/pull/", "this pr", "the pr")
+	mutation := containsAny(s, "fix", "resolve", "address", "implement", "modify", "edit", "update", "refactor")
+	return prTarget && mutation
 }
 
 func containsAny(s string, subs ...string) bool {

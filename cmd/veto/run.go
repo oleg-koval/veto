@@ -83,13 +83,14 @@ func cmdRun(args []string) {
 	}
 
 	spec := router.TaskSpec{
-		ID:              taskHash(objective, kind, *risk, *maxCost),
-		Kind:            router.TaskKind(kind),
-		Complexity:      complexity,
-		Objective:       objective,
-		Risk:            router.Risk(*risk),
-		MaxCostUSD:      *maxCost,
-		SuccessCriteria: criteria,
+		ID:                      taskHash(objective, kind, *risk, *maxCost),
+		Kind:                    router.TaskKind(kind),
+		Complexity:              complexity,
+		Objective:               objective,
+		RequiresExecutableTools: requiresExecutableRuntime(objective),
+		Risk:                    router.Risk(*risk),
+		MaxCostUSD:              *maxCost,
+		SuccessCriteria:         criteria,
 	}
 
 	// resolve skills in parallel with no blocking — local match is instant;

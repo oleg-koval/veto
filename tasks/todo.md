@@ -135,3 +135,27 @@
 **Verification:** protocol reviewed locally; actual external trials explicitly remain pending.
 
 **Dependencies:** Tasks 13, 16.
+
+## Task 19: Filter text-only transports for explicit repository mutations
+
+**Acceptance criteria:** the reported PR-fix-and-push objective requires an executable runtime; API and local text-only transports are filtered before admission; ordinary content-only code generation remains eligible.
+
+**Verification:** focused inference and router filter tests fail first, then pass.
+
+**Dependencies:** Task 4.
+
+## Task 20: Harden Claude subscription admission
+
+**Acceptance criteria:** admission uses Claude safe mode, disabled tools, no session persistence, and native schema output; execution retains normal project tools and permission policy; admission has its own configurable deadline.
+
+**Verification:** CLI argument and JSON-envelope tests fail first, then pass; a real subscription route returns a valid decision.
+
+**Dependencies:** Task 19.
+
+## Task 21: Verify the exact agentic run flow
+
+**Acceptance criteria:** `veto run` has enough default wall time for repository work; a fake Claude CLI proves admission then execution for the exact objective; the fresh binary runs the exact command from the Roazon PR branch and reaches a truthful terminal result.
+
+**Verification:** focused subprocess test, race suite, vet, build, onboarding smoke, benchmark, and live PR-state audit.
+
+**Dependencies:** Tasks 19-20.
