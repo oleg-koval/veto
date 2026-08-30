@@ -170,6 +170,8 @@ func sameOrigin(a, b *url.URL) bool {
 	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Host, b.Host)
 }
 
+// Raw field names follow OpenRouter's documented Models API contract:
+// https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties
 type rawResponse struct {
 	Data       []rawModel `json:"data"`
 	TotalCount *int       `json:"total_count"`
