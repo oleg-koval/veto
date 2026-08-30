@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('node:path');
 const governance = require('./contributor-governance.js');
 
 test('classifies logins case-insensitively and leaves unknown users grey', () => {
@@ -7,6 +8,45 @@ test('classifies logins case-insensitively and leaves unknown users grey', () =>
   assert.equal(governance.classifyContributor(policy, 'oleg-koval').classification, 'whitelisted');
   assert.equal(governance.classifyContributor(policy, 'BADACTOR').reason, 'configured abuse');
   assert.equal(governance.classifyContributor(policy, 'new-user').classification, 'grey');
+});
+
+test('matches only the explicitly configured Release Please automation', () => {
+  const policy = {
+    settings: {
+      trusted_automation: [{ login: 'github-actions', head_prefix: 'release-please--branches--main--components--' }],
+    },
+  };
+  const releasePR = { user: { login: 'GitHub-Actions' }, head: { ref: 'release-please--branches--main--components--veto' } };
+  assert.ok(governance.trustedAutomationEntry(policy, releasePR));
+  assert.equal(governance.trustedAutomationEntry(policy, { user: { login: 'github-actions' }, head: { ref: 'feature/release' } }), undefined);
+  assert.equal(governance.trustedAutomationEntry(policy, { user: { login: 'dependabot' }, head: { ref: 'release-please--branches--main--components--veto' } }), undefined);
+});
+
+test('skips duplicate issue validation for the configured Release Please PR', async () => {
+  const notices = [];
+  const failures = [];
+  await governance.run({
+    github: { rest: {} },
+    context: {
+      repo: { owner: 'oleg-koval', repo: 'veto' },
+      payload: {
+        pull_request: {
+          number: 23,
+          user: { login: 'github-actions' },
+          head: { ref: 'release-please--branches--main--components--veto' },
+          body: '',
+        },
+      },
+    },
+    core: {
+      notice: (message) => notices.push(message),
+      setFailed: (message) => failures.push(message),
+      warning: () => {},
+    },
+    policyPath: path.join(__dirname, '..', 'contributor-policy.json'),
+  });
+  assert.equal(failures.length, 0);
+  assert.match(notices[0], /Trusted automation/);
 });
 
 test('accepts same-repository issue links and rejects external or malformed links', () => {
