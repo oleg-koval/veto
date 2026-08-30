@@ -93,6 +93,7 @@ Authoritative catalog -> documentation consistency -> beta release
 - [ ] Task 20: Make Claude subscription admission structured, customization-free, and independently timeout-bounded.
 - [ ] Task 21: Give agentic `run` executions a practical default deadline and cover the exact PR-fix flow with a fake CLI integration test.
 - [ ] Task 22: Require live inline-thread verification for pull-request review-fix executions.
+- [ ] Task 23: Keep batch PR-review remediation off small-model routing after demonstrated false completion.
 
 ### Checkpoint: Agentic execution
 

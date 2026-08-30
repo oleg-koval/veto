@@ -167,3 +167,11 @@
 **Verification:** prompt unit tests and the exact fake CLI integration test fail first, then pass; the live PR run no longer reports false zero findings.
 
 **Dependencies:** Task 21.
+
+## Task 23: Route batch PR-review remediation above small tier
+
+**Acceptance criteria:** objectives that explicitly ask to fix all Codex or review threads infer moderate complexity, excluding small-tier executors while preserving simple one-file fixes.
+
+**Verification:** the exact objective complexity test fails first, then passes; the live command asks Sonnet rather than Haiku.
+
+**Dependencies:** Task 22.

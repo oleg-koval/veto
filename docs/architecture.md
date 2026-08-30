@@ -125,7 +125,7 @@ if task.Complexity == "" {
 |------|-------------|-----------------|
 | High | +3 each | `cqrs`, `event sourcing`, `microservices`, `distributed system`, `multi-tenant` |
 | Medium | +2 each | `architecture`, `infrastructure`, `scalable`, `enterprise`, `system design` |
-| Low | +1 each | `e2e`, `pipeline`, `service`, `deploy`, `integrate` |
+| Low | +1 each | `e2e`, `pipeline`, `service`, `deploy`, `integrate`, batch review-comment remediation |
 | Simple signals | −2 each | `simple`, `basic`, `quick`, `hello world` |
 
 Task kind adjusts the score too: `plan` adds 2; `debug` adds 1; `extract`/`summarize` subtract 2.
