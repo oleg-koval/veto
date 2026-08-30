@@ -18,14 +18,15 @@ does not semantically prove that the criteria are complete. Maintainers make
 that determination and retain responsibility for merge approval.
 
 Contributor trust is classified by the versioned
-[policy](.github/contributor-policy.json): whitelisted logins bypass reputation
-lookup, blacklisted logins are blocked with the configured reason, and every
-unlisted login is grey. Grey contributors need a same-repository issue with
-acceptance criteria and pass the advisory GitHub reputation lookup; valid grey
-PRs receive `needs-maintainer-review`. Login matching is case-insensitive. The
-PR author is accountable; commit-author mismatches are reported separately for
-maintainer review. Reputation data is only a review signal, never an automatic
-quality judgment.
+[policy](.github/contributor-policy.json): whitelisted logins pass this
+governance check without issue, acceptance-evidence, reputation, or
+commit-author validation; blacklisted logins are blocked with the configured
+reason; and every unlisted login is grey. Grey contributors need a
+same-repository issue with acceptance criteria and pass the advisory GitHub
+reputation lookup; valid grey PRs receive `needs-maintainer-review`. Login
+matching is case-insensitive. The PR author is accountable; commit-author
+mismatches are reported separately for maintainer review. Reputation data is
+only a review signal, never an automatic quality judgment.
 
 PRs authored by `github-actions[bot]` are an explicit trusted-automation
 exception because they originate from repository-owned workflows. They skip
@@ -34,10 +35,10 @@ protection, required CI, and maintainer review. Other automation and bot PRs
 remain subject to the normal checks.
 
 The governance check fails closed when a grey contributor's issue or reputation
-data cannot be read. Maintainers may override a classification by updating the
-versioned policy in a reviewed PR, documenting the reason, and retaining the
-normal issue, acceptance-criteria, and branch-protection checks. Blacklisted
-PRs are commented on and blocked, not automatically closed.
+data cannot be read. Maintainers may update the versioned policy in a reviewed
+PR, documenting the reason; whitelist entries intentionally bypass this check,
+while branch protection and required CI still apply. Blacklisted PRs are
+commented on and blocked, not automatically closed.
 
 ## Before opening an issue
 

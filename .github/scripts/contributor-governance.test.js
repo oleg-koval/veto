@@ -8,6 +8,10 @@ test('classifies logins case-insensitively and leaves unknown users grey', () =>
   assert.equal(governance.classifyContributor(policy, 'oleg-koval').classification, 'whitelisted');
   assert.equal(governance.classifyContributor(policy, 'BADACTOR').reason, 'configured abuse');
   assert.equal(governance.classifyContributor(policy, 'new-user').classification, 'grey');
+  assert.equal(governance.classifyContributor({
+    whitelist: ['overlap'],
+    blacklist: [{ login: 'overlap', reason: 'blocked' }],
+  }, 'overlap').classification, 'blacklisted');
 });
 
 test('matches explicitly configured automation scopes', () => {
@@ -77,6 +81,44 @@ test('skips duplicate issue validation for configured GitHub Actions PRs', async
   assert.equal(failures.length, 0);
   assert.match(notices[0], /Trusted automation/);
   assert.match(comments[0], /Commit-author mismatch/);
+});
+
+test('skips all governance validation for whitelisted contributors', async () => {
+  const notices = [];
+  const failures = [];
+  let issueLookupCalled = false;
+  await governance.run({
+    github: {
+      rest: {
+        pulls: { listCommits: async () => { throw new Error('commit lookup should be skipped'); } },
+        issues: {
+          get: async () => { issueLookupCalled = true; throw new Error('issue lookup should be skipped'); },
+          listComments: async () => { throw new Error('comment lookup should be skipped'); },
+        },
+      },
+    },
+    context: {
+      repo: { owner: 'oleg-koval', repo: 'veto' },
+      payload: {
+        pull_request: {
+          number: 66,
+          user: { login: 'OLEG-KOVAL' },
+          head: { ref: 'fix/agentic-run-routing', repo: { full_name: 'oleg-koval/veto' } },
+          base: { repo: { full_name: 'oleg-koval/veto' } },
+          body: 'Closes #',
+        },
+      },
+    },
+    core: {
+      notice: (message) => notices.push(message),
+      setFailed: (message) => failures.push(message),
+      warning: () => {},
+    },
+    policyPath: path.join(__dirname, '..', 'contributor-policy.json'),
+  });
+  assert.equal(failures.length, 0);
+  assert.equal(issueLookupCalled, false);
+  assert.match(notices[0], /Whitelisted contributor/);
 });
 
 test('accepts same-repository issue links and rejects external or malformed links', () => {
