@@ -9,12 +9,12 @@ import (
 // Manager orchestrates hard-filtering, scoring, and admission gating.
 // Route returns the first candidate that passes the admission gate.
 type Manager struct {
-	registry    *Registry
-	gate        *AdmissionGate
-	store       Store
-	maxRetries  int // ponytail: simple cap, no backoff — add if needed
-	preferences CandidatePreferences
-	OnEvent     func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
+	registry      *Registry
+	gate          *AdmissionGate
+	store         Store
+	maxAdmissions int
+	preferences   CandidatePreferences
+	OnEvent       func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
 }
 
 // SetCandidatePreferences applies user-owned local filtering and ordering.
@@ -22,13 +22,13 @@ func (m *Manager) SetCandidatePreferences(preferences CandidatePreferences) {
 	m.preferences = preferences
 }
 
-// NewManager creates a Manager with a default maxRetries of 3.
+// NewManager creates a Manager with a three-call admission budget.
 func NewManager(registry *Registry, gate *AdmissionGate, store Store) *Manager {
 	return &Manager{
-		registry:   registry,
-		gate:       gate,
-		store:      store,
-		maxRetries: 3,
+		registry:      registry,
+		gate:          gate,
+		store:         store,
+		maxAdmissions: 3,
 	}
 }
 
@@ -82,7 +82,7 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 		if skipSet[model.Name] {
 			continue
 		}
-		if attempts >= m.maxRetries {
+		if attempts >= m.maxAdmissions {
 			break
 		}
 		if ctx.Err() != nil {
