@@ -10,9 +10,10 @@ and completion prices, and expiration status.
 The official schema currently exposes `expiration_date`, not a separate model
 status. A returned model is therefore `available` unless it has an expiration
 date, in which case Veto records `scheduled_for_removal`. The
-[models guide](https://openrouter.ai/docs/guides/overview/models) defines
-pricing as per-token decimal strings and describes the supported-parameter and
-architecture fields.
+[models guide](https://openrouter.ai/docs/guides/overview/models) defines the
+retained `prompt` and `completion` prices as per-token decimal strings; other
+pricing fields use different units. It also describes the supported-parameter
+and architecture fields.
 
 ## Bounds and validation
 

@@ -383,6 +383,12 @@ func TestCacheRejectsSymlinksAndUsesPrivatePermissions(t *testing.T) {
 	linkedDir := filepath.Join(dir, "linked-cache")
 	require.NoError(t, os.Symlink(linkedTarget, linkedDir))
 	assert.Error(t, writeCacheFile(filepath.Join(linkedDir, "models.json"), testCache(time.Now().UTC())))
+
+	managedTarget := filepath.Join(dir, "managed-target")
+	require.NoError(t, os.Mkdir(managedTarget, 0700))
+	managedRoot := filepath.Join(dir, ".veto")
+	require.NoError(t, os.Symlink(managedTarget, managedRoot))
+	assert.Error(t, writeCacheFile(filepath.Join(managedRoot, "cache", "models.json"), testCache(time.Now().UTC())))
 }
 
 type doerFunc func(*http.Request) (*http.Response, error)

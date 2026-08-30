@@ -494,7 +494,7 @@ func checkDoctorJSON(root string, deps doctorDeps) doctorCheck {
 }
 
 func checkDoctorOpenRouterCatalog(root string, deps doctorDeps) doctorCheck {
-	path := filepath.Join(root, "cache", "openrouter-models.json")
+	path := openRouterCatalogCachePath(root)
 	info, err := deps.fs.Lstat(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return doctorCheck{ID: "state.openrouter_catalog", Status: doctorPass, Message: "OpenRouter catalog is not cached yet"}

@@ -24,9 +24,10 @@ func TestLocalModelSourceProvidesStableSourceIdentity(t *testing.T) {
 
 func TestOpenRouterCatalogCachePathUsesManagedCacheDirectory(t *testing.T) {
 	home := t.TempDir()
+	root := filepath.Join(home, ".veto")
 	assert.Equal(t,
-		filepath.Join(home, ".veto", "cache", "openrouter-models.json"),
-		openRouterCatalogCachePathForHome(home),
+		filepath.Join(root, "cache", "openrouter-models.json"),
+		openRouterCatalogCachePath(root),
 	)
 }
 

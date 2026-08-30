@@ -183,6 +183,8 @@ func writeCacheFile(path string, cache persistedCache) error {
 
 func pathHasSymlink(path string) bool {
 	clean := filepath.Clean(path)
+	// The caller supplies the trusted state root. Inspect the cache file,
+	// cache directory, and state root without rejecting platform ancestors.
 	for _, candidate := range []string{clean, filepath.Dir(clean), filepath.Dir(filepath.Dir(clean))} {
 		info, err := os.Lstat(candidate)
 		if errors.Is(err, fs.ErrNotExist) {
