@@ -178,6 +178,17 @@ model has a source/provider/model/runtime identity. Effective tools still come
 from the active transport and default to none when it does not implement tool
 support.
 
+`pkg/openroutercatalog` implements bounded discovery against OpenRouter's
+official models endpoint and persists a versioned cache at
+`~/.veto/cache/openrouter-models.json`. The client validates third-party data,
+preserves unknown values separately from zero, exposes fresh/stale and offline
+state independently, and never replaces a known-good cache with malformed or
+partial data. Optional ETags support conditional refresh. The official schema
+provides `expiration_date` rather than a separate status, so cached status is
+derived as available or scheduled for removal. See
+[`docs/openrouter-catalog.md`](openrouter-catalog.md). Dynamic entries remain
+outside the active registry until local shortlist policy is implemented.
+
 **Per-model disable/enable** — `buildProviderRegistry` calls `loadDisabledModels()` which reads `~/.veto/config.json` under the `"disabled_models"` key. Any model name found there is silently skipped when registering executors — it is invisible to the router and never appears as a candidate. `veto disable <model...>` adds names to this list; `veto enable <model...>` removes them. Both commands persist changes back to `config.json` and take effect on the next invocation.
 
 ### Executors

@@ -248,8 +248,9 @@ veto doctor --fix
 
 `veto doctor` checks the executable, PATH precedence, build version and
 provenance, official release checksum, `~/.veto` ownership/permissions and
-symlink shape, managed JSON, local-model definitions, approved skill paths,
-and configured `claude`/`ollama` dependencies. It does not load providers,
+symlink shape, managed JSON, the OpenRouter catalog cache, local-model
+definitions, approved skill paths, and configured `claude`/`ollama`
+dependencies. It does not load providers,
 contact models, validate credentials, or print credential values. `--offline`
 skips GitHub integrity lookup. `--fix` creates missing managed directories,
 corrects safe permissions, and can reinstall a corrupted official binary; it
@@ -530,9 +531,10 @@ automatically. See [the event schema](docs/event-ledger.md).
 
 Subscription mode takes precedence over API key when both are configured. Claude subscription mode uses the `claude` CLI and is the only current transport with executable tools (`bash`, `read`, `write`, and `edit`). Anthropic/OpenAI/OpenRouter APIs and local OpenAI-compatible servers are text-only through veto, even when the underlying model advertises function calling; they cannot inspect or modify your files. Local inference has $0 provider billing, but still consumes your machine's resources. `veto providers` shows which mode is active and lists all local models.
 
-OpenRouter itself offers a much larger catalog, but this version of veto only
-registers the model listed above for routing. Dynamic OpenRouter catalog support
-is planned and is not implied by connecting an API key.
+OpenRouter itself offers a much larger catalog. Veto can fetch and safely cache
+that metadata, but this version still registers only the model listed above for
+routing; catalog-wide shortlist policy is not active yet. See the
+[catalog cache contract](docs/openrouter-catalog.md).
 
 **Ollama models curated for routing:**
 
