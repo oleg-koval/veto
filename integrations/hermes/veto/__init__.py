@@ -21,3 +21,4 @@ def register(ctx):
             description=description,
             args_hint=args_hint,
         )
+    ctx.register_middleware("turn_route", runtime.turn_route)

@@ -267,9 +267,12 @@ rather than plugin registration or session failures. `veto models --json`
 provides a stable version-1 list of effective source/provider/model/runtime
 identities and retains known zero cost separately from unknown cost or tool
 support. The cost tool reports routing savings as an estimate, never as actual
-provider billing. This explicit plugin does not register middleware or a
-permission hook; automatic Hermes routing is a separate opt-in integration
-slice.
+provider billing. The plugin registers Hermes' `turn_route` middleware for
+external user turns. Hermes resolves provider credentials only after the
+middleware returns public model/provider metadata; internal events and tool
+continuations bypass it, and failures fail open. `/veto-off` and `/veto off`
+are session-scoped, while `/veto pin <provider>` constrains that session's
+Veto admission candidates.
 
 **Per-model disable/enable** — `buildProviderRegistry` calls `loadDisabledModels()` which reads `~/.veto/config.json` under the `"disabled_models"` key. Any model name found there is silently skipped when registering executors — it is invisible to the router and never appears as a candidate. `veto disable <model...>` adds names to this list; `veto enable <model...>` removes them. Both commands persist changes back to `config.json` and take effect on the next invocation.
 

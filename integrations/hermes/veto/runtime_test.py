@@ -51,12 +51,16 @@ class FakeContext:
     def __init__(self):
         self.tools = {}
         self.commands = {}
+        self.middleware = {}
 
     def register_tool(self, **kwargs):
         self.tools[kwargs["name"]] = kwargs
 
     def register_command(self, **kwargs):
         self.commands[kwargs["name"]] = kwargs
+
+    def register_middleware(self, kind, callback):
+        self.middleware[kind] = callback
 
 
 class RuntimeContractTests(unittest.TestCase):
@@ -68,6 +72,7 @@ class RuntimeContractTests(unittest.TestCase):
             {"veto_status", "veto_route", "veto_run", "veto_models", "veto_cost", "veto_cancel"},
         )
         self.assertEqual(set(ctx.commands), {"veto", "models", "route", "cost", "veto-off"})
+        self.assertEqual(set(ctx.middleware), {"turn_route"})
         for item in ctx.tools.values():
             self.assertEqual(item["toolset"], "veto")
             self.assertFalse(item.get("override", False))
@@ -129,6 +134,36 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("sol · openai · direct", runtime.command_models(""))
         self.assertIn("99% confidence", runtime.command_route("plan"))
         self.assertIn("Veto error", runtime.command_route(""))
+
+    def test_turn_route_rewrites_only_external_user_turns_and_records_trace(self):
+        runner = FakeRunner([
+            COMMAND_RESULT(
+                "route",
+                0,
+                '{"model":"sol","api_model":"gpt-5.4","provider":"openai","runtime":"openai-api"}',
+            )
+        ])
+        runtime = RUNTIME(runner)
+        selected = runtime.turn_route(
+            {"model": "old", "provider": "anthropic", "runtime": {"provider": "anthropic"}},
+            user_message="plan a release",
+            session_id="session-1",
+            is_user_turn=True,
+            internal=False,
+            tool_continuation=False,
+        )
+        self.assertEqual(selected["route"]["model"], "gpt-5.4")
+        self.assertEqual(selected["route"]["provider"], "openai")
+        self.assertEqual(selected["source"], "veto")
+        self.assertEqual(json.loads(runtime.status({}, session_id="session-1"))["last_route"]["model"], "gpt-5.4")
+        self.assertIsNone(runtime.turn_route({}, user_message="internal", session_id="session-1", internal=True))
+
+    def test_turn_route_disable_and_pin_are_session_scoped(self):
+        runtime = RUNTIME(FakeRunner())
+        self.assertIn("disabled", runtime.command_off("", session_id="session-1"))
+        self.assertIsNone(runtime.turn_route({}, user_message="x", session_id="session-1"))
+        self.assertIn("pin", runtime.command_veto("pin openrouter", session_id="session-2"))
+        self.assertIn("cleared", runtime.command_veto("pin off", session_id="session-2"))
 
     def test_registered_handlers_contain_unexpected_failures(self):
         ctx = FakeContext()
