@@ -87,6 +87,73 @@ test('accepts same-repository issue links and rejects external or malformed link
   assert.equal(governance.extractIssueReferences('Fixes #not-a-number', 'oleg-koval', 'veto').malformed, true);
 });
 
+test('distinguishes GitHub pull requests from issue resources', () => {
+  assert.equal(governance.isPullRequestReference({ pull_request: { html_url: 'https://github.com/oleg-koval/veto/pull/60' } }), true);
+  assert.equal(governance.isPullRequestReference({ html_url: 'https://github.com/oleg-koval/veto/issues/61' }), false);
+  assert.equal(governance.isPullRequestReference(null), false);
+});
+
+test('fails clearly when a linked reference resolves to a pull request', async () => {
+  const failures = [];
+  const comments = [];
+  await governance.run({
+    github: {
+      rest: {
+        pulls: { listCommits: async () => ({ data: [] }) },
+        issues: {
+          get: async () => ({ data: { pull_request: { html_url: 'https://github.com/oleg-koval/veto/pull/60' } } }),
+          listComments: async () => ({ data: [] }),
+          createComment: async ({ body }) => comments.push(body),
+        },
+      },
+    },
+    context: {
+      repo: { owner: 'oleg-koval', repo: 'veto' },
+      payload: {
+        pull_request: {
+          number: 62,
+          user: { login: 'new-user' },
+          head: { ref: 'feature/example', repo: { full_name: 'oleg-koval/veto' } },
+          base: { repo: { full_name: 'oleg-koval/veto' } },
+          body: 'Closes #60',
+        },
+      },
+    },
+    core: {
+      notice: () => {},
+      setFailed: (message) => failures.push(message),
+      warning: () => {},
+    },
+    policyPath: path.join(__dirname, '..', 'contributor-policy.json'),
+  });
+  assert.match(failures[0], /Linked reference #60 is a pull request/);
+  assert.match(comments[0], /link a GitHub issue with acceptance criteria/);
+});
+
+test('trusts PAT-owned Release Please branches without trusting ordinary maintainer branches', () => {
+  const policy = {
+    settings: {
+      trusted_automation: [{
+        login: 'oleg-koval',
+        head_prefix: 'release-please--branches--main--components--',
+        same_repository: true,
+      }],
+    },
+  };
+  const repository = { full_name: 'oleg-koval/veto' };
+  const releasePleasePR = {
+    user: { login: 'oleg-koval' },
+    head: { ref: 'release-please--branches--main--components--veto', repo: repository },
+    base: { repo: repository },
+  };
+  const ordinaryPR = {
+    ...releasePleasePR,
+    head: { ...releasePleasePR.head, ref: 'feature/release-please-lookalike' },
+  };
+  assert.ok(governance.trustedAutomationEntry(policy, releasePleasePR));
+  assert.equal(governance.trustedAutomationEntry(policy, ordinaryPR), undefined);
+});
+
 test('requires acceptance criteria and non-empty mapped evidence', () => {
   const issue = '### Acceptance criteria\n- [ ] Tests pass\n- [ ] Docs explain the change\n\n### Scope\nCLI';
   const criteria = governance.extractAcceptanceCriteria(issue);

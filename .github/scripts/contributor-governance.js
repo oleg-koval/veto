@@ -73,6 +73,10 @@ function extractIssueReferences(body, owner, repo) {
   return { numbers: [...(closingReferences.size ? closingReferences : references)], malformed };
 }
 
+function isPullRequestReference(resource) {
+  return Boolean(resource && resource.pull_request && typeof resource.pull_request === 'object');
+}
+
 function extractAcceptanceCriteria(body) {
   const text = String(body || '');
   const header = /^#{1,6}\s+acceptance criteria\s*$/im.exec(text);
@@ -181,8 +185,12 @@ async function run({ github, context, core, policyPath }) {
   if (!failure) {
     try {
       const issue = await github.rest.issues.get({ owner, repo, issue_number: issueNumber });
-      criteria = extractAcceptanceCriteria(issue.data.body);
-      if (criteria.length === 0) failure = `Linked issue #${issueNumber} has no non-empty acceptance criteria checklist.`;
+      if (isPullRequestReference(issue.data)) {
+        failure = `Linked reference #${issueNumber} is a pull request; link a GitHub issue with acceptance criteria.`;
+      } else {
+        criteria = extractAcceptanceCriteria(issue.data.body);
+        if (criteria.length === 0) failure = `Linked issue #${issueNumber} has no non-empty acceptance criteria checklist.`;
+      }
     } catch (error) {
       failure = `The linked issue could not be read; this check fails closed (${error.status || 'GitHub API error'}).`;
     }
@@ -223,6 +231,7 @@ module.exports = {
   classifyContributor,
   trustedAutomationEntry,
   extractIssueReferences,
+  isPullRequestReference,
   extractAcceptanceCriteria,
   validateAcceptanceEvidence,
   lookupReputation,
