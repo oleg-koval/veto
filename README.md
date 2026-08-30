@@ -180,6 +180,14 @@ For Anthropic, veto asks whether you use a **subscription** (Claude Max / Pro) o
 
 For subscription mode, veto verifies the `claude` CLI is present and saves a `CLAUDE_SUBSCRIPTION=true` marker. For API key mode, it opens the keys page in your browser and stores the key (masked input) at `~/.veto/credentials.json` (mode 0600).
 
+For OpenRouter, `veto login` recommends browser authorization. Veto binds an
+ephemeral `127.0.0.1` callback, uses S256 PKCE plus an unguessable callback-path
+nonce, exchanges the one-time code, and stores only the returned API key. The
+flow times out after two minutes and can be cancelled safely. Manual API-key
+paste remains available as option 2. `veto logout OPENROUTER_API_KEY` removes
+only Veto's stored credential; it does not alter other keys in your OpenRouter
+account.
+
 For local / self-hosted models, choose option 5. veto guides you through three paths:
 
 - **Ollama** — veto checks if Ollama is installed, lets you pick a model from a curated list (Qwen 2.5 Coder, Llama 3.2, Mistral), pulls it, and registers the model automatically. At inference time, if `ollama serve` isn't running, veto starts it in the background and waits up to 5s for it to become ready — no manual server management needed. Install Ollama from its official distribution instructions; veto does not execute a remote install script.
@@ -515,6 +523,30 @@ If no model accepts, the command exits non-zero and emits:
 
 **Per-model disable/enable** — `veto disable haiku gpt-4.1` excludes those models from all future routing without removing their credentials. `veto enable haiku` brings them back. Disabled model names are stored in `~/.veto/config.json` under `"disabled_models"` — edit the file directly for bulk changes.
 
+**Local model preferences** — optional routing policy in `~/.veto/config.json`
+filters the full catalog before admission. Pins are exclusive, favorites are
+promoted after normal scoring, allowlists constrain eligibility, and
+disable/exclude always win:
+
+```json
+{
+  "routing": {
+    "pinned_models": [],
+    "pinned_providers": [],
+    "favorite_models": ["openai/gpt-4.1-mini"],
+    "favorite_providers": ["openrouter"],
+    "allowed_models": [],
+    "allowed_providers": [],
+    "excluded_models": [],
+    "excluded_providers": ["example-provider"]
+  }
+}
+```
+
+Model entries accept either the Veto routing name or provider-facing model ID.
+Every route makes at most three admission calls, including failed transports;
+checkpoint resume continues with untried candidates in a later invocation.
+
 **7-day event ledger** — routing, execution, artifact, and review lifecycle
 events are logged as versioned JSON lines to
 `~/.veto/logs/veto-YYYY-MM-DD.log`. The ledger omits objectives, prompts, and
@@ -528,16 +560,16 @@ automatically. See [the event schema](docs/event-ledger.md).
 | Anthropic (subscription) | `haiku`, `sonnet`, `opus` | `CLAUDE_SUBSCRIPTION=true` + `claude` CLI logged in |
 | Anthropic (API key) | `haiku`, `sonnet`, `opus` | `ANTHROPIC_API_KEY` |
 | OpenAI | `gpt-4.1`, `gpt-4.1-mini`, `sol`, `terra`, `luna` | `OPENAI_API_KEY` |
-| OpenRouter | `meta-llama/llama-4-maverick` (1 currently routable model) | `OPENROUTER_API_KEY` |
+| OpenRouter | built-in fallback plus the validated dynamic catalog | `veto login` browser OAuth or `OPENROUTER_API_KEY` |
 | xAI (Grok) | `grok-4.5`, `grok-4.3`, `grok-3`, `grok-3-mini` | `XAI_API_KEY` |
 | Local / self-hosted | any name you choose | `veto login` → option 5 (guided Ollama install, LM Studio, or manual) |
 
 Subscription mode takes precedence over API key when both are configured. Claude subscription mode uses the `claude` CLI and is the only current transport with executable tools (`bash`, `read`, `write`, and `edit`). Anthropic/OpenAI/OpenRouter APIs and local OpenAI-compatible servers are text-only through veto, even when the underlying model advertises function calling; they cannot inspect or modify your files. Local inference has $0 provider billing, but still consumes your machine's resources. `veto providers` shows which mode is active and lists all local models.
 
-OpenRouter itself offers a much larger catalog. Veto can fetch and safely cache
-that metadata, but this version still registers only the model listed above for
-routing; catalog-wide shortlist policy is not active yet. See the
-[catalog cache contract](docs/openrouter-catalog.md).
+Veto fetches and safely caches OpenRouter's larger catalog, filters it locally,
+and sends admission requests to at most three candidates. Models with unknown
+price or context are not treated as free or unlimited, and unknown quality tier
+is not invented. See the [catalog cache contract](docs/openrouter-catalog.md).
 
 **Ollama models curated for routing:**
 

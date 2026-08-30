@@ -2,11 +2,13 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/oleg-koval/veto/pkg/router"
 	"golang.org/x/term"
@@ -100,8 +102,51 @@ func cmdLogin() {
 			return
 		}
 	}
+	if p.provider == "openrouter" {
+		loginOpenRouter(p)
+		return
+	}
 
 	loginAPIKey(p)
+}
+
+func loginOpenRouter(provider providerInfo) {
+	fmt.Println()
+	fmt.Println("  How do you want to connect OpenRouter?")
+	fmt.Println()
+	fmt.Println("  1  Browser login  — recommended, creates a user-controlled key")
+	fmt.Println("  2  API key        — paste an existing key manually")
+	fmt.Println()
+	fmt.Print("  Mode [1-2]: ")
+	var mode int
+	if _, err := fmt.Scan(&mode); err != nil || mode < 1 || mode > 2 {
+		fmt.Fprintln(os.Stderr, "\n  That doesn't look right. Please enter 1 or 2.")
+		os.Exit(1)
+	}
+	if mode == 2 {
+		loginAPIKey(provider)
+		return
+	}
+
+	fmt.Println()
+	fmt.Println("  Opening OpenRouter authorization in your browser...")
+	fmt.Println("  Waiting for the secure localhost callback (Ctrl+C to cancel).")
+	ctx, cancel := context.WithTimeout(context.Background(), openRouterOAuthWait+5*time.Second)
+	defer cancel()
+	key, err := authorizeOpenRouter(ctx, defaultOpenRouterOAuthDeps())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "\n  OpenRouter login failed: %v\n", err)
+		fmt.Fprintln(os.Stderr, "  Run 'veto login' again and choose API key for manual setup.")
+		os.Exit(1)
+	}
+	if err := saveCredential(provider.envKey, key); err != nil {
+		fmt.Fprintf(os.Stderr, "\n  Couldn't save the OpenRouter key: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println()
+	fmt.Println("  OpenRouter is connected!")
+	fmt.Println("  Run 'veto providers' to confirm the cached catalog.")
+	fmt.Println()
 }
 
 // localModelOption describes a popular local model server veto can install for the user.

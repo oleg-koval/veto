@@ -11,10 +11,10 @@ func HardFilter(task TaskSpec, models []ModelCapabilities) []ModelCapabilities {
 		if !hasRequiredTools(m, task.RequiredTools) {
 			continue
 		}
-		if task.MaxTokens > 0 && m.MaxContextTokens < task.MaxTokens {
+		if task.MaxTokens > 0 && (!contextKnown(m) || m.MaxContextTokens < task.MaxTokens) {
 			continue
 		}
-		if task.MaxCostUSD > 0 && estimatedCost(m, task) > task.MaxCostUSD {
+		if task.MaxCostUSD > 0 && (!costKnown(m) || estimatedCost(m, task) > task.MaxCostUSD) {
 			continue
 		}
 		if !tierMeetsComplexity(m.Tier, task.Complexity) {
@@ -50,6 +50,14 @@ func estimatedCost(m ModelCapabilities, task TaskSpec) float64 {
 	return (inputTokens/1000)*m.CostPer1kInputUSD + (outputTokens/1000)*m.CostPer1kOutputUSD
 }
 
+func contextKnown(m ModelCapabilities) bool {
+	return m.MaxContextTokens > 0
+}
+
+func costKnown(m ModelCapabilities) bool {
+	return !m.CostPer1kInputUnknown && !m.CostPer1kOutputUnknown
+}
+
 // isWeakKind returns true when the task kind is listed as a model weakness.
 func isWeakKind(m ModelCapabilities, kind TaskKind) bool {
 	return slices.Contains(m.Weaknesses, kind)
@@ -67,10 +75,10 @@ func FilterReason(m ModelCapabilities, task TaskSpec) string {
 	if !hasRequiredTools(m, task.RequiredTools) {
 		return ReasonMissingTool
 	}
-	if task.MaxTokens > 0 && m.MaxContextTokens < task.MaxTokens {
+	if task.MaxTokens > 0 && (!contextKnown(m) || m.MaxContextTokens < task.MaxTokens) {
 		return ReasonContextTooLarge
 	}
-	if task.MaxCostUSD > 0 && estimatedCost(m, task) > task.MaxCostUSD {
+	if task.MaxCostUSD > 0 && (!costKnown(m) || estimatedCost(m, task) > task.MaxCostUSD) {
 		return ReasonCostCeiling
 	}
 	if !tierMeetsComplexity(m.Tier, task.Complexity) {

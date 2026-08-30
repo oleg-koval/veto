@@ -41,6 +41,7 @@ const (
 	ReasonComplexityCeiling = "COMPLEXITY_TOO_HIGH"
 	ReasonWeakKind          = "TASK_KIND_OUTSIDE_STRENGTHS"
 	ReasonRiskTooHigh       = "RISK_TOO_HIGH"
+	ReasonPolicyExcluded    = "USER_POLICY_EXCLUDED"
 	ReasonParseFailure      = "PARSE_FAILURE"
 	ReasonLowConfidence     = "LOW_CONFIDENCE"
 )
@@ -64,18 +65,23 @@ type TaskSpec struct {
 
 // ModelCapabilities describes what a model can and cannot handle.
 type ModelCapabilities struct {
-	Name               string
-	Source             string
-	Provider           string
-	APIModel           string
-	Runtime            string
-	Tier               string // "small" | "mid" | "large"
-	MaxContextTokens   int
-	SupportsTools      []string
-	CostPer1kInputUSD  float64
-	CostPer1kOutputUSD float64
-	Strengths          []TaskKind
-	Weaknesses         []TaskKind
+	Name                   string
+	Source                 string
+	Provider               string
+	APIModel               string
+	Runtime                string
+	Tier                   string   // "small" | "mid" | "large"; empty = unknown
+	MaxContextTokens       int      // 0 = unknown
+	SupportsTools          []string // nil = unknown; empty = known unsupported
+	InputModalities        []string // nil = unknown; empty = known unsupported
+	OutputModalities       []string // nil = unknown; empty = known unsupported
+	SupportedParameters    []string // nil = unknown; empty = known unsupported
+	CostPer1kInputUSD      float64
+	CostPer1kOutputUSD     float64
+	CostPer1kInputUnknown  bool // preserves unknown separately from a known zero price
+	CostPer1kOutputUnknown bool // preserves unknown separately from a known zero price
+	Strengths              []TaskKind
+	Weaknesses             []TaskKind
 }
 
 // ModelIdentity identifies a routable model independently from its display

@@ -46,6 +46,10 @@ A valid stale cache remains usable when refresh fails. An invalid response or
 failed write never replaces a known-good cache. `veto doctor` validates cache
 shape and schema without contacting OpenRouter.
 
-Catalog discovery does not yet make every discovered model routable. The
-current provider registry retains its explicit model list until shortlist and
-selection policy are added.
+Validated available models join the OpenRouter registry when that provider is
+configured. Veto applies local pins, favorites, allowlists, disables, and
+exclusions before admission, then makes at most three admission calls per run.
+Unknown price and context stay distinct from zero and do not satisfy an
+explicit cost or context ceiling. Because the catalog does not publish Veto's
+quality tier, dynamic entries keep an unknown tier instead of inventing one;
+the curated fallback remains available for moderate and complex tasks.

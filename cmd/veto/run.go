@@ -68,6 +68,7 @@ func cmdRun(args []string) {
 	gate := router.NewAdmissionGateWithFactory(reg)
 	store := router.NewFileStore(historyPath())
 	mgr := router.NewManager(modelReg, gate, store)
+	mgr.SetCandidatePreferences(loadCandidatePreferences())
 
 	render := NewRenderer(*quiet)
 	render.PrintTaskHeader(objective, kind, *risk, string(complexity), *maxCost, kindInferred)
@@ -343,6 +344,7 @@ func prepareRouting() (*providerRegistry, *router.Manager, *router.FileStore, er
 	gate := router.NewAdmissionGateWithFactory(reg)
 	store := router.NewFileStore(historyPath())
 	mgr := router.NewManager(modelReg, gate, store)
+	mgr.SetCandidatePreferences(loadCandidatePreferences())
 	return reg, mgr, store, nil
 }
 

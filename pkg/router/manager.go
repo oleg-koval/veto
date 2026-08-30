@@ -9,20 +9,26 @@ import (
 // Manager orchestrates hard-filtering, scoring, and admission gating.
 // Route returns the first candidate that passes the admission gate.
 type Manager struct {
-	registry   *Registry
-	gate       *AdmissionGate
-	store      Store
-	maxRetries int                 // ponytail: simple cap, no backoff — add if needed
-	OnEvent    func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
+	registry      *Registry
+	gate          *AdmissionGate
+	store         Store
+	maxAdmissions int
+	preferences   CandidatePreferences
+	OnEvent       func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
 }
 
-// NewManager creates a Manager with a default maxRetries of 3.
+// SetCandidatePreferences applies user-owned local filtering and ordering.
+func (m *Manager) SetCandidatePreferences(preferences CandidatePreferences) {
+	m.preferences = preferences
+}
+
+// NewManager creates a Manager with a three-call admission budget.
 func NewManager(registry *Registry, gate *AdmissionGate, store Store) *Manager {
 	return &Manager{
-		registry:   registry,
-		gate:       gate,
-		store:      store,
-		maxRetries: 3,
+		registry:      registry,
+		gate:          gate,
+		store:         store,
+		maxAdmissions: 3,
 	}
 }
 
@@ -36,9 +42,10 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 	}
 
 	all := m.registry.All()
+	eligible := m.preferences.Filter(all)
 	// Store history is the routing signal source. This is deliberately kept
 	// separate from the static registry so persisted outcomes affect later runs.
-	ranked := RankCandidates(task, all, m.store)
+	ranked := m.preferences.Prioritize(RankCandidates(task, eligible, m.store))
 
 	// emit per-model filter events so the CLI can show what was pruned and why
 	passSet := make(map[string]bool, len(ranked))
@@ -49,8 +56,12 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 		if passSet[c.Name] {
 			m.emit(ProgressEvent{Kind: EventFilterPass, Model: c.Name})
 		} else {
+			reason := FilterReason(c, task)
+			if reason == "" {
+				reason = ReasonPolicyExcluded
+			}
 			m.emit(ProgressEvent{Kind: EventFilterFail, Model: c.Name,
-				Reasons: []string{FilterReason(c, task)}})
+				Reasons: []string{reason}})
 		}
 	}
 
@@ -64,21 +75,21 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 		skipSet[name] = true
 	}
 
-	// When resuming, try all remaining candidates. Fresh runs cap completed
-	// admission decisions, but transport failures do not consume that budget;
-	// a broken provider must not prevent fallback to a healthy candidate.
-	decisions := 0
+	// Every admission call consumes the per-run budget, including transport
+	// failures. Resume can continue with untried candidates in a later run.
+	attempts := 0
 	for _, model := range ranked {
 		if skipSet[model.Name] {
 			continue
 		}
-		if len(task.SkipModels) == 0 && decisions >= m.maxRetries {
+		if attempts >= m.maxAdmissions {
 			break
 		}
 		if ctx.Err() != nil {
 			return ModelCapabilities{}, AdmissionDecision{}, fmt.Errorf("routing: %w", ctx.Err())
 		}
 		m.emit(ProgressEvent{Kind: EventAskStart, Model: model.Name})
+		attempts++
 
 		decision, err := m.gate.Ask(ctx, task, model)
 		if err != nil {
@@ -94,7 +105,6 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 				Detail: err.Error()})
 			continue
 		}
-		decisions++
 		m.logDecision(task.ID, model.Name, task.Kind, decision)
 		if decision.Accept {
 			m.emit(ProgressEvent{

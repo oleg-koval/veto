@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func neutralSignal() RoutingSignal {
@@ -78,4 +79,15 @@ func TestRankCandidates_EmptyAfterFilter(t *testing.T) {
 	task := TaskSpec{RequiredTools: []string{"quantum-computer"}}
 	ranked := RankCandidates(task, reg.All(), reg)
 	assert.Nil(t, ranked)
+}
+
+func TestRankCandidatesBreaksEqualScoresByStableModelName(t *testing.T) {
+	models := []ModelCapabilities{
+		{Name: "z", Tier: tierSmall, MaxContextTokens: 1000},
+		{Name: "a", Tier: tierSmall, MaxContextTokens: 1000},
+	}
+	ranked := RankCandidates(TaskSpec{Kind: KindSummarize}, models, NewRegistryFromModels(models))
+	require.Len(t, ranked, 2)
+	assert.Equal(t, "a", ranked[0].Name)
+	assert.Equal(t, "z", ranked[1].Name)
 }
