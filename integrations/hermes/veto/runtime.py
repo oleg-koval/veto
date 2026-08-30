@@ -438,12 +438,22 @@ class VetoRuntime:
         value, error = self._command_value(self.status({}, **context))
         if error:
             return error
-        preference = "on" if value.get("automatic_routing_preference") else "off"
+        session_preference = value.get("session_preference")
+        if isinstance(session_preference, dict) and session_preference.get("disabled"):
+            preference = "off"
+        else:
+            preference = "on" if value.get("automatic_routing_preference") else "off"
+        pinned = (
+            session_preference.get("provider")
+            if isinstance(session_preference, dict)
+            else None
+        )
+        pin_text = f"; provider pin {pinned}" if pinned else ""
         return (
             f"Veto {self._display(value.get('version', 'unknown'))} is ready "
             f"(plugin API {value.get('api_version', 'unknown')}). "
             f"Automatic routing is {'active' if value.get('automatic_routing') else 'inactive'}; "
-            f"the session preference is {preference}."
+            f"the session preference is {preference}{pin_text}."
         )
 
     def command_models(self, raw_args: str) -> str:
