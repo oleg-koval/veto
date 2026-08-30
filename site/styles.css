@@ -218,6 +218,7 @@ body.js-ready .route-demo[data-route-stage="5"] .route-stage--execution strong {
 .notice a { color: var(--cyan); }
 
 footer { display: flex; justify-content: space-between; gap: 24px; padding: 34px 0 48px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+footer > span > a { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; }
 footer nav { display: flex; flex-wrap: wrap; gap: 18px; }
 footer nav a { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
 footer a:hover, footer a:focus-visible { color: var(--cyan); }
