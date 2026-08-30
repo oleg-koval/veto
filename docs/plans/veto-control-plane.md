@@ -2,8 +2,8 @@
 
 ## Status
 
-Draft for owner approval. Core implementation must not begin until the three
-decision gates below are confirmed.
+Approved by the owner on 2026-08-30. Implementation proceeds incrementally,
+one focused, verified pull request at a time.
 
 This plan supersedes the narrower interpretation that OpenCode support means
 only Agent Skill discovery. Skill discovery remains useful, but this plan adds
@@ -36,7 +36,7 @@ at non-technical consumers or unattended production automation.
 
 ### Gate 1: Automatic agent routing
 
-**Recommended:** Veto routes each new user turn in Hermes and OpenCode by
+**Approved:** Veto routes each new user turn in Hermes and OpenCode by
 default, with a visible per-session off switch. Internal tool continuations,
 review calls, and Veto's own admission calls must bypass automatic routing.
 
@@ -44,7 +44,7 @@ Alternative: require explicit `/veto` or a Veto tool call for every route.
 
 ### Gate 2: Interface delivery order
 
-**Recommended:** ship the cross-platform TUI first, then reuse the same local
+**Approved:** ship the cross-platform TUI first, then reuse the same local
 control API and event schema for a browser UI. Do not build both presentation
 layers simultaneously.
 
@@ -53,7 +53,7 @@ the core interaction model.
 
 ### Gate 3: Browser ownership
 
-**Recommended:** Veto routes browser work to OpenCode, Hermes, Claude CLI, or a
+**Approved:** Veto routes browser work to OpenCode, Hermes, Claude CLI, or a
 future runtime adapter that exposes an approved browser capability. Veto does
 not embed its own Playwright/browser engine in the first version.
 
