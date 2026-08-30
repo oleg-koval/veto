@@ -22,7 +22,7 @@ func TestAuthorizeOpenRouterPKCESucceeds(t *testing.T) {
 	exchange := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		var payload map[string]string
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
 		assert.Equal(t, "test-code", payload["code"])
 		assert.Equal(t, "S256", payload["code_challenge_method"])
 		assert.NotEmpty(t, payload["code_verifier"])

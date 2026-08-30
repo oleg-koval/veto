@@ -75,7 +75,7 @@ func authorizeOpenRouter(ctx context.Context, deps openRouterOAuthDeps) (string,
 	challenge := base64.RawURLEncoding.EncodeToString(challengeBytes[:])
 
 	auth, err := url.Parse(deps.authURL)
-	if err != nil || auth.Scheme != "https" || auth.Host == "" {
+	if err != nil || auth.Scheme != "https" || auth.Host == "" || auth.User != nil || auth.Fragment != "" {
 		return "", errors.New("OpenRouter authorization endpoint must use HTTPS")
 	}
 	query := auth.Query()

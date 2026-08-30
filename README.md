@@ -184,7 +184,9 @@ For OpenRouter, `veto login` recommends browser authorization. Veto binds an
 ephemeral `127.0.0.1` callback, uses S256 PKCE plus an unguessable callback-path
 nonce, exchanges the one-time code, and stores only the returned API key. The
 flow times out after two minutes and can be cancelled safely. Manual API-key
-paste remains available as option 2.
+paste remains available as option 2. `veto logout OPENROUTER_API_KEY` removes
+only Veto's stored credential; it does not alter other keys in your OpenRouter
+account.
 
 For local / self-hosted models, choose option 5. veto guides you through three paths:
 
