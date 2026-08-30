@@ -194,6 +194,18 @@ unknown metadata preserved explicitly. Local preferences filter the catalog,
 normal hard filters and scoring rank it, and only three candidates can reach
 paid admission.
 
+`pkg/opencode` implements OpenCode runtime discovery independently from model
+routing. Attach mode accepts only explicit HTTP loopback URLs, rejects
+redirects, and reads health plus connected provider/model metadata through the
+documented `/provider` API with `/config/providers` compatibility fallback.
+CLI mode executes the exact `opencode` binary returned by `PATH`, validates its
+semantic version, and parses bounded `provider/model` output without a shell.
+Managed mode launches `opencode serve` on an explicit loopback host/port with a
+random process-local Basic Auth password and exposes an owned process lifecycle.
+The adapter never scans ports or reads OpenCode configuration or credential
+stores. This discovery contract remains separate from the session execution
+adapter added in the next slice.
+
 **Per-model disable/enable** — `buildProviderRegistry` calls `loadDisabledModels()` which reads `~/.veto/config.json` under the `"disabled_models"` key. Any model name found there is silently skipped when registering executors — it is invisible to the router and never appears as a candidate. `veto disable <model...>` adds names to this list; `veto enable <model...>` removes them. Both commands persist changes back to `config.json` and take effect on the next invocation.
 
 The optional `routing` section in `config.json` adds pinned/favorite/allowed
@@ -444,7 +456,13 @@ pass. See [ADR-004](decisions/ADR-004-automated-releases-and-consented-updates.m
 
 Local model definitions are stored separately in `~/.veto/models.json` (mode 0600, JSON array of `LocalModel`). `saveLocalModel` replaces by name if the name already exists. `veto logout` removes entries from either file: API keys via `removeCredential`, local models via `removeLocalModel`. Both interactive (menu) and non-interactive (`veto logout <name>`) modes are supported.
 
-`loginLocalModel` (option 4) runs in a loop: after each model is registered, it asks "Add another local model? [y/N]", allowing multiple local models to be registered in a single `veto login` invocation.
+OpenCode connection metadata is stored in the `opencode` section of
+`~/.veto/config.json` as a mode and optional loopback URL. It contains no
+OpenCode provider credentials. Environment-supplied OpenCode server Basic Auth
+can protect an attached endpoint but is never copied into this section.
+Disconnect deletes only this section.
+
+`loginLocalModel` (option 5) runs in a loop: after each model is registered, it asks "Add another local model? [y/N]", allowing multiple local models to be registered in a single `veto login` invocation. Option 6 connects OpenCode runtime discovery.
 
 ## Logging
 

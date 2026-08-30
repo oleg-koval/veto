@@ -64,17 +64,24 @@ func cmdLogin() {
 	fmt.Printf("  3  OpenRouter          — API key (%s)\n", catalogModelDescription("openrouter"))
 	fmt.Println("  4  xAI (Grok)          — API key (Grok 4.5 / 4.3 / 3 family)")
 	fmt.Println("  5  Local / self-hosted — Ollama, LM Studio, vLLM, llama.cpp")
+	fmt.Println("  6  OpenCode runtime    — reuse models already connected in OpenCode")
 	fmt.Println()
-	fmt.Print("  Provider [1-5]: ")
+	fmt.Print("  Provider [1-6]: ")
 
 	var choice int
-	maxChoice := len(knownProviders) + 1
+	localChoice := len(knownProviders) + 1
+	openCodeChoice := len(knownProviders) + 2
+	maxChoice := openCodeChoice
 	if _, err := fmt.Scan(&choice); err != nil || choice < 1 || choice > maxChoice {
 		fmt.Fprintf(os.Stderr, "\n  That doesn't look right. Please enter 1-%d.\n", maxChoice)
 		os.Exit(1)
 	}
 
-	if choice == len(knownProviders)+1 {
+	if choice == openCodeChoice {
+		cmdOpenCode([]string{"connect"})
+		return
+	}
+	if choice == localChoice {
 		loginLocalModel()
 		return
 	}
