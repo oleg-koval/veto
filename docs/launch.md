@@ -1,6 +1,6 @@
 # Veto launch playbook
 
-Status: v0.1.0 public beta. Release mechanics and offline routing behavior are
+Status: v0.6.3 public beta. Release mechanics and offline routing behavior are
 verified independently from provider access, calibration, and multi-user
 onboarding, which remain post-release beta validation in
 [release-readiness.md](release-readiness.md).
@@ -22,8 +22,8 @@ gateway by making admission explicit and machine-readable.
 - Keep a clearly labeled example routing trace and a three-command quickstart in
   the first screen; replace the example with a redacted real-provider recording
   before launch.
-- Make checksummed release archives the recommended install path; retain
-  `go install` as a supported source-build path.
+- Make the checksummed release archive and Homebrew install paths primary;
+  retain `go install` as a supported source-build path.
 - Link the architecture, release gates, launch plan, license, and contribution
   expectations from the README.
 - After owner approval, add GitHub topics such as `ai`, `llm`, `model-router`,
@@ -41,9 +41,10 @@ Veto is an open-source Go CLI for developers using more than one AI provider.
 It filters models that cannot meet a task's constraints, ranks viable candidates
 with a cost bias, and asks each candidate for a structured accept/reject decision
 before execution. Use the terminal UI interactively or `--json` in scripts and
-agent infrastructure. The project is a beta: routing and release mechanics have
-offline test coverage, while real-provider quality and savings claims remain
-deliberately ungrounded until user trials and calibration are complete.
+agent infrastructure. The project is a public beta: routing and release
+mechanics have offline test coverage, while real-provider quality and savings
+claims remain deliberately ungrounded until user trials and calibration are
+complete.
 
 ### Social variants
 
@@ -165,17 +166,18 @@ successful routes into one vanity metric.
   immediately before launch.
 - API and local OpenAI-compatible transports are text-only through Veto. Only the
   current Claude CLI transport exposes executable tools.
-- v0.1.0 is a beta, not a production-readiness claim. Archive and binary
+- v0.6.3 is a beta, not a production-readiness claim. Archive and binary
   checksums detect corruption and release mismatch but are not signatures.
 - Launch preparation improves comprehension and distribution; it does not
   guarantee virality, adoption, savings, or routing quality.
 
 ## Next actions
 
-The `v0.1.0` beta was published and its six archives, `SHA256SUMS`,
-`BINARY_SHA256SUMS`, native official binary, online doctor result, and tagged
-Go installation were verified on 2026-08-29. The Homebrew formula was
-backfilled and its install and version test were verified the same day.
+The `v0.6.3` beta was published with eight archives, `SHA256SUMS`,
+`BINARY_SHA256SUMS`, native official binaries, and tagged Go installation
+support. The release workflow, checksums, and Homebrew formula update were
+verified on 2026-08-31. Provider access, calibration, and fresh-user onboarding
+remain owner-gated beta validation.
 
 1. Complete provider-account verification and review current model IDs and
    pricing without committing raw account inventories.
@@ -186,5 +188,5 @@ backfilled and its install and version test were verified the same day.
 4. Capture one clean terminal recording from install through `veto doctor` and
    the first JSON route;
    redact task text, usernames, paths, keys, and provider account data.
-5. Set repository topics, publish the
-   channel-native copy, and reserve time to answer feedback on launch day.
+5. Keep the README release instructions current, set repository topics, publish
+   the channel-native copy, and reserve time to answer feedback on launch day.
