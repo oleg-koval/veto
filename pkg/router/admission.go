@@ -6,19 +6,19 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/oleg-koval/veto/pkg/execution"
 )
 
 const admissionModelTimeout = 20 * time.Second
 
 //go:generate moq -out mocks/executor.go -pkg mocks -skip-ensure -fmt goimports . Executor
 
-// AdmissionResult is the small result needed by the admission boundary.
-// Runtime-specific execution telemetry stays in the execution contract and
-// concrete adapter packages.
-type AdmissionResult struct {
-	Output string
-	Error  error
-}
+// AdmissionResult is the result returned by the admission boundary. It remains
+// an alias of the stable execution result so existing executors whose Run
+// method returns executor.Result continue to satisfy Executor. Admission uses
+// only Output and Error; full-task telemetry remains an execution concern.
+type AdmissionResult = execution.Result
 
 // ToolCapabilities describes the tools available to an admission probe.
 // Known distinguishes a known empty list from a runtime that has not yet

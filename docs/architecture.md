@@ -173,18 +173,18 @@ On the next run with the same task spec, veto loads the checkpoint, skips alread
 
 Each provider has a concrete transport in `pkg/executor/`. Stable full-task
 runtime ports and result DTOs live in `pkg/execution/`. The admission
-`ExecutorFactory` interface and its narrow result/tool contracts live in
-`pkg/router/`; the composition root adapts concrete runtimes to that port.
+`ExecutorFactory` interface and tool-capability DTO live in `pkg/router/`;
+`router.AdmissionResult` aliases the stable execution result for public source
+compatibility. The composition root adapts concrete runtimes to the admission
+port without exposing provider transports to the router.
 
 ```
-pkg/router/admission.go   admission ports and DTOs
-                              ↑
-cmd/veto/main.go          providerRegistry + admission adapter
-                              ↓
-pkg/execution/            full-task runtime ports and DTOs
-                              ↑
-pkg/executor/             AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor, CLIExecutor,
-                          CodexCLIExecutor, OpenAICompatibleExecutor (local/self-hosted)
+cmd/veto/main.go ───────▶ pkg/router/admission.go ───────▶ pkg/execution/
+       │                  admission ports + tool DTO       stable result +
+       │                                                   full-task ports
+       │                                                         ▲
+       └────────────────▶ pkg/executor/ ──────────────────────────┘
+                          concrete provider transports
 ```
 
 `providerRegistry` exposes two views of the model set: `For(name)` (executor lookup, used by admission and execution) and `modelCaps()` (capability slice, used to build the `router.Registry`). `modelCaps()` intersects catalog metadata with the active transport's effective tools before hard filtering. This allows local models added via `veto login` to participate in scoring and filtering alongside built-ins without claiming capabilities their transport cannot provide.

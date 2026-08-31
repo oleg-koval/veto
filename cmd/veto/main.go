@@ -683,8 +683,7 @@ var (
 )
 
 func (a admissionExecutorAdapter) Run(ctx context.Context, prompt string) router.AdmissionResult {
-	result := a.runtime.Run(ctx, prompt)
-	return router.AdmissionResult{Output: result.Output, Error: result.Error}
+	return a.runtime.Run(ctx, prompt)
 }
 
 func (a admissionExecutorAdapter) AdmissionTools() router.ToolCapabilities {
