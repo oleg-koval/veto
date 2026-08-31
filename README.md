@@ -461,6 +461,8 @@ stop condition, authorization, and validation.
 | `veto verify-models` | Verify catalog IDs against one provider account |
 | `veto doctor` | Diagnose installation and local-state integrity; optionally repair safe problems |
 | `veto feedback` | Save a redacted report and prepare a GitHub issue |
+| `veto analytics status` | Show local diagnostics and future remote-sharing preference |
+| `veto analytics enable\|disable` | Set the explicit preference for any future remote analytics export |
 | `veto opencode <connect\|status\|disconnect>` | Manage an OpenCode runtime connection without copying credentials |
 | `veto opencode plugin <install\|status\|uninstall>` | Manage automatic routing, commands, and tools inside OpenCode |
 | `veto hermes plugin <install\|status\|uninstall>` | Manage the explicit native Hermes plugin without changing Hermes provider settings |
@@ -707,13 +709,33 @@ is not invented. See the [catalog cache contract](docs/openrouter-catalog.md).
 ~/.veto/
   credentials.json                      # stored API keys and subscription marker (0600)
   models.json                           # local / self-hosted model definitions (0600)
-  config.json                           # settings: on_failure, post_run_feedback, skills approval, disabled_models
+  config.json                           # settings: routing, feedback, skills, disabled models, analytics preference
   feedback/<timestamp>-<slug>.json      # redacted local feedback reports (0600)
   skills/<kind>.md                      # cached skill snippets (auto-generated, editable)
   checkpoints/<hash>.json               # resume state for interrupted routing
   plans/<timestamp>-<slug>-converted.md # auto-converted plan files
   logs/veto-YYYY-MM-DD.log              # JSON-line routing history (7-day rolling)
 ```
+
+### Analytics and privacy
+
+Veto's diagnostic event ledger is local-only and redacted. It helps inspect
+routing, execution, cost, latency, approvals, and failures without sending
+anything to a Veto server. It excludes prompts, objectives, responses,
+credentials, paths, file contents, terminal history, raw provider events, and
+browser content.
+
+```bash
+veto analytics status
+veto analytics enable   # records opt-in; sends nothing today
+veto analytics disable  # records opt-out
+```
+
+Remote analytics are not implemented. A future transport must publish its
+exact payload, purpose, recipient, retention, deletion process, and network
+metadata policy before it can use the stored opt-in. See
+[`docs/analytics.md`](docs/analytics.md) and the
+[`veto-tui-requirements.md`](docs/plans/veto-tui-requirements.md).
 
 ## Development
 
