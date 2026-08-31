@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oleg-koval/veto/pkg/executor"
-	"github.com/oleg-koval/veto/pkg/router/mocks"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -93,14 +91,14 @@ func TestHardFilter_ComplexityPrunesSmallModels(t *testing.T) {
 
 func TestManager_Route_ComplexTaskRestrictsToLargeTier(t *testing.T) {
 	var asked []string
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, prompt string) executor.Result {
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, prompt string) AdmissionResult {
 			for _, name := range []string{"haiku", "sonnet", "gpt-4.1-mini", "gpt-4.1", "opus", "meta-llama/llama-4-maverick"} {
 				if strings.Contains(prompt, "You are the "+name) {
 					asked = append(asked, name)
 				}
 			}
-			return executor.Result{Output: acceptJSON()}
+			return AdmissionResult{Output: acceptJSON()}
 		},
 	}
 

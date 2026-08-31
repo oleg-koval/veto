@@ -1,9 +1,6 @@
 package router
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"sync"
 )
 
@@ -253,102 +250,4 @@ func (s *MemoryStore) Signal(modelName string, kind TaskKind) RoutingSignal {
 		signal.RecentLatencyMs = st.latencySum / st.latencyCount
 	}
 	return signal
-}
-
-// persistedEvent is the JSON-serializable form of routingEvent.
-// routingEvent has unexported fields; this DTO carries them across save/load.
-type persistedEvent struct {
-	Kind         string   `json:"kind"`
-	TaskID       string   `json:"task_id"`
-	ModelName    string   `json:"model"`
-	TaskKind     TaskKind `json:"task_kind,omitempty"`
-	Accepted     bool     `json:"accepted"`
-	Score        float64  `json:"score,omitempty"`
-	ScoreKnown   *bool    `json:"score_known,omitempty"`
-	Status       string   `json:"status,omitempty"`
-	InputTokens  int      `json:"input_tokens,omitempty"`
-	OutputTokens int      `json:"output_tokens,omitempty"`
-	TotalTokens  int      `json:"total_tokens,omitempty"`
-	UsageKnown   bool     `json:"usage_known,omitempty"`
-	CostUSD      float64  `json:"cost_usd,omitempty"`
-	CostKnown    bool     `json:"cost_known,omitempty"`
-	LatencyMs    int64    `json:"latency_ms,omitempty"`
-	LatencyKnown bool     `json:"latency_known,omitempty"`
-}
-
-// FileStore is a MemoryStore that loads from and saves to a JSON file.
-// This is what makes routing history compound across runs: each session's
-// accept/reject decisions persist and feed the next run's ranking.
-type FileStore struct {
-	*MemoryStore
-	path string
-}
-
-// NewFileStore returns a store backed by path, loading any existing history.
-// A missing or corrupt file yields an empty store — history is best-effort,
-// never a reason to fail a route.
-func NewFileStore(path string) *FileStore {
-	fs := &FileStore{MemoryStore: NewMemoryStore(), path: path}
-	fs.load()
-	return fs
-}
-
-func (s *FileStore) load() {
-	data, err := os.ReadFile(s.path)
-	if err != nil {
-		return
-	}
-	var persisted []persistedEvent
-	if err := json.Unmarshal(data, &persisted); err != nil {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.events = make([]routingEvent, len(persisted))
-	for i, p := range persisted {
-		scoreKnown := p.ScoreKnown != nil && *p.ScoreKnown
-		// Pre-telemetry history implied that a successful result's score was
-		// known. Preserve that behavior when loading legacy files.
-		if p.ScoreKnown == nil && p.Kind == "result" && p.Status == "success" {
-			scoreKnown = true
-		}
-		s.events[i] = routingEvent{
-			kind: p.Kind, taskID: p.TaskID, modelName: p.ModelName,
-			taskKind: p.TaskKind, accepted: p.Accepted, score: p.Score,
-			scoreKnown: scoreKnown, status: p.Status,
-			inputTokens: p.InputTokens, outputTokens: p.OutputTokens,
-			totalTokens: p.TotalTokens, usageKnown: p.UsageKnown,
-			costUSD: p.CostUSD, costKnown: p.CostKnown,
-			latencyMs: p.LatencyMs, latencyKnown: p.LatencyKnown,
-		}
-	}
-	s.rebuildStats()
-}
-
-// Save writes the accumulated history to disk. Call after a route completes.
-func (s *FileStore) Save() error {
-	s.mu.RLock()
-	persisted := make([]persistedEvent, len(s.events))
-	for i, e := range s.events {
-		scoreKnown := e.scoreKnown
-		persisted[i] = persistedEvent{
-			Kind: e.kind, TaskID: e.taskID, ModelName: e.modelName,
-			TaskKind: e.taskKind, Accepted: e.accepted, Score: e.score,
-			ScoreKnown: &scoreKnown, Status: e.status,
-			InputTokens: e.inputTokens, OutputTokens: e.outputTokens,
-			TotalTokens: e.totalTokens, UsageKnown: e.usageKnown,
-			CostUSD: e.costUSD, CostKnown: e.costKnown,
-			LatencyMs: e.latencyMs, LatencyKnown: e.latencyKnown,
-		}
-	}
-	s.mu.RUnlock()
-
-	if err := os.MkdirAll(filepath.Dir(s.path), 0700); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(persisted, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.path, data, 0600)
 }

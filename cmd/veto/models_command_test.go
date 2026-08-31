@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/oleg-koval/veto/pkg/executor"
+	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/oleg-koval/veto/pkg/router"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,7 +17,7 @@ func (unknownToolsTestExecutor) EffectiveToolsKnown() bool { return false }
 
 func TestModelsJSONPreservesUnknownAndKnownZero(t *testing.T) {
 	reg := &providerRegistry{
-		executors: map[string]executor.RuntimeAdapter{
+		executors: map[string]execution.RuntimeAdapter{
 			"free":    textOnlyTestExecutor{},
 			"unknown": unknownToolsTestExecutor{},
 		},

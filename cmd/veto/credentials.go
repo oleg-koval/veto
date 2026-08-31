@@ -67,4 +67,3 @@ func getKey(envKey string, creds credentials) string {
 	}
 	return creds[envKey]
 }
-

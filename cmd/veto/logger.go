@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oleg-koval/veto/pkg/executor"
+	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/oleg-koval/veto/pkg/ledger"
 	"github.com/oleg-koval/veto/pkg/router"
 )
@@ -116,7 +116,7 @@ func logLifecycle(taskID string, eventType ledger.EventType, status, detail stri
 	})
 }
 
-func logRuntimeEvent(taskID string, model router.ModelCapabilities, runtimeEvent executor.RuntimeEvent) {
+func logRuntimeEvent(taskID string, model router.ModelCapabilities, runtimeEvent execution.RuntimeEvent) {
 	if eventLedger == nil || taskID == "" {
 		return
 	}
@@ -141,21 +141,21 @@ func logRuntimeEvent(taskID string, model router.ModelCapabilities, runtimeEvent
 	})
 }
 
-func runtimeLedgerType(kind executor.RuntimeEventKind) (ledger.EventType, bool) {
+func runtimeLedgerType(kind execution.RuntimeEventKind) (ledger.EventType, bool) {
 	switch kind {
-	case executor.RuntimeToolStarted:
+	case execution.RuntimeToolStarted:
 		return ledger.EventToolStarted, true
-	case executor.RuntimeToolCompleted:
+	case execution.RuntimeToolCompleted:
 		return ledger.EventToolCompleted, true
-	case executor.RuntimeToolError:
+	case execution.RuntimeToolError:
 		return ledger.EventToolError, true
-	case executor.RuntimeApprovalRequested:
+	case execution.RuntimeApprovalRequested:
 		return ledger.EventApprovalRequested, true
-	case executor.RuntimeApprovalGranted:
+	case execution.RuntimeApprovalGranted:
 		return ledger.EventApprovalGranted, true
-	case executor.RuntimeApprovalDenied:
+	case execution.RuntimeApprovalDenied:
 		return ledger.EventApprovalDenied, true
-	case executor.RuntimeArtifactCreated:
+	case execution.RuntimeArtifactCreated:
 		return ledger.EventArtifactCreated, true
 	default:
 		return "", false

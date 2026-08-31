@@ -76,7 +76,7 @@ func (e *AnthropicExecutor) Run(ctx context.Context, prompt string) Result {
 
 // Execute sends a full task prompt with an explicit bounded output budget.
 func (e *AnthropicExecutor) Execute(ctx context.Context, prompt string, options ExecutionOptions) Result {
-	return e.run(ctx, prompt, options.maxOutputTokens())
+	return e.run(ctx, prompt, options.EffectiveMaxOutputTokens())
 }
 
 // run sends prompt to the Anthropic Messages API.

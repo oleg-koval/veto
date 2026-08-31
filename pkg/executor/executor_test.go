@@ -15,9 +15,9 @@ import (
 )
 
 func TestExecutionOptions_DefaultIsBounded(t *testing.T) {
-	assert.Equal(t, DefaultExecutionMaxTokens, (ExecutionOptions{}).maxOutputTokens())
-	assert.Equal(t, DefaultExecutionMaxTokens, (ExecutionOptions{MaxOutputTokens: -1}).maxOutputTokens())
-	assert.Equal(t, 4096, (ExecutionOptions{MaxOutputTokens: 4096}).maxOutputTokens())
+	assert.Equal(t, DefaultExecutionMaxTokens, (ExecutionOptions{}).EffectiveMaxOutputTokens())
+	assert.Equal(t, DefaultExecutionMaxTokens, (ExecutionOptions{MaxOutputTokens: -1}).EffectiveMaxOutputTokens())
+	assert.Equal(t, 4096, (ExecutionOptions{MaxOutputTokens: 4096}).EffectiveMaxOutputTokens())
 }
 
 func TestExecutorsExposeSeparateTaskExecutionContract(t *testing.T) {

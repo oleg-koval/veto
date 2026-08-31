@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oleg-koval/veto/pkg/executor"
-	"github.com/oleg-koval/veto/pkg/router/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,10 +26,10 @@ func rejectJSON(code string) string {
 // (Weakness), so the winner is the cheapest remaining model — llama-4-maverick.
 func TestManager_Route_FirstAccepted(t *testing.T) {
 	calls := 0
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, _ string) AdmissionResult {
 			calls++
-			return executor.Result{Output: acceptJSON()}
+			return AdmissionResult{Output: acceptJSON()}
 		},
 	}
 	// Use a fixed subset of the catalog so that adding new built-in models (e.g. grok-*)
@@ -53,13 +51,13 @@ func TestManager_Route_FirstAccepted(t *testing.T) {
 
 func TestManager_Route_SkipRejectTakeSecond(t *testing.T) {
 	n := 0
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, _ string) AdmissionResult {
 			n++
 			if n == 1 {
-				return executor.Result{Output: rejectJSON(ReasonContextTooLarge)}
+				return AdmissionResult{Output: rejectJSON(ReasonContextTooLarge)}
 			}
-			return executor.Result{Output: acceptJSON()}
+			return AdmissionResult{Output: acceptJSON()}
 		},
 	}
 	reg := NewRegistry()
@@ -75,9 +73,9 @@ func TestManager_Route_SkipRejectTakeSecond(t *testing.T) {
 }
 
 func TestManager_Route_NoCandidateError(t *testing.T) {
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
-			return executor.Result{Output: rejectJSON(ReasonWeakKind)}
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, _ string) AdmissionResult {
+			return AdmissionResult{Output: rejectJSON(ReasonWeakKind)}
 		},
 	}
 	reg := NewRegistry()
@@ -96,13 +94,13 @@ func TestManager_Route_AdmissionCallsNeverExceedLimit(t *testing.T) {
 		{Name: "healthy", Provider: "four", Tier: tierMid, MaxContextTokens: 10_000, CostPer1kInputUSD: 0.004},
 	}
 	calls := 0
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, _ string) AdmissionResult {
 			calls++
 			if calls <= 3 {
-				return executor.Result{Error: errors.New("transport unavailable")}
+				return AdmissionResult{Error: errors.New("transport unavailable")}
 			}
-			return executor.Result{Output: acceptJSON()}
+			return AdmissionResult{Output: acceptJSON()}
 		},
 	}
 	mgr := NewManager(NewRegistryFromModels(models), NewAdmissionGate(exec), NewMemoryStore())
@@ -122,9 +120,9 @@ func TestManager_Route_LargeCatalogIsShortlistedLocally(t *testing.T) {
 		}
 	}
 	calls := 0
-	exec := &mocks.ExecutorMock{RunFunc: func(context.Context, string) executor.Result {
+	exec := &executorMock{RunFunc: func(context.Context, string) AdmissionResult {
 		calls++
-		return executor.Result{Output: rejectJSON(ReasonWeakKind)}
+		return AdmissionResult{Output: rejectJSON(ReasonWeakKind)}
 	}}
 	mgr := NewManager(NewRegistryFromModels(models), NewAdmissionGate(exec), NewMemoryStore())
 	mgr.SetCandidatePreferences(CandidatePreferences{AllowedProviders: []string{"openrouter"}})
@@ -136,13 +134,13 @@ func TestManager_Route_LargeCatalogIsShortlistedLocally(t *testing.T) {
 
 func TestManager_Route_ExecErrorIsSkipped(t *testing.T) {
 	n := 0
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, _ string) AdmissionResult {
 			n++
 			if n == 1 {
-				return executor.Result{Error: errors.New("crash")}
+				return AdmissionResult{Error: errors.New("crash")}
 			}
-			return executor.Result{Output: acceptJSON()}
+			return AdmissionResult{Output: acceptJSON()}
 		},
 	}
 	reg := NewRegistry()
@@ -156,7 +154,7 @@ func TestManager_Route_ExecErrorIsSkipped(t *testing.T) {
 }
 
 func TestManager_Route_NoModelsAfterHardFilter(t *testing.T) {
-	exec := &mocks.ExecutorMock{}
+	exec := &executorMock{}
 	reg := NewRegistry()
 	gate := NewAdmissionGate(exec)
 	mgr := NewManager(reg, gate, NewMemoryStore())
@@ -172,9 +170,9 @@ func TestManager_Route_NoModelsAfterHardFilter(t *testing.T) {
 }
 
 func TestManager_Route_ContextCancellation_ReturnsCtxErr(t *testing.T) {
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
-			return executor.Result{Error: errors.New("context canceled")}
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, _ string) AdmissionResult {
+			return AdmissionResult{Error: errors.New("context canceled")}
 		},
 	}
 	reg := NewRegistry()
@@ -192,13 +190,13 @@ func TestManager_Route_ContextCancellation_ReturnsCtxErr(t *testing.T) {
 
 func TestManager_Route_LogsDecisions(t *testing.T) {
 	n := 0
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, _ string) AdmissionResult {
 			n++
 			if n < 3 {
-				return executor.Result{Output: rejectJSON(ReasonWeakKind)}
+				return AdmissionResult{Output: rejectJSON(ReasonWeakKind)}
 			}
-			return executor.Result{Output: acceptJSON()}
+			return AdmissionResult{Output: acceptJSON()}
 		},
 	}
 	reg := NewRegistry()
@@ -218,13 +216,13 @@ func TestManager_Route_LogsDecisions(t *testing.T) {
 // and no events are emitted for candidates ranked below the winner.
 func TestManager_Route_EmitsAskEvents(t *testing.T) {
 	n := 0
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, _ string) AdmissionResult {
 			n++
 			if n == 1 {
-				return executor.Result{Output: rejectJSON(ReasonWeakKind)}
+				return AdmissionResult{Output: rejectJSON(ReasonWeakKind)}
 			}
-			return executor.Result{Output: acceptJSON()}
+			return AdmissionResult{Output: acceptJSON()}
 		},
 	}
 	reg := NewRegistry()
@@ -262,8 +260,8 @@ func TestManager_Route_EmitsAskEvents(t *testing.T) {
 // haiku/gpt-4.1-mini are hard-filtered (Weakness), so llama-4-maverick wins.
 func TestManager_Route_RankOrderDeterministic(t *testing.T) {
 	var askedModels []string
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, prompt string) executor.Result {
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, prompt string) AdmissionResult {
 			// the admission prompt embeds "You are the <name> model"
 			for _, name := range []string{"opus", "sonnet", "haiku", "gpt-4.1", "gpt-4.1-mini", "meta-llama/llama-4-maverick"} {
 				if strings.Contains(prompt, "You are the "+name) {
@@ -271,7 +269,7 @@ func TestManager_Route_RankOrderDeterministic(t *testing.T) {
 					break
 				}
 			}
-			return executor.Result{Output: acceptJSON()}
+			return AdmissionResult{Output: acceptJSON()}
 		},
 	}
 	// Use a fixed subset of the catalog so that adding new built-in models (e.g. grok-*)
@@ -306,15 +304,15 @@ func TestManager_Route_UsesStoreSignalsForRanking(t *testing.T) {
 	store.RecordExecution("old-2", "reliable", KindCodeChange, ExecutionMetrics{Status: "success"})
 
 	var asked string
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, prompt string) executor.Result {
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, prompt string) AdmissionResult {
 			for _, model := range models {
 				if strings.Contains(prompt, "You are the "+model.Name+" model") {
 					asked = model.Name
 					break
 				}
 			}
-			return executor.Result{Output: acceptJSON()}
+			return AdmissionResult{Output: acceptJSON()}
 		},
 	}
 	mgr := NewManager(reg, NewAdmissionGate(exec), store)

@@ -6,22 +6,43 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/oleg-koval/veto/pkg/executor"
 )
 
 const admissionModelTimeout = 20 * time.Second
 
 //go:generate moq -out mocks/executor.go -pkg mocks -skip-ensure -fmt goimports . Executor
 
-// Executor is the interface a model provider must satisfy.
-// Defined at consumer side so tests can inject a mock without importing pkg/executor.
-type Executor interface {
-	Run(ctx context.Context, prompt string) executor.Result
+// AdmissionResult is the small result needed by the admission boundary.
+// Runtime-specific execution telemetry stays in the execution contract and
+// concrete adapter packages.
+type AdmissionResult struct {
+	Output string
+	Error  error
 }
 
-// ExecutorFactory returns the right executor for a given model name.
-// Concrete implementations live in pkg/executor; they satisfy this via duck typing.
+// ToolCapabilities describes the tools available to an admission probe.
+// Known distinguishes a known empty list from a runtime that has not yet
+// discovered its project/session-specific tools.
+type ToolCapabilities struct {
+	Tools []string
+	Known bool
+}
+
+// Executor is the interface a model provider must satisfy for admission.
+// Defined at the consumer side so the router has no dependency on a runtime
+// implementation package.
+type Executor interface {
+	Run(ctx context.Context, prompt string) AdmissionResult
+}
+
+// ToolProvider optionally reports the tools available to the admission probe.
+// Runtimes that do not implement it are treated as text-only.
+type ToolProvider interface {
+	AdmissionTools() ToolCapabilities
+}
+
+// ExecutorFactory returns the right admission executor for a given model name.
+// Concrete runtime adapters satisfy this contract at the composition edge.
 type ExecutorFactory interface {
 	For(modelName string) (Executor, bool)
 }
@@ -78,11 +99,10 @@ func (g *AdmissionGate) Ask(ctx context.Context, task TaskSpec, model ModelCapab
 	// Only CLIExecutor (claude -p) runs with real tool access.
 	effectiveTools := model.SupportsTools
 	toolsKnown := true
-	if tp, ok := exec.(executor.ToolProvider); ok {
-		effectiveTools = tp.EffectiveTools()
-		if status, ok := exec.(executor.ToolCapabilityStatus); ok {
-			toolsKnown = status.EffectiveToolsKnown()
-		}
+	if tp, ok := exec.(ToolProvider); ok {
+		capabilities := tp.AdmissionTools()
+		effectiveTools = capabilities.Tools
+		toolsKnown = capabilities.Known
 	} else {
 		effectiveTools = nil // text-only: advertise no tools so model can reject accurately
 	}

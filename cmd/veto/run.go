@@ -13,7 +13,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/oleg-koval/veto/pkg/executor"
+	"github.com/oleg-koval/veto/internal/adapter/routinghistory"
+	"github.com/oleg-koval/veto/internal/application"
+	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/oleg-koval/veto/pkg/ledger"
 	"github.com/oleg-koval/veto/pkg/router"
 )
@@ -34,7 +36,7 @@ func cmdRun(args []string) {
 	admissionTimeout := fs.Duration("admission-timeout", defaultAdmissionTimeout, "timeout for each model admission decision")
 	quiet := fs.Bool("quiet", false, "suppress routing pipeline — print model output only")
 	criteriaFlag := fs.String("criteria", "", "comma-separated acceptance criteria; review runs after execution")
-	maxOutputTokens := fs.Int("max-output-tokens", executor.DefaultExecutionMaxTokens, "maximum output tokens for task execution")
+	maxOutputTokens := fs.Int("max-output-tokens", execution.DefaultExecutionMaxTokens, "maximum output tokens for task execution")
 	outputPath := fs.String("output", "", "write task output to a relative file path")
 	forceOutput := fs.Bool("force", false, "overwrite an existing --output file")
 	noFeedback := fs.Bool("no-feedback", false, "disable the opt-in post-run feedback prompt")
@@ -73,7 +75,7 @@ func cmdRun(args []string) {
 	modelReg := router.NewRegistryFromModels(reg.modelCaps())
 	gate := router.NewAdmissionGateWithFactory(reg)
 	gate.SetTimeout(*admissionTimeout)
-	store := router.NewFileStore(historyPath())
+	store := routinghistory.NewFileStore(historyPath())
 	mgr := router.NewManager(modelReg, gate, store)
 	mgr.SetCandidatePreferences(loadCandidatePreferences())
 
@@ -110,9 +112,41 @@ func cmdRun(args []string) {
 		logEvent(spec.ID, kind, *risk, e)
 	}
 
-	model, _, err := mgr.Route(ctx, spec)
+	var executionMetrics router.ExecutionMetrics
+	runner := application.Runner{
+		Router:  mgr,
+		Runtime: reg,
+		Hooks: application.Hooks{
+			OnExecutionEvent: func(event application.ExecutionEvent) {
+				switch event.Kind {
+				case application.ExecutionStarted:
+					if !*quiet {
+						fmt.Printf("\n  ── Running on %-10s %s\n\n", event.Model.Name, strings.Repeat("─", 35))
+					}
+					logExecution(event.TaskID, ledger.EventExecutionStarted, event.Model, event.Metrics, event.Detail)
+				case application.ExecutionCompleted:
+					executionMetrics = event.Metrics
+					logExecution(event.TaskID, ledger.EventExecutionCompleted, event.Model, event.Metrics, event.Detail)
+				case application.ExecutionFailed:
+					executionMetrics = event.Metrics
+					logExecution(event.TaskID, ledger.EventExecutionError, event.Model, event.Metrics, event.Detail)
+				}
+			},
+			OnRuntimeEvent: logRuntimeEvent,
+		},
+	}
+	var outputBuffer strings.Builder
+	response, err := runner.Execute(ctx, application.Request{
+		Task: spec, Skills: skillBodies,
+		Options: execution.ExecutionOptions{MaxOutputTokens: *maxOutputTokens},
+		Writer:  io.MultiWriter(os.Stdout, &outputBuffer),
+	})
 	_ = store.Save()
 
+	if err != nil && response.Model.Name != "" {
+		fmt.Fprintf(os.Stderr, "run failed: %v\n", err)
+		os.Exit(1)
+	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		fmt.Fprintln(os.Stderr, "\n  Timed out during routing.")
 		os.Exit(130)
@@ -126,131 +160,23 @@ func cmdRun(args []string) {
 		os.Exit(1)
 	}
 
-	exec, ok := reg.For(model.Name)
-	if !ok {
-		fmt.Fprintf(os.Stderr, "no executor for model %q\n", model.Name)
-		os.Exit(1)
+	model := response.Model
+	output := response.Output
+	if output == "" {
+		output = outputBuffer.String()
 	}
-
-	if !*quiet {
-		fmt.Printf("\n  ── Running on %-10s %s\n\n", model.Name, strings.Repeat("─", 35))
-	}
-
-	// Use streaming if the executor supports it, otherwise buffer and print.
-	// Skills are injected into the execution prompt; routing used the clean objective.
-	// For text-only executors (HTTP-based, no tool definitions passed), append an
-	// instruction to output content directly — not prose about what they would do.
-	prompt := executionPrompt(objective, skillBodies)
-	if isTextOnlyRuntime(exec) {
-		prompt += "\n\n---\nOutput the requested content directly. No explanation, no description of what you will do, no markdown prose. If the task is to create a file, output the file contents only."
-	}
-	type streamer interface {
-		Stream(ctx context.Context, prompt string, w interface{ Write([]byte) (int, error) }) error
-	}
-	var output string
-	started := time.Now()
-	logExecution(spec.ID, ledger.EventExecutionStarted, model, router.ExecutionMetrics{Status: "started"}, "")
-	recordExecution := func(metrics router.ExecutionMetrics, eventType ledger.EventType, detail string) {
-		mgr.RecordExecution(spec, model.Name, metrics)
-		logExecution(spec.ID, eventType, model, metrics, detail)
-	}
-	legacyStreaming := false
-	if eventExec, ok := exec.(executor.EventTaskExecutor); ok {
-		var buf strings.Builder
-		result := eventExec.ExecuteWithEvents(
-			ctx, prompt, executor.ExecutionOptions{MaxOutputTokens: *maxOutputTokens},
-			io.MultiWriter(os.Stdout, &buf),
-			func(event executor.RuntimeEvent) { logRuntimeEvent(spec.ID, model, event) },
-		)
-		output = result.Output
-		if output == "" {
-			output = buf.String()
-		}
-		if resultErr := validateExecutionResult(result); resultErr != nil {
-			status := executionStatus(ctx, "error")
-			if result.Truncated {
-				status = "truncated"
-			}
-			metrics := executionMetrics(model, result, time.Since(started), status)
-			recordExecution(metrics, ledger.EventExecutionError, resultErr.Error())
-			fmt.Fprintf(os.Stderr, "run failed: %v\n", resultErr)
-			os.Exit(1)
-		}
+	if response.OutputWritten {
 		fmt.Println()
-		metrics := executionMetrics(model, result, time.Since(started), "success")
-		recordExecution(metrics, ledger.EventExecutionCompleted, "")
-		if !*quiet {
-			if metrics.CostKnown {
-				fmt.Fprintf(os.Stderr, "  actual provider cost: $%.6f (%d input, %d output tokens)\n", metrics.CostUSD, metrics.InputTokens, metrics.OutputTokens)
-			} else {
-				fmt.Fprintln(os.Stderr, "  actual provider cost: unavailable")
-			}
-		}
-	} else if s, ok := exec.(streamer); ok {
-		legacyStreaming = true
-		// When criteria are set, tee stream output to a buffer so the reviewer can read it.
-		if len(criteria) > 0 || *outputPath != "" {
-			var buf strings.Builder
-			w := io.MultiWriter(os.Stdout, &buf)
-			if serr := s.Stream(ctx, prompt, w); serr != nil {
-				metrics := router.ExecutionMetrics{
-					Status: executionStatus(ctx, "error"), LatencyMs: time.Since(started).Milliseconds(), LatencyKnown: true,
-				}
-				recordExecution(metrics, ledger.EventExecutionError, serr.Error())
-				fmt.Fprintf(os.Stderr, "run failed: %v\n", serr)
-				os.Exit(1)
-			}
-			fmt.Println()
-			output = buf.String()
-		} else {
-			if serr := s.Stream(ctx, prompt, os.Stdout); serr != nil {
-				metrics := router.ExecutionMetrics{
-					Status: executionStatus(ctx, "error"), LatencyMs: time.Since(started).Milliseconds(), LatencyKnown: true,
-				}
-				recordExecution(metrics, ledger.EventExecutionError, serr.Error())
-				fmt.Fprintf(os.Stderr, "run failed: %v\n", serr)
-				os.Exit(1)
-			}
-			fmt.Println()
-		}
 	} else {
-		taskExec, ok := exec.(executor.TaskExecutor)
-		if !ok {
-			fmt.Fprintf(os.Stderr, "executor for %q does not support task execution\n", model.Name)
-			os.Exit(1)
-		}
-		result := taskExec.Execute(ctx, prompt, executor.ExecutionOptions{MaxOutputTokens: *maxOutputTokens})
-		if resultErr := validateExecutionResult(result); resultErr != nil {
-			status := executionStatus(ctx, "error")
-			if result.Truncated {
-				status = "truncated"
-			}
-			metrics := executionMetrics(model, result, time.Since(started), status)
-			recordExecution(metrics, ledger.EventExecutionError, resultErr.Error())
-			fmt.Fprintf(os.Stderr, "run failed: %v\n", resultErr)
-			os.Exit(1)
-		}
-		output = result.Output
 		fmt.Println(output)
-		metrics := executionMetrics(model, result, time.Since(started), "success")
-		recordExecution(metrics, ledger.EventExecutionCompleted, "")
-		if !*quiet {
-			if metrics.CostKnown {
-				fmt.Fprintf(os.Stderr, "  actual provider cost: $%.6f (%d input, %d output tokens)\n", metrics.CostUSD, metrics.InputTokens, metrics.OutputTokens)
-				if spec.MaxCostUSD > 0 && metrics.CostUSD > spec.MaxCostUSD {
-					fmt.Fprintf(os.Stderr, "  warning: actual execution cost exceeded the estimated ceiling of $%.6f\n", spec.MaxCostUSD)
-				}
-			} else {
-				fmt.Fprintln(os.Stderr, "  actual provider cost: unavailable")
-			}
-		}
 	}
-	if legacyStreaming {
-		metrics := router.ExecutionMetrics{
-			Status: "success", LatencyMs: time.Since(started).Milliseconds(), LatencyKnown: true,
-		}
-		recordExecution(metrics, ledger.EventExecutionCompleted, "")
-		if !*quiet {
+	if !*quiet {
+		if executionMetrics.CostKnown {
+			fmt.Fprintf(os.Stderr, "  actual provider cost: $%.6f (%d input, %d output tokens)\n", executionMetrics.CostUSD, executionMetrics.InputTokens, executionMetrics.OutputTokens)
+			if spec.MaxCostUSD > 0 && executionMetrics.CostUSD > spec.MaxCostUSD {
+				fmt.Fprintf(os.Stderr, "  warning: actual execution cost exceeded the estimated ceiling of $%.6f\n", spec.MaxCostUSD)
+			}
+		} else {
 			fmt.Fprintln(os.Stderr, "  actual provider cost: unavailable")
 		}
 	}
@@ -376,14 +302,14 @@ var validKinds = map[string]bool{
 
 var validKindList = "code-change|debug|refactor|summarize|extract|review|plan"
 
-func prepareRouting() (*providerRegistry, *router.Manager, *router.FileStore, error) {
+func prepareRouting() (*providerRegistry, *router.Manager, *routinghistory.FileStore, error) {
 	reg, err := buildProviderRegistry()
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	modelReg := router.NewRegistryFromModels(reg.modelCaps())
 	gate := router.NewAdmissionGateWithFactory(reg)
-	store := router.NewFileStore(historyPath())
+	store := routinghistory.NewFileStore(historyPath())
 	mgr := router.NewManager(modelReg, gate, store)
 	mgr.SetCandidatePreferences(loadCandidatePreferences())
 	return reg, mgr, store, nil
@@ -393,54 +319,45 @@ func prepareRouting() (*providerRegistry, *router.Manager, *router.FileStore, er
 // skills bodies are prepended to the execution prompt (admission always uses the clean Objective).
 // Pass nil skills for internal/meta routes (review, skill generation, plan conversion) to avoid recursion.
 func routeAndCapture(ctx context.Context, reg *providerRegistry, mgr *router.Manager, render *Renderer, spec router.TaskSpec, skills []string) (string, string, error) {
-	return routeAndCaptureWithOptions(ctx, reg, mgr, render, spec, skills, executor.ExecutionOptions{})
+	return routeAndCaptureWithOptions(ctx, reg, mgr, render, spec, skills, execution.ExecutionOptions{})
 }
 
-func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr *router.Manager, render *Renderer, spec router.TaskSpec, skills []string, options executor.ExecutionOptions) (string, string, error) {
+func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr *router.Manager, render *Renderer, spec router.TaskSpec, skills []string, options execution.ExecutionOptions) (string, string, error) {
 	prev := mgr.OnEvent
 	mgr.OnEvent = func(e router.ProgressEvent) {
 		render.OnEvent(e)
 		logEvent(spec.ID, string(spec.Kind), string(spec.Risk), e)
 	}
 	defer func() { mgr.OnEvent = prev }()
-	model, _, err := mgr.Route(ctx, spec)
+	runner := newApplicationRunner(reg, mgr)
+	response, err := runner.Execute(ctx, application.Request{
+		Task: spec, Skills: skills, Options: options,
+	})
 	if err != nil {
-		return "", "", err
+		return response.Model.Name, response.Output, err
 	}
-	exec, ok := reg.For(model.Name)
-	if !ok {
-		return "", "", fmt.Errorf("no executor for model %q", model.Name)
+	return response.Model.Name, response.Output, nil
+}
+
+// newApplicationRunner wires delivery-side telemetry adapters around the
+// delivery-neutral application use case.
+func newApplicationRunner(reg *providerRegistry, mgr *router.Manager) application.Runner {
+	return application.Runner{
+		Router: mgr, Runtime: reg,
+		Hooks: application.Hooks{
+			OnExecutionEvent: func(event application.ExecutionEvent) {
+				switch event.Kind {
+				case application.ExecutionStarted:
+					logExecution(event.TaskID, ledger.EventExecutionStarted, event.Model, event.Metrics, event.Detail)
+				case application.ExecutionCompleted:
+					logExecution(event.TaskID, ledger.EventExecutionCompleted, event.Model, event.Metrics, event.Detail)
+				case application.ExecutionFailed:
+					logExecution(event.TaskID, ledger.EventExecutionError, event.Model, event.Metrics, event.Detail)
+				}
+			},
+			OnRuntimeEvent: logRuntimeEvent,
+		},
 	}
-	prompt := executionPrompt(spec.Objective, skills)
-	if isTextOnlyRuntime(exec) {
-		prompt += "\n\n---\nOutput the requested content directly. No explanation, no description of what you will do, no markdown prose. If the task is to create a file, output the file contents only."
-	}
-	started := time.Now()
-	logExecution(spec.ID, ledger.EventExecutionStarted, model, router.ExecutionMetrics{Status: "started"}, "")
-	var result executor.Result
-	if eventExec, ok := exec.(executor.EventTaskExecutor); ok {
-		result = eventExec.ExecuteWithEvents(ctx, prompt, options, io.Discard, func(event executor.RuntimeEvent) {
-			logRuntimeEvent(spec.ID, model, event)
-		})
-	} else if taskExec, ok := exec.(executor.TaskExecutor); ok {
-		result = taskExec.Execute(ctx, prompt, options)
-	} else {
-		return model.Name, "", fmt.Errorf("executor for %q does not support task execution", model.Name)
-	}
-	if resultErr := validateExecutionResult(result); resultErr != nil {
-		status := executionStatus(ctx, "error")
-		if result.Truncated {
-			status = "truncated"
-		}
-		metrics := executionMetrics(model, result, time.Since(started), status)
-		mgr.RecordExecution(spec, model.Name, metrics)
-		logExecution(spec.ID, ledger.EventExecutionError, model, metrics, resultErr.Error())
-		return model.Name, "", resultErr
-	}
-	metrics := executionMetrics(model, result, time.Since(started), "success")
-	mgr.RecordExecution(spec, model.Name, metrics)
-	logExecution(spec.ID, ledger.EventExecutionCompleted, model, metrics, "")
-	return model.Name, result.Output, nil
 }
 
 // executionPrompt adds live verification instructions only when the objective
@@ -448,19 +365,7 @@ func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr 
 // ordinary PR comment views omit inline review threads, which can otherwise
 // make an agent incorrectly report that there is nothing to fix.
 func executionPrompt(objective string, skills []string) string {
-	prompt := withSkills(objective, skills)
-	if !requiresPullRequestThreadWorkflow(objective) {
-		return prompt
-	}
-	return prompt + `
-
-## Required live pull-request workflow
-
-- Inspect the live PR's inline review threads with GitHub GraphQL reviewThreads(first:100). Follow pageInfo.hasNextPage with endCursor until all pages have been inspected; do not infer that there are no findings from gh pr view --comments, reviews, check summaries, or template text.
-- Select unresolved threads from the reviewer named in the task, inspect the referenced code, and address every applicable finding.
-- Run focused verification for each change, then reply to and resolve every requested review thread.
-- After verification, commit and push the changes to the PR head branch when the task requests it.
-- Re-query the live PR before finishing. Do not report completion unless there are zero unresolved matching threads and the requested remote update is present. If access or verification fails, report the task as incomplete instead of claiming success.`
+	return application.BuildExecutionPrompt(objective, skills)
 }
 
 func requiresPullRequestThreadWorkflow(objective string) bool {
@@ -468,56 +373,23 @@ func requiresPullRequestThreadWorkflow(objective string) bool {
 	return prTarget && reviewTarget && mutation
 }
 
-func hasEffectiveTools(exec router.Executor) bool {
-	tools, ok := exec.(executor.ToolProvider)
+func hasEffectiveTools(exec execution.RuntimeAdapter) bool {
+	tools, ok := exec.(execution.ToolProvider)
 	return ok && len(tools.EffectiveTools()) > 0
 }
 
-func isTextOnlyRuntime(exec router.Executor) bool {
-	if status, ok := exec.(executor.ToolCapabilityStatus); ok && !status.EffectiveToolsKnown() {
-		return false
-	}
-	return !hasEffectiveTools(exec)
+func isTextOnlyRuntime(exec execution.RuntimeAdapter) bool {
+	return application.IsTextOnlyRuntime(exec)
 }
 
-func validateExecutionResult(result executor.Result) error {
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.Truncated {
-		reason := result.FinishReason
-		if reason == "" {
-			reason = "provider output limit"
-		}
-		return fmt.Errorf("execution output truncated (%s); increase --max-output-tokens", reason)
-	}
-	return nil
+func validateExecutionResult(result execution.Result) error {
+	return application.ValidateExecutionResult(result)
 }
 
 func executionStatus(ctx context.Context, fallback string) string {
-	switch {
-	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return "timeout"
-	case errors.Is(ctx.Err(), context.Canceled):
-		return "canceled"
-	default:
-		return fallback
-	}
+	return application.ExecutionStatus(ctx, fallback)
 }
 
-func executionMetrics(model router.ModelCapabilities, result executor.Result, elapsed time.Duration, status string) router.ExecutionMetrics {
-	metrics := router.ExecutionMetrics{
-		Status: status, LatencyMs: elapsed.Milliseconds(), LatencyKnown: true,
-		InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens,
-		TotalTokens: result.Usage.TotalTokens, UsageKnown: result.Usage.Known,
-	}
-	if result.CostKnown {
-		metrics.CostUSD = result.CostUSD
-		metrics.CostKnown = true
-	} else if result.Usage.Known && !model.CostPer1kInputUnknown && !model.CostPer1kOutputUnknown {
-		metrics.CostUSD = float64(result.Usage.InputTokens)/1000*model.CostPer1kInputUSD +
-			float64(result.Usage.OutputTokens)/1000*model.CostPer1kOutputUSD
-		metrics.CostKnown = true
-	}
-	return metrics
+func executionMetrics(model router.ModelCapabilities, result execution.Result, elapsed time.Duration, status string) router.ExecutionMetrics {
+	return application.ExecutionMetrics(model, result, elapsed, status)
 }

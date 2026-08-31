@@ -148,7 +148,7 @@ func (e *OpenAIExecutor) Run(ctx context.Context, prompt string) Result {
 
 // Execute sends a full task prompt with an explicit bounded output budget.
 func (e *OpenAIExecutor) Execute(ctx context.Context, prompt string, options ExecutionOptions) Result {
-	return e.run(ctx, prompt, options.maxOutputTokens(), "medium")
+	return e.run(ctx, prompt, options.EffectiveMaxOutputTokens(), "medium")
 }
 
 // run sends prompt to the OpenAI-compatible API.

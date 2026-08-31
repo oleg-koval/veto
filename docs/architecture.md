@@ -2,6 +2,9 @@
 
 veto routes tasks to AI models through a three-stage pipeline: hard filtering, scoring, and admission gating. Each stage narrows the candidate list; the first model to pass all three wins.
 
+For a dependency-rule and boundary assessment of the complete codebase, see
+the [clean architecture evaluation](architecture-evaluation.md).
+
 ## Pipeline overview
 
 ```
@@ -73,7 +76,13 @@ Ranks the survivors by a weighted score (range 0.0–1.0):
 
 Cost fit is weighted highest because the hard filter and admission gate already enforce kind-fit and tier constraints — the scorer's remaining job is to order the survivors cheapest-viable-first, so you never pay for opus when haiku or a local model can do the work.
 
-Historical signals come from the manager's configured `Store`. The built-in `MemoryStore` and `FileStore` maintain task-kind-aware acceptance, execution, usage, cost, latency, and optional evaluation aggregates; `Manager.Route` passes that store to the scorer so a fresh process can learn from persisted history. The static `Registry.Signal()` remains a neutral-baseline signal source for callers that rank directly without a store.
+Historical signals come from the manager's configured `Store`. The built-in
+`router.MemoryStore` and outward `internal/adapter/routinghistory.FileStore`
+maintain task-kind-aware acceptance, execution, usage, cost, latency, and
+optional evaluation aggregates; `Manager.Route` passes that store to the
+scorer so a fresh process can learn from persisted history. The static
+`Registry.Signal()` remains a neutral-baseline signal source for callers that
+rank directly without a store.
 
 ## Offline evaluation (`veto benchmark`)
 
@@ -160,15 +169,20 @@ Task identity is a SHA-256 hash of `(objective, kind, risk, maxCost)`, truncated
 
 On the next run with the same task spec, veto loads the checkpoint, skips already-tried models, and continues. `--no-resume` bypasses this.
 
-## Provider model (`cmd/veto/main.go`, `pkg/executor/`)
+## Provider model (`cmd/veto/main.go`, `pkg/execution/`, `pkg/executor/`)
 
-Each provider has a concrete `Executor` in `pkg/executor/`. The `ExecutorFactory` interface (defined in `pkg/router/`) maps model names to executors — this keeps the router package free of provider-specific imports.
+Each provider has a concrete transport in `pkg/executor/`. Stable full-task
+runtime ports and result DTOs live in `pkg/execution/`. The admission
+`ExecutorFactory` interface and its narrow result/tool contracts live in
+`pkg/router/`; the composition root adapts concrete runtimes to that port.
 
 ```
-pkg/router/admission.go   ExecutorFactory (interface)
+pkg/router/admission.go   admission ports and DTOs
                               ↑
-cmd/veto/main.go          providerRegistry (concrete factory)
+cmd/veto/main.go          providerRegistry + admission adapter
                               ↓
+pkg/execution/            full-task runtime ports and DTOs
+                              ↑
 pkg/executor/             AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor, CLIExecutor,
                           CodexCLIExecutor, OpenAICompatibleExecutor (local/self-hosted)
 ```
@@ -178,7 +192,7 @@ pkg/executor/             AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor,
 Model discovery and execution are separate internal contracts. A
 `router.ModelSource` returns catalog metadata without choosing a transport; the
 built-in catalog and local model configuration both implement it. An
-`executor.RuntimeAdapter` provides the separate admission and full-execution
+`execution.RuntimeAdapter` provides the separate admission and full-execution
 paths plus a stable runtime ID. When the provider registry binds them, each
 model has a source/provider/model/runtime identity. Effective tools still come
 from the active transport. `executor.ToolCapabilityStatus` preserves an
@@ -422,7 +436,13 @@ The timeout on `veto run` (default two hours) covers both routing and execution,
 
 On Unix, subscription CLI processes run in a dedicated process group. On macOS and Linux, cancellation also snapshots and kills descendants that created their own process groups, so agent-spawned tests, hooks, and pushes cannot survive a Veto timeout and continue mutating the repository in the background. Other platforms retain group or standard process cancellation behavior.
 
-**Shared helper: `routeAndCaptureWithOptions`** — both `cmdRun` and `cmdExec` (for plan steps) share the execution helper in `run.go`. It wires `mgr.OnEvent`, calls `mgr.Route`, looks up the executor, calls its full `Execute` method with explicit options, and returns `(modelName, output, error)`. Internal conversion/review paths use the bounded default. This keeps each command's routing setup in one place (`prepareRouting`) and prevents admission and execution transports from drifting.
+**Shared application runner:** `internal/application.Runner` owns the
+route-and-execute use case. It calls the routing port, resolves the selected
+runtime, executes with explicit options, validates truncation/errors, records
+telemetry, and emits delivery-neutral callbacks. `cmdRun`, `cmdExec`, plan
+conversion, skill generation, and acceptance review share this path. CLI
+wrappers keep rendering, lifecycle-ledger mapping, output-file policy, and
+`os.Exit` at the delivery edge.
 
 **Pull-request review execution:** when an objective explicitly asks the executor to fix review comments on a pull request, `executionPrompt` adds a narrow live-verification contract. The executor must query GitHub inline `reviewThreads`, address and resolve the requested reviewer's unresolved threads, push when requested, and re-query before claiming completion. Ordinary tasks receive no added instructions.
 
@@ -465,7 +485,7 @@ Approval state is stored in `~/.veto/config.json` under the `"skills"` key as `a
 
 Skills are **never auto-generated during a routing call**. `resolveSkills` only reads from pre-existing approved files — there is no hidden upstream routing call before the animation starts. `generateSkill` still exists for offline/manual skill creation but is no longer part of the hot path. Skills can be hand-written and placed in `~/.veto/skills/<kind>.md`; veto uses the file as-is on the next call.
 
-## Acceptance-criteria review (`cmd/veto/review.go`)
+## Acceptance-criteria review (`internal/application/review.go`, `cmd/veto/review.go`)
 
 When `--criteria "..."` is supplied to `veto run`, a second routing call runs after execution:
 

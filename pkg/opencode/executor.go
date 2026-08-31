@@ -15,7 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	vetox "github.com/oleg-koval/veto/pkg/executor"
+	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/oleg-koval/veto/pkg/ledger"
 )
 
@@ -41,8 +41,8 @@ type Runtime struct {
 	deps      Dependencies
 }
 
-var _ vetox.RuntimeAdapter = (*Runtime)(nil)
-var _ vetox.EventTaskExecutor = (*Runtime)(nil)
+var _ execution.RuntimeAdapter = (*Runtime)(nil)
+var _ execution.EventTaskExecutor = (*Runtime)(nil)
 
 // NewRuntime binds one discovered provider/model to an OpenCode transport.
 func NewRuntime(config Config, discovery Discovery, model Model, deps Dependencies) *Runtime {
@@ -58,21 +58,21 @@ func (r *Runtime) EffectiveTools() []string { return nil }
 
 func (r *Runtime) EffectiveToolsKnown() bool { return false }
 
-func (r *Runtime) Run(ctx context.Context, prompt string) vetox.Result {
-	return r.execute(ctx, purposeAdmission, prompt, vetox.ExecutionOptions{}, io.Discard, nil)
+func (r *Runtime) Run(ctx context.Context, prompt string) execution.Result {
+	return r.execute(ctx, purposeAdmission, prompt, execution.ExecutionOptions{}, io.Discard, nil)
 }
 
-func (r *Runtime) Execute(ctx context.Context, prompt string, options vetox.ExecutionOptions) vetox.Result {
+func (r *Runtime) Execute(ctx context.Context, prompt string, options execution.ExecutionOptions) execution.Result {
 	return r.execute(ctx, purposeExecution, prompt, options, io.Discard, nil)
 }
 
 func (r *Runtime) ExecuteWithEvents(
 	ctx context.Context,
 	prompt string,
-	options vetox.ExecutionOptions,
+	options execution.ExecutionOptions,
 	w io.Writer,
-	emit func(vetox.RuntimeEvent),
-) vetox.Result {
+	emit func(execution.RuntimeEvent),
+) execution.Result {
 	if w == nil {
 		w = io.Discard
 	}
@@ -83,12 +83,12 @@ func (r *Runtime) execute(
 	ctx context.Context,
 	purpose sessionPurpose,
 	prompt string,
-	options vetox.ExecutionOptions,
+	options execution.ExecutionOptions,
 	w io.Writer,
-	emit func(vetox.RuntimeEvent),
-) vetox.Result {
+	emit func(execution.RuntimeEvent),
+) execution.Result {
 	if !validIdentifier(r.model.Provider) || !validIdentifier(r.model.ID) {
-		return vetox.Result{Error: errors.New("invalid OpenCode provider/model binding")}
+		return execution.Result{Error: errors.New("invalid OpenCode provider/model binding")}
 	}
 	switch r.config.Mode {
 	case ModeCLI:
@@ -96,7 +96,7 @@ func (r *Runtime) execute(
 	case ModeAttach, ModeManaged:
 		return r.executeServer(ctx, purpose, prompt, options, w, emit)
 	default:
-		return vetox.Result{Error: fmt.Errorf("unsupported OpenCode mode %q", r.config.Mode)}
+		return execution.Result{Error: fmt.Errorf("unsupported OpenCode mode %q", r.config.Mode)}
 	}
 }
 
@@ -104,10 +104,10 @@ func (r *Runtime) executeServer(
 	ctx context.Context,
 	purpose sessionPurpose,
 	prompt string,
-	_ vetox.ExecutionOptions,
+	_ execution.ExecutionOptions,
 	w io.Writer,
-	emit func(vetox.RuntimeEvent),
-) (result vetox.Result) {
+	emit func(execution.RuntimeEvent),
+) (result execution.Result) {
 	server, err := ValidateServerURL(r.config.Server)
 	if r.config.Mode == ModeManaged && strings.TrimSpace(r.config.Server) == "" {
 		server = "http://127.0.0.1:4096"
@@ -246,7 +246,7 @@ func (r *Runtime) executeServer(
 	}
 }
 
-func (r *Runtime) cleanupServerSession(server, sessionID, username, password string, result vetox.Result) vetox.Result {
+func (r *Runtime) cleanupServerSession(server, sessionID, username, password string, result execution.Result) execution.Result {
 	if errors.Is(result.Error, context.Canceled) || errors.Is(result.Error, context.DeadlineExceeded) {
 		abortCtx, cancelAbort := context.WithTimeout(context.Background(), cleanupWait)
 		_, _, _ = r.request(abortCtx, http.MethodPost, server+"/session/"+sessionID+"/abort", username, password, nil)
@@ -372,12 +372,12 @@ func (r *Runtime) readEvents(ctx context.Context, target, username, password str
 type eventState struct {
 	sessionID  string
 	writer     io.Writer
-	emit       func(vetox.RuntimeEvent)
+	emit       func(execution.RuntimeEvent)
 	output     strings.Builder
 	textByPart map[string]string
 	toolStates map[string]string
 	artifacts  map[string]bool
-	usage      vetox.Usage
+	usage      execution.Usage
 	cost       float64
 	costKnown  bool
 	finish     string
@@ -417,7 +417,7 @@ func (s *eventState) process(ctx context.Context, runtime *Runtime, server, user
 			Reply string `json:"reply"`
 		}
 		if json.Unmarshal(event.Properties, &value) == nil && (value.Reply == "once" || value.Reply == "always") {
-			s.emitEvent(vetox.RuntimeEvent{Kind: vetox.RuntimeApprovalGranted, Status: "granted"})
+			s.emitEvent(execution.RuntimeEvent{Kind: execution.RuntimeApprovalGranted, Status: "granted"})
 		}
 	case "session.error":
 		var value struct {
@@ -538,7 +538,7 @@ func (s *eventState) rejectPermission(ctx context.Context, runtime *Runtime, ser
 		return errors.New("OpenCode permission request is malformed")
 	}
 	name := safeName(value.Permission)
-	s.emitEvent(vetox.RuntimeEvent{Kind: vetox.RuntimeApprovalRequested, Name: name, Status: "requested"})
+	s.emitEvent(execution.RuntimeEvent{Kind: execution.RuntimeApprovalRequested, Name: name, Status: "requested"})
 	reply, _ := json.Marshal(map[string]string{"reply": "reject", "message": "Veto does not auto-approve runtime permissions"})
 	_, status, err := runtime.request(ctx, http.MethodPost, server+"/permission/"+value.ID+"/reply", username, password, reply)
 	if err != nil || (status != http.StatusOK && status != http.StatusNoContent) {
@@ -547,7 +547,7 @@ func (s *eventState) rejectPermission(ctx context.Context, runtime *Runtime, ser
 		}
 		return fmt.Errorf("reject OpenCode permission request: %w", err)
 	}
-	s.emitEvent(vetox.RuntimeEvent{Kind: vetox.RuntimeApprovalDenied, Name: name, Status: "denied"})
+	s.emitEvent(execution.RuntimeEvent{Kind: execution.RuntimeApprovalDenied, Name: name, Status: "denied"})
 	s.failure = fmt.Errorf("OpenCode permission %q was denied; Veto never auto-approves runtime actions", name)
 	return nil
 }
@@ -584,14 +584,14 @@ func (s *eventState) toolEvent(partID, name, status string, attachments int) {
 	if (previous == "pending" || previous == "running") && (status == "pending" || status == "running") {
 		return
 	}
-	event := vetox.RuntimeEvent{Name: safeName(name), Status: status}
+	event := execution.RuntimeEvent{Name: safeName(name), Status: status}
 	switch status {
 	case "pending", "running":
-		event.Kind = vetox.RuntimeToolStarted
+		event.Kind = execution.RuntimeToolStarted
 	case "completed":
-		event.Kind = vetox.RuntimeToolCompleted
+		event.Kind = execution.RuntimeToolCompleted
 	case "error":
-		event.Kind = vetox.RuntimeToolError
+		event.Kind = execution.RuntimeToolError
 	default:
 		return
 	}
@@ -606,10 +606,10 @@ func (s *eventState) artifactEvent(id, kind string, count int) {
 		return
 	}
 	s.artifacts[id] = true
-	s.emitEvent(vetox.RuntimeEvent{Kind: vetox.RuntimeArtifactCreated, Name: kind, Status: "created", Count: count})
+	s.emitEvent(execution.RuntimeEvent{Kind: execution.RuntimeArtifactCreated, Name: kind, Status: "created", Count: count})
 }
 
-func (s *eventState) emitEvent(event vetox.RuntimeEvent) {
+func (s *eventState) emitEvent(event execution.RuntimeEvent) {
 	if s.emit != nil {
 		s.emit(event)
 	}
@@ -635,7 +635,7 @@ func (s *eventState) addUsage(tokens *wireTokens, cost *float64, finish string) 
 
 func (s *eventState) setUsage(tokens *wireTokens, cost *float64, finish string) {
 	if tokens != nil {
-		s.usage = vetox.Usage{InputTokens: nonNegativeInt(tokens.Input), OutputTokens: nonNegativeInt(tokens.Output), Known: true}
+		s.usage = execution.Usage{InputTokens: nonNegativeInt(tokens.Input), OutputTokens: nonNegativeInt(tokens.Output), Known: true}
 		if tokens.Total != nil {
 			s.usage.TotalTokens = nonNegativeInt(*tokens.Total)
 		} else {
@@ -656,8 +656,8 @@ func (s *eventState) setFinish(finish string) {
 	s.truncated = finish == "length" || finish == "max_tokens" || finish == "max_output_tokens"
 }
 
-func (s *eventState) result(err error) vetox.Result {
-	return vetox.Result{
+func (s *eventState) result(err error) execution.Result {
+	return execution.Result{
 		Output: s.output.String(), Error: err, Usage: s.usage,
 		CostUSD: s.cost, CostKnown: s.costKnown,
 		FinishReason: s.finish, Truncated: s.truncated,
@@ -668,28 +668,28 @@ func (r *Runtime) executeCLI(
 	ctx context.Context,
 	purpose sessionPurpose,
 	prompt string,
-	_ vetox.ExecutionOptions,
+	_ execution.ExecutionOptions,
 	w io.Writer,
-	emit func(vetox.RuntimeEvent),
-) vetox.Result {
+	emit func(execution.RuntimeEvent),
+) execution.Result {
 	path := r.discovery.Executable
 	if path == "" {
 		var err error
 		path, err = r.deps.LookPath("opencode")
 		if err != nil {
-			return vetox.Result{Error: fmt.Errorf("OpenCode CLI is not available on PATH: %w", err)}
+			return execution.Result{Error: fmt.Errorf("OpenCode CLI is not available on PATH: %w", err)}
 		}
 	}
 	title, err := internalSessionTitle(purpose)
 	if err != nil {
-		return vetox.Result{Error: err}
+		return execution.Result{Error: err}
 	}
 	args := []string{"run", "--format", "json", "--model", r.model.Provider + "/" + r.model.ID, "--title", title, "--", prompt}
 	var env []string
 	if purpose == purposeAdmission {
 		inline, envErr := admissionConfigContent(r.deps.Getenv("OPENCODE_CONFIG_CONTENT"))
 		if envErr != nil {
-			return vetox.Result{Error: envErr}
+			return execution.Result{Error: envErr}
 		}
 		env = []string{"OPENCODE_CONFIG_CONTENT=" + inline}
 	}
