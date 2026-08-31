@@ -101,20 +101,26 @@ veto doctor
 ### Arch Linux (pacman)
 
 Release assets include an Arch package for x86_64. Download the matching
-`veto-bin-<version>-1-x86_64.pkg.tar.zst` file and install it with pacman:
+`veto-bin-<version>-1-x86_64.pkg.tar.zst` file and `PACKAGE_SHA256SUMS` from the
+same release, verify the package-specific checksum, and install it with pacman:
 
 ```bash
-sudo pacman -U ./veto-bin-<version>-1-x86_64.pkg.tar.zst
+package="veto-bin-<version>-1-x86_64.pkg.tar.zst"
+awk -v file="$package" '$2 == file { print }' PACKAGE_SHA256SUMS | sha256sum -c -
+sudo pacman -U "./$package"
 veto version
 ```
 
 ### Debian or Ubuntu (apt)
 
-Release assets include Debian packages for amd64 and arm64. Install the
-matching package locally with apt:
+Release assets include Debian packages for amd64 and arm64. Download the
+matching package and `PACKAGE_SHA256SUMS` from the same release, verify the
+package-specific checksum, and install the package locally with apt:
 
 ```bash
-sudo apt-get install ./veto_<version>_amd64.deb
+package="veto_<version>_amd64.deb"
+awk -v file="$package" '$2 == file { print }' PACKAGE_SHA256SUMS | sha256sum -c -
+sudo apt-get install "./$package"
 veto version
 ```
 
