@@ -77,6 +77,73 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VETO_BINARY_MANIFEST: .release-preflight/BINARY_SHA256SUMS
 
+      - name: Build Debian packages
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          DIST="$GITHUB_WORKSPACE/dist"
+
+          for GOARCH in amd64 arm64; do
+            ARCHIVE="$DIST/veto_${VERSION}_linux_${GOARCH}.tar.gz"
+            EXTRACT="$(mktemp -d)"
+            tar -xzf "$ARCHIVE" -C "$EXTRACT"
+            BINARY="$(find "$EXTRACT" -type f -name veto -print -quit)"
+            DEB_ARCH=amd64
+            if [[ "$GOARCH" == arm64 ]]; then
+              DEB_ARCH=arm64
+            fi
+            ./scripts/build-deb.sh "$VERSION" "$DEB_ARCH" "$BINARY" "$DIST"
+            rm -rf "$EXTRACT"
+          done
+
+      - name: Build Arch package
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          DIST="$GITHUB_WORKSPACE/dist"
+          mkdir -p "$RUNNER_TEMP/veto-arch-output"
+
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/work:ro" \
+            --volume "$RUNNER_TEMP/veto-arch-output:/output" \
+            --env RELEASE_VERSION="$VERSION" \
+            archlinux:base-devel \
+            bash -euc '
+              pacman -Syu --noconfirm --needed base-devel
+              useradd --create-home builder
+              mkdir -p /tmp/veto-build/scripts /tmp/veto-build/packaging/arch /tmp/veto-build/dist
+              cp /work/scripts/build-arch-package.sh /tmp/veto-build/scripts/
+              cp /work/packaging/arch/PKGBUILD.in /tmp/veto-build/packaging/arch/
+              cp "/work/dist/veto_${RELEASE_VERSION}_linux_amd64.tar.gz" /tmp/veto-build/
+              chown -R builder:builder /tmp/veto-build
+              su builder -s /bin/bash -c "/tmp/veto-build/scripts/build-arch-package.sh ${RELEASE_VERSION} /tmp/veto-build/veto_${RELEASE_VERSION}_linux_amd64.tar.gz /tmp/veto-build/dist"
+              cp /tmp/veto-build/dist/*.pkg.tar.zst /output/
+            '
+
+          cp "$RUNNER_TEMP/veto-arch-output"/*.pkg.tar.zst "$DIST/"
+
+      - name: Verify and upload Linux package artifacts
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          DIST="$GITHUB_WORKSPACE/dist"
+          test -f "$DIST/veto_${VERSION}_amd64.deb"
+          test -f "$DIST/veto_${VERSION}_arm64.deb"
+          test -f "$DIST/veto-bin-${VERSION}-1-x86_64.pkg.tar.zst"
+          (cd "$DIST" && sha256sum veto_*.deb veto-bin-*.pkg.tar.zst > PACKAGE_SHA256SUMS)
+          (cd "$DIST" && sha256sum -c PACKAGE_SHA256SUMS)
+          gh release upload "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            "$DIST"/*.deb "$DIST"/*.pkg.tar.zst "$DIST/PACKAGE_SHA256SUMS" \
+            --clobber
+
       - name: Render Homebrew formula
         if: env.HOMEBREW_TAP_TOKEN != ''
         env:

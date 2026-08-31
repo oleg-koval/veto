@@ -88,15 +88,38 @@ file for the permissions, conditions, and disclaimer.
 
 ## Installation
 
-### Homebrew (recommended)
+### Homebrew (macOS)
 
-Homebrew installs the checksum-pinned release on macOS or Linux:
+On macOS, Homebrew installs the checksum-pinned release:
 
 ```bash
 brew install oleg-koval/tap/veto
 veto version
 veto doctor
 ```
+
+### Arch Linux (pacman)
+
+Release assets include an Arch package for x86_64. Download the matching
+`veto-bin-<version>-1-x86_64.pkg.tar.zst` file and install it with pacman:
+
+```bash
+sudo pacman -U ./veto-bin-<version>-1-x86_64.pkg.tar.zst
+veto version
+```
+
+### Debian or Ubuntu (apt)
+
+Release assets include Debian packages for amd64 and arm64. Install the
+matching package locally with apt:
+
+```bash
+sudo apt-get install ./veto_<version>_amd64.deb
+veto version
+```
+
+These are local release packages. AUR and signed apt-repository publication
+remain separate registry-maintainer steps.
 
 ### Release archive
 
