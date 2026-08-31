@@ -46,6 +46,43 @@ jobs:
       - name: Release packaging dry run
         run: ./scripts/package-release.sh v0.0.0 "$RUNNER_TEMP/veto-release-dist"
 
+      - name: Debian package smoke builds
+        run: |
+          set -euo pipefail
+          release_dist="$RUNNER_TEMP/veto-release-dist"
+          package_dist="$RUNNER_TEMP/veto-package-smoke"
+          mkdir -p "$package_dist"
+
+          for spec in "amd64 linux_amd64" "arm64 linux_arm64"; do
+            read -r deb_arch archive_arch <<<"$spec"
+            extract_dir=$(mktemp -d)
+            tar -xzf "$release_dist/veto_0.0.0_${archive_arch}.tar.gz" -C "$extract_dir"
+            binary=$(find "$extract_dir" -type f -name veto -print -quit)
+            ./scripts/build-deb.sh 0.0.0 "$deb_arch" "$binary" "$package_dist"
+            dpkg-deb --info "$package_dist/veto_0.0.0_${deb_arch}.deb" >/dev/null
+            dpkg-deb --contents "$package_dist/veto_0.0.0_${deb_arch}.deb" \
+              >"$package_dist/veto_0.0.0_${deb_arch}.contents"
+            grep -Fq './usr/bin/veto' "$package_dist/veto_0.0.0_${deb_arch}.contents"
+            rm -rf "$extract_dir"
+          done
+
+      - name: Arch package smoke build
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/veto-arch-smoke"
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/work:ro" \
+            --volume "$RUNNER_TEMP/veto-release-dist:/release:ro" \
+            --volume "$RUNNER_TEMP/veto-arch-smoke:/output" \
+            archlinux:base-devel@sha256:68bfc3b0d277b08a99101dc9b94aaa03e5ae70cf1b4fb965c03b2b87b915760d \
+            bash -euc '
+              pacman -Syu --noconfirm --needed base-devel
+              useradd --create-home builder
+              chown builder:builder /output
+              su builder -s /bin/bash -c "/work/scripts/build-arch-package.sh 0.0.0 /release/veto_0.0.0_linux_amd64.tar.gz /output"
+              pacman -Qp /output/veto-bin-0.0.0-1-x86_64.pkg.tar.zst | grep -Fq "veto-bin 0.0.0-1"
+            '
+
       - name: Homebrew formula rendering smoke
         run: |
           ./scripts/render-homebrew-formula.sh \
