@@ -3,6 +3,18 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0](https://github.com/oleg-koval/veto/compare/v0.6.3...v0.7.0) (2026-08-31)
+
+
+### Features
+
+* add consent controls for future analytics ([#75](https://github.com/oleg-koval/veto/issues/75)) ([0c60253](https://github.com/oleg-koval/veto/commit/0c60253a5c2e65b0c66c3d14dd568385f92903bc))
+
+
+### Bug Fixes
+
+* align provider status tables ([#77](https://github.com/oleg-koval/veto/issues/77)) ([775d7df](https://github.com/oleg-koval/veto/commit/775d7df49d7ddf954b48d5efb2f854413df861c9))
+
 ## [0.6.3](https://github.com/oleg-koval/veto/compare/v0.6.2...v0.6.3) (2026-08-31)
 
 
