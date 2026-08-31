@@ -123,7 +123,7 @@ func currentAnalyticsStatus() (analyticsStatus, error) {
 		LocalRetentionDays:    7,
 		RemoteCollection:      "not_implemented",
 		RemoteSharing:         analyticsPreferenceLabel(cfg.RemoteSharing),
-		PolicyVersion:         cfg.PolicyVersion,
+		PolicyVersion:         analyticsPolicyVersion,
 		RemoteTransportActive: false,
 	}, nil
 }
@@ -202,5 +202,5 @@ func analyticsPreferenceLabel(preference string) string {
 
 func remoteAnalyticsOptedIn() bool {
 	cfg, err := loadAnalyticsConfig()
-	return err == nil && strings.TrimSpace(cfg.RemoteSharing) == analyticsOptIn
+	return err == nil && strings.TrimSpace(cfg.RemoteSharing) == analyticsOptIn && cfg.PolicyVersion == analyticsPolicyVersion
 }
