@@ -3,6 +3,13 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0](https://github.com/oleg-koval/veto/compare/v0.7.0...v0.8.0) (2026-08-31)
+
+
+### Features
+
+* publish Arch and Debian Linux packages ([#79](https://github.com/oleg-koval/veto/issues/79)) ([b256814](https://github.com/oleg-koval/veto/commit/b2568142c1a993e8981244579489fce67d334fa2))
+
 ## [0.7.0](https://github.com/oleg-koval/veto/compare/v0.6.3...v0.7.0) (2026-08-31)
 
 
