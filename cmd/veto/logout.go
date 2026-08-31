@@ -69,21 +69,27 @@ func logoutInteractive() {
 	}
 
 	fmt.Println()
-	fmt.Println("  What would you like to remove?")
+	fmt.Println("  Remove a provider connection or local model from Veto.")
+	fmt.Println("  This does not uninstall the provider or cancel a subscription.")
 	fmt.Println()
+	fmt.Println("  0  Cancel")
 	for i, it := range items {
 		fmt.Printf("  %d  %s\n", i+1, it.label)
 	}
 	fmt.Println()
-	fmt.Printf("  Choice [1-%d]: ", len(items))
+	fmt.Printf("  Choice [0-%d]: ", len(items))
 
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Scan()
 	text := strings.TrimSpace(scanner.Text())
 	var choice int
-	if _, err := fmt.Sscan(text, &choice); err != nil || choice < 1 || choice > len(items) {
+	if _, err := fmt.Sscan(text, &choice); err != nil || choice < 0 || choice > len(items) {
 		fmt.Fprintln(os.Stderr, "\n  Invalid choice.")
 		os.Exit(1)
+	}
+	if choice == 0 {
+		fmt.Println("\n  Cancelled.")
+		return
 	}
 
 	selected := items[choice-1]
