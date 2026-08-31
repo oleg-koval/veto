@@ -511,6 +511,16 @@ The post-run prompt is disabled by default, is only available on a TTY, and can
 be enabled with `post_run_feedback: true` in `~/.veto/config.json`. `run` and
 `exec` accept `--no-feedback` as an explicit per-invocation opt-out.
 
+## Analytics and consent (`cmd/veto/analytics.go`)
+
+Veto's event ledger is local diagnostic telemetry, not remote product
+analytics. `veto analytics status` reports the local seven-day ledger and the
+future remote-sharing preference. `veto analytics enable` and `disable` write
+an explicit, versioned preference to `~/.veto/config.json`; they do not send
+anything because no remote analytics transport exists. A future transport must
+fail closed unless the stored opt-in matches the current policy version and
+must implement the boundary in [`docs/analytics.md`](analytics.md).
+
 ## Installation diagnostics (`cmd/veto/doctor.go`)
 
 `veto doctor` is a separate, provider-free command path. Dispatch bypasses the

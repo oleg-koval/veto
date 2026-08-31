@@ -136,7 +136,9 @@ schedule channel posts unless the owner can cover that response window.
 
 ## Proof and metrics
 
-Veto has no hidden product analytics. Measure the beta with explicit,
+Veto has no hidden remote product analytics. Its diagnostic event ledger stays
+local; any future remote measurement requires the explicit analytics
+preference and the published data contract. Measure the beta with explicit,
 privacy-preserving evidence:
 
 - Activation: a trial participant completes one successful `veto route --json`

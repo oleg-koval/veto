@@ -34,7 +34,7 @@ func main() {
 		return
 	}
 	// Notify once if new skills are pending approval (non-blocking).
-	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" && os.Args[1] != "feedback" && os.Args[1] != "opencode" && os.Args[1] != "hermes" && os.Args[1] != "models" {
+	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" && os.Args[1] != "feedback" && os.Args[1] != "analytics" && os.Args[1] != "opencode" && os.Args[1] != "hermes" && os.Args[1] != "models" {
 		checkPendingSkills()
 	}
 	switch os.Args[1] {
@@ -48,6 +48,8 @@ func main() {
 		cmdDoctor(os.Args[2:])
 	case "feedback":
 		cmdFeedback(os.Args[2:])
+	case "analytics":
+		cmdAnalytics(os.Args[2:])
 	case "opencode":
 		cmdOpenCode(os.Args[2:])
 	case "hermes":
@@ -115,6 +117,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  verify-models      verify catalog IDs against one provider account")
 	fmt.Fprintln(o, "  doctor             diagnose installation and ~/.veto integrity")
 	fmt.Fprintln(o, "  feedback           prepare a redacted bug, feature, or optimization report")
+	fmt.Fprintln(o, "  analytics          view local diagnostics and future remote-sharing preference")
 	fmt.Fprintln(o, "  opencode           connect a runtime or install the OpenCode integration")
 	fmt.Fprintln(o, "  hermes             install or diagnose the native Hermes integration")
 	fmt.Fprintln(o, "  models             list effective models, runtimes, capabilities, and costs")
