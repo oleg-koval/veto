@@ -164,6 +164,11 @@ async function run({ github, context, core, policyPath }) {
     failure = `This PR is blocked because @${login} is blacklisted by the versioned contributor policy. Reason: ${result.reason}`;
   }
 
+  if (!failure && result.classification === 'whitelisted') {
+    core.notice(`Whitelisted contributor @${login}; contributor governance checks skipped by repository policy.`);
+    return;
+  }
+
   const automation = trustedAutomationEntry(policy, pullRequest);
   if (!failure && automation) {
     core.notice(`Trusted automation @${login} matched policy: ${automation.reason || 'configured automation'}`);
