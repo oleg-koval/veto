@@ -1,0 +1,15 @@
+pkgname=veto-bin
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc='Route tasks to the right AI model'
+arch=('x86_64')
+url='https://github.com/oleg-koval/veto'
+license=('Apache-2.0')
+depends=('glibc')
+options=(!debug)
+source=('veto')
+sha256sums=('@BINARY_SHA256@')
+
+package() {
+  install -Dm755 "${srcdir}/veto" "${pkgdir}/usr/bin/veto"
+}

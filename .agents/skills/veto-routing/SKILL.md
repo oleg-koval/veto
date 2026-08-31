@@ -9,6 +9,26 @@ compatibility: Requires shell access and the Veto CLI; compatible with Codex, Cl
 Use Veto as a model-selection and execution layer. It does not expand the
 user's authorization, validate generated output, or guarantee quality or cost.
 
+## Install Veto
+
+Use the platform-native release path before suggesting a source build:
+
+- Arch Linux: download `veto-bin-<version>-1-x86_64.pkg.tar.zst` and
+  `PACKAGE_SHA256SUMS`, verify the package-specific manifest entry with
+  `awk -v file="veto-bin-<version>-1-x86_64.pkg.tar.zst" '$2 == file { print }' PACKAGE_SHA256SUMS | sha256sum -c -`,
+  then install it with `pacman -U`.
+- Debian or Ubuntu: download `veto_<version>_<arch>.deb` and
+  `PACKAGE_SHA256SUMS`, verify the package-specific manifest entry with
+  `awk -v file="veto_<version>_<arch>.deb" '$2 == file { print }' PACKAGE_SHA256SUMS | sha256sum -c -`,
+  then install it with `apt-get install ./veto_<version>_<arch>.deb`.
+- macOS: use `brew install oleg-koval/tap/veto`.
+- Any supported platform: use a verified GitHub release archive or
+  `GOBIN="$HOME/.local/bin" go install github.com/oleg-koval/veto/cmd/veto@latest`.
+
+Do not present Homebrew as the default Linux installation path. After
+installation, confirm `command -v veto`, then run `veto version` and
+`veto providers`.
+
 ## Before a model call
 
 1. Confirm the CLI is available with `command -v veto`. Inside the Veto source

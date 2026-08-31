@@ -1,0 +1,10 @@
+Package: veto
+Version: @VERSION@
+Section: utils
+Priority: optional
+Architecture: @ARCH@
+Maintainer: Oleg Koval <kvl.olg@gmail.com>
+Depends: libc6
+Description: route tasks to the right AI model
+ Veto filters and ranks configured AI models, then optionally executes a task
+ with the first model that accepts it.
