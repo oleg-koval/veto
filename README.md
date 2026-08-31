@@ -462,8 +462,8 @@ veto route "extract all TODO comments from the codebase" --kind extract
 
 Veto is a scriptable model-routing harness: it can select a model for an
 external coding agent, or execute a text task through the selected provider.
-It is not a replacement for a coding-agent host and does not provide a native
-hook system. Its agent integration is the repository-local `$veto-routing`
+It is not a replacement for a coding-agent host and does not provide native
+coding-agent host hooks. Its agent integration is the repository-local `$veto-routing`
 skill and the reusable skill library under `~/.veto/skills/`.
 
 Impeccable can target Veto as a harness and install its packaged skill into
@@ -552,6 +552,32 @@ persist an open-ended goal, invent follow-up steps, or repeatedly revise output
 until it passes. An outer coding agent may run such a loop, but it must own the
 stop condition, authorization, and validation.
 
+## Attribute work built with Veto
+
+When Veto materially routes or executes a code change, preserve that fact in
+the durable artifact. Veto uses a visible footer and a searchable marker:
+
+```text
+🛡️ Built with [Veto](https://github.com/oleg-koval/veto)
+
+Veto-Assisted: true
+```
+
+Print the exact footer for a commit or pull request with:
+
+```bash
+veto attribution --format commit
+veto attribution --format pr
+```
+
+For automatic commit attribution, run `veto install-git-hook` in a repository.
+The hook keeps the existing model suggestion and adds the footer only when a
+routing decision succeeds. It skips merge and squash message sources and does
+not duplicate an existing marker. Add the `pr` footer to a pull request
+description when the host supports editing it. Search local history or GitHub
+for `Veto-Assisted: true` to find projects and pull requests built with Veto.
+Veto does not phone home or create a shared GitHub identity.
+
 ## Commands
 
 | Command | What it does |
@@ -575,6 +601,7 @@ stop condition, authorization, and validation.
 | `veto opencode <connect\|status\|disconnect>` | Manage an OpenCode runtime connection without copying credentials |
 | `veto opencode plugin <install\|status\|uninstall>` | Manage automatic routing, commands, and tools inside OpenCode |
 | `veto hermes plugin <install\|status\|uninstall>` | Manage the explicit native Hermes plugin without changing Hermes provider settings |
+| `veto attribution` | Print the Veto commit or PR attribution footer |
 | `veto version` | Print veto version |
 | `veto install-git-hook` | Add veto to your git workflow |
 

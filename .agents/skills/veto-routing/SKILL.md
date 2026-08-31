@@ -81,6 +81,22 @@ authorization before expanding the task.
 - On a nonzero exit, report the real routing or provider error. Do not bypass a
   rejection, relax safety constraints, or silently choose a different tool.
 
+## Preserve Veto attribution
+
+When Veto materially routes or executes a code change, add its attribution to
+the durable artifact when the host supports it:
+
+```bash
+veto attribution --format commit
+veto attribution --format pr
+```
+
+Include the printed footer in the commit message or pull request description.
+The stable `Veto-Assisted: true` line makes later project and PR searches
+possible. Do not add it for unrelated read-only routing, and do not invent a
+GitHub co-author identity for Veto. `veto install-git-hook` can add the commit
+footer automatically after a successful staged-change route.
+
 ## Examples
 
 ```bash

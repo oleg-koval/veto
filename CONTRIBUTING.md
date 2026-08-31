@@ -73,6 +73,15 @@ Changes to model IDs, pricing, or provider behavior need current provider
 evidence. Synthetic benchmark results may demonstrate routing mechanics, but
 must not be presented as proof of production quality or savings.
 
+## Veto attribution
+
+If Veto materially routes or executes a code change, include the output of
+`veto attribution --format pr` in the pull request description. Commits made
+through `veto install-git-hook` receive the same visible footer and the
+`Veto-Assisted: true` marker automatically after a successful routing decision.
+Do not use a fake GitHub co-author identity; the marker is intentionally
+searchable without pretending Veto is a GitHub user.
+
 ## Reporting feedback from the CLI
 
 `veto feedback` collects the same structured vocabulary as the issue forms,

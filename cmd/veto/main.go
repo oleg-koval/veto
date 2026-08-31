@@ -43,7 +43,7 @@ func main() {
 		return
 	}
 	// Notify once if new skills are pending approval (non-blocking).
-	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" && os.Args[1] != "feedback" && os.Args[1] != "analytics" && os.Args[1] != "opencode" && os.Args[1] != "hermes" && os.Args[1] != "models" && os.Args[1] != "tui" && os.Args[1] != "start" && os.Args[1] != "unavailable" && os.Args[1] != "experiment" {
+	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" && os.Args[1] != "feedback" && os.Args[1] != "analytics" && os.Args[1] != "opencode" && os.Args[1] != "hermes" && os.Args[1] != "models" && os.Args[1] != "attribution" && os.Args[1] != "tui" && os.Args[1] != "start" && os.Args[1] != "unavailable" && os.Args[1] != "experiment" {
 		checkPendingSkills()
 	}
 	switch os.Args[1] {
@@ -70,6 +70,8 @@ func main() {
 		cmdHermes(os.Args[2:])
 	case "models":
 		cmdModels(os.Args[2:])
+	case "attribution":
+		cmdAttribution(os.Args[2:])
 	case "run":
 		cmdRun(os.Args[2:])
 	case "providers":
@@ -158,6 +160,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  opencode           connect a runtime or install the OpenCode integration")
 	fmt.Fprintln(o, "  hermes             install or diagnose the native Hermes integration")
 	fmt.Fprintln(o, "  models             list effective models, runtimes, capabilities, and costs")
+	fmt.Fprintln(o, "  attribution        print the Veto commit or PR attribution footer")
 	fmt.Fprintln(o, "  providers          show which providers are configured")
 	fmt.Fprintln(o, "  disable            exclude a model from routing")
 	fmt.Fprintln(o, "  enable             restore a model to routing eligibility")

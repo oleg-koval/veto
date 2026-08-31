@@ -592,6 +592,21 @@ reuses the doctor trust path: both manifests, archive containment, binary hash,
 candidate version, path ownership, permissions, and rollback behavior must all
 pass. See [ADR-004](decisions/ADR-004-automated-releases-and-consented-updates.md).
 
+## Attribution (`cmd/veto/attribution.go`)
+
+Veto attribution is explicit and local. `veto attribution --format commit` or
+`veto attribution --format pr` prints a visible shield-marked footer plus the stable `Veto-Assisted: true`
+marker. The marker is suitable for searching commit history and pull request
+descriptions later. Veto does not send attribution telemetry or claim a shared
+GitHub co-author account.
+
+`veto install-git-hook` installs a `prepare-commit-msg` hook that runs the
+existing staged-change routing suggestion and adds the attribution only when
+that route returns a model. Merge and squash message sources are skipped, and
+an existing marker is not duplicated. Pull request descriptions must be
+attributed by the coding-agent host or contributor using the printed `pr`
+footer; Veto has no GitHub write client.
+
 ## Credential storage
 
 `veto login` stores API keys in `~/.veto/credentials.json` (mode 0600, JSON object of `ENV_KEY → value`). At runtime, environment variables take precedence — the credentials file is only consulted when the env var is absent. OpenRouter browser login uses its documented S256 PKCE flow, an ephemeral IPv4 loopback listener, and a random callback-path nonce. Only the exchanged Veto-owned key is persisted; the verifier, authorization code, and callback nonce remain in memory. Manual key entry remains supported.

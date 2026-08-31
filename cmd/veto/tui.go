@@ -555,9 +555,7 @@ func installGitHookFile(force bool) (string, error) {
 	if existing, err := os.ReadFile(hookPath); err == nil && !force && !strings.Contains(string(existing), hookMarker) {
 		return "", fmt.Errorf("%s already exists and was not installed by veto; re-run with --force to overwrite it", hookPath)
 	}
-	script := "#!/bin/sh\n# " + hookMarker + "\n" +
-		"MODEL=$(veto route --quiet --task \"$(git diff --cached --stat)\" 2>/dev/null)\n" +
-		"if [ -n \"$MODEL\" ]; then\n  printf '\\n# veto suggested model: %s\\n' \"$MODEL\" >> \"$1\"\nfi\n"
+	script := vetoGitHookScript()
 	if err := os.WriteFile(hookPath, []byte(script), 0755); err != nil {
 		return "", err
 	}

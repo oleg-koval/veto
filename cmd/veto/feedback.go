@@ -22,7 +22,7 @@ import (
 const (
 	feedbackSchemaVersion = 1
 	maxFeedbackURLLength  = 6000
-	githubRepository      = "https://github.com/oleg-koval/veto"
+	githubRepository      = vetoRepositoryURL
 	githubLoginURL        = "https://github.com/login"
 	githubSignupURL       = "https://github.com/signup"
 )
