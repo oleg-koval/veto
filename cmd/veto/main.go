@@ -573,8 +573,7 @@ func cmdInstallGitHook(args []string) {
 // cmdProviders prints which provider API keys are configured and their source.
 func cmdProviders() {
 	creds, _ := loadCredentials()
-	fmt.Printf("%-14s  %-18s  %s\n", "provider", "status", "models")
-	fmt.Printf("%-14s  %-18s  %s\n", "──────────────", "──────────────────", "──────────────────────")
+	providerRows := make([][]string, 0, len(knownProviders)+2)
 	configured := 0
 	if auth := codexCLIAuthentication(); auth != codexAuthNone {
 		status := "authenticated (cli)"
@@ -583,7 +582,7 @@ func cmdProviders() {
 		} else if auth == codexAuthAPIKey {
 			status = "API key (cli)"
 		}
-		fmt.Printf("%-14s  %-18s  %s\n", "Codex", status, "codex")
+		providerRows = append(providerRows, []string{"Codex", status, "codex"})
 		configured++
 	}
 	for _, p := range knownProviders {
@@ -592,42 +591,44 @@ func cmdProviders() {
 		if p.envKey == "ANTHROPIC_API_KEY" {
 			switch {
 			case os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true":
-				fmt.Printf("%-14s  %-18s  %s\n", p.name, "subscription (cli)", "Claude Haiku, Sonnet, Opus")
+				providerRows = append(providerRows, []string{p.name, "subscription (cli)", "Claude Haiku, Sonnet, Opus"})
 				configured++
 			case os.Getenv(p.envKey) != "":
-				fmt.Printf("%-14s  %-18s  %s\n", p.name, "env var", models)
+				providerRows = append(providerRows, []string{p.name, "env var", models})
 				configured++
 			case creds[p.envKey] != "":
-				fmt.Printf("%-14s  %-18s  %s\n", p.name, "veto login", models)
+				providerRows = append(providerRows, []string{p.name, "veto login", models})
 				configured++
 			default:
-				fmt.Printf("%-14s  %-18s  run 'veto login'\n", p.name, "not set")
+				providerRows = append(providerRows, []string{p.name, "not set", "run 'veto login'"})
 			}
 			continue
 		}
 		switch {
 		case os.Getenv(p.envKey) != "":
-			fmt.Printf("%-14s  %-18s  %s\n", p.name, "env var", models)
+			providerRows = append(providerRows, []string{p.name, "env var", models})
 			configured++
 		case creds[p.envKey] != "":
-			fmt.Printf("%-14s  %-18s  %s\n", p.name, "veto login", models)
+			providerRows = append(providerRows, []string{p.name, "veto login", models})
 			configured++
 		default:
-			fmt.Printf("%-14s  %-18s  run 'veto login'\n", p.name, "not set")
+			providerRows = append(providerRows, []string{p.name, "not set", "run 'veto login'"})
 		}
 	}
 	if config, ok, err := loadOpenCodeConfig(vetoCfgPath()); err == nil && ok {
-		fmt.Printf("%-14s  %-18s  %s\n", "OpenCode", string(config.Mode), "run 'veto opencode status'")
+		providerRows = append(providerRows, []string{"OpenCode", string(config.Mode), "run 'veto opencode status'"})
 		configured++
 	}
+	printCLITable([]string{"provider", "status", "models"}, providerRows)
+
 	locals, _ := loadLocalModels()
 	if len(locals) > 0 {
 		fmt.Println()
-		fmt.Printf("%-14s  %-18s  %s\n", "local model", "endpoint", "model id")
-		fmt.Printf("%-14s  %-18s  %s\n", "─────────────", "──────────────────", "─────────────────")
+		localRows := make([][]string, 0, len(locals))
 		for _, lm := range locals {
-			fmt.Printf("%-14s  %-18s  %s\n", lm.Name, lm.Endpoint, lm.Model)
+			localRows = append(localRows, []string{lm.Name, lm.Endpoint, lm.Model})
 		}
+		printCLITable([]string{"local model", "endpoint", "model id"}, localRows)
 		configured += len(locals)
 	}
 
