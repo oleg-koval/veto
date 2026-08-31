@@ -2,6 +2,9 @@
 
 veto routes tasks to AI models through a three-stage pipeline: hard filtering, scoring, and admission gating. Each stage narrows the candidate list; the first model to pass all three wins.
 
+For a dependency-rule and boundary assessment of the complete codebase, see
+the [clean architecture evaluation](architecture-evaluation.md).
+
 ## Pipeline overview
 
 ```
