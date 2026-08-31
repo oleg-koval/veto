@@ -106,7 +106,8 @@ func runAnalyticsCommand(args []string, output, diagnostics io.Writer) int {
 
 func printAnalyticsUsage(w io.Writer) {
 	fmt.Fprintln(w, "USAGE")
-	fmt.Fprintln(w, "  veto analytics <status|enable|disable> [--json]")
+	fmt.Fprintln(w, "  veto analytics status [--json]")
+	fmt.Fprintln(w, "  veto analytics enable|disable")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Local diagnostic events stay on this machine. Remote analytics are not implemented.")
 	fmt.Fprintln(w, "Enable records an opt-in preference for a future reviewed export; it sends nothing today.")
