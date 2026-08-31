@@ -743,9 +743,9 @@ metadata policy before it can use the stored opt-in. See
 make test     # go test -race -timeout 120s ./...
 make build    # build with version injected from git tag (or "dev")
 make lint     # go vet ./...
-make release RELEASE_VERSION=0.1.0  # validate release, then print tagging instructions
+make release RELEASE_VERSION=0.0.0  # local release dry run; do not publish
 release_dist=$(mktemp -d)
-./scripts/package-release.sh v0.1.0 "${release_dist}"  # local release dry run
+./scripts/package-release.sh v0.0.0 "${release_dist}"  # local release dry run
 ```
 
 The binary embeds the normalized version without the leading `v` (`veto version`). A versioned `go install` resolves the same public version through Go build metadata while remaining honestly labeled as a source build. CI runs on every push and PR to `main`, including local release-packaging and Homebrew-formula dry runs. Conventional commits on `main` maintain a Release Please pull request (`fix` increments patch, `feat` increments minor, and a breaking change increments major). Merging that release PR creates the tag and GitHub release, then explicitly starts the existing release workflow. That workflow runs the offline gates before GoReleaser publishes six Darwin/Linux/Windows amd64/arm64 archives plus `SHA256SUMS` and `BINARY_SHA256SUMS`. When `HOMEBREW_TAP_TOKEN` is configured, it also publishes the checksum-pinned Homebrew formula. Every GoReleaser binary is checked against the binary manifest before publication. Nothing is published unless all applicable gates and checksum verification pass.

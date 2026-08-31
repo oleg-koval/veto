@@ -136,9 +136,9 @@ schedule channel posts unless the owner can cover that response window.
 
 ## Proof and metrics
 
-Veto has no hidden remote product analytics. Its diagnostic event ledger stays
-local; any future remote measurement requires the explicit analytics
-preference and the published data contract. Measure the beta with explicit,
+Veto's diagnostic event ledger is local-only and redacted; remote analytics are
+not implemented. Any future remote measurement requires the explicit analytics
+preference and a published data contract. Measure the beta with explicit,
 privacy-preserving evidence:
 
 - Activation: a trial participant completes one successful `veto route --json`
@@ -166,8 +166,9 @@ successful routes into one vanity metric.
 - Cost and token values may be estimates or unknown depending on the provider.
 - Provider model catalogs, access, and pricing can drift; verify release accounts
   immediately before launch.
-- API and local OpenAI-compatible transports are text-only through Veto. Only the
-  current Claude CLI transport exposes executable tools.
+- API and local OpenAI-compatible transports are text-only through Veto. Claude
+  and Codex CLI transports expose executable tools; OpenCode is limited by its
+  existing permission policy.
 - v0.6.3 is a beta, not a production-readiness claim. Archive and binary
   checksums detect corruption and release mismatch but are not signatures.
 - Launch preparation improves comprehension and distribution; it does not
