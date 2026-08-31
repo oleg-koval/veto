@@ -295,7 +295,7 @@ func saveOpenCodeConfig(path string, config opencodert.Config) error {
 	if err := validateOpenCodeConfig(config); err != nil {
 		return err
 	}
-	return mutateOpenCodeConfig(path, func(full map[string]json.RawMessage) error {
+	return mutateVetoConfig(path, func(full map[string]json.RawMessage) error {
 		raw, err := json.Marshal(config)
 		if err != nil {
 			return err
@@ -309,13 +309,13 @@ func removeOpenCodeConfig(path string) error {
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	return mutateOpenCodeConfig(path, func(full map[string]json.RawMessage) error {
+	return mutateVetoConfig(path, func(full map[string]json.RawMessage) error {
 		delete(full, "opencode")
 		return nil
 	})
 }
 
-func mutateOpenCodeConfig(path string, mutate func(map[string]json.RawMessage) error) error {
+func mutateVetoConfig(path string, mutate func(map[string]json.RawMessage) error) error {
 	full := make(map[string]json.RawMessage)
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
