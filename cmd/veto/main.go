@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/oleg-koval/veto/internal/adapter/routinghistory"
+	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/oleg-koval/veto/pkg/executor"
 	opencodert "github.com/oleg-koval/veto/pkg/opencode"
 	"github.com/oleg-koval/veto/pkg/router"
@@ -261,7 +263,7 @@ func cmdRoute(args []string) {
 	gate.SetTimeout(*timeout)
 	// FileStore persists accept/reject history so it compounds across runs and
 	// feeds future ranking — see NewManager wiring below.
-	store := router.NewFileStore(historyPath())
+	store := routinghistory.NewFileStore(historyPath())
 	mgr := router.NewManager(modelReg, gate, store)
 	mgr.SetCandidatePreferences(loadCandidatePreferences())
 
@@ -664,13 +666,52 @@ func catalogModelDescription(provider string) string {
 // providerRegistry maps model names to their executors and capabilities.
 // Lives here so cmd imports both pkg/executor and pkg/router without circular deps.
 type providerRegistry struct {
-	executors map[string]executor.RuntimeAdapter
+	executors map[string]execution.RuntimeAdapter
 	caps      map[string]router.ModelCapabilities
+}
+
+// admissionExecutorAdapter keeps the router's admission contract independent
+// from the concrete runtime result and tool capability types.
+type admissionExecutorAdapter struct {
+	runtime execution.RuntimeAdapter
+}
+
+var (
+	_ router.Executor        = admissionExecutorAdapter{}
+	_ router.ToolProvider    = admissionExecutorAdapter{}
+	_ router.ExecutorFactory = (*providerRegistry)(nil)
+)
+
+func (a admissionExecutorAdapter) Run(ctx context.Context, prompt string) router.AdmissionResult {
+	result := a.runtime.Run(ctx, prompt)
+	return router.AdmissionResult{Output: result.Output, Error: result.Error}
+}
+
+func (a admissionExecutorAdapter) AdmissionTools() router.ToolCapabilities {
+	capabilities := router.ToolCapabilities{Known: true}
+	if status, ok := a.runtime.(execution.ToolCapabilityStatus); ok {
+		capabilities.Known = status.EffectiveToolsKnown()
+	}
+	if provider, ok := a.runtime.(execution.ToolProvider); ok {
+		capabilities.Tools = append([]string(nil), provider.EffectiveTools()...)
+	} else {
+		// A runtime without a tool provider is text-only.
+		capabilities.Tools = nil
+	}
+	return capabilities
 }
 
 func (r *providerRegistry) For(name string) (router.Executor, bool) {
 	e, ok := r.executors[name]
-	return e, ok
+	if !ok || e == nil {
+		return nil, false
+	}
+	return admissionExecutorAdapter{runtime: e}, true
+}
+
+func (r *providerRegistry) RuntimeFor(name string) (execution.RuntimeAdapter, bool) {
+	e, ok := r.executors[name]
+	return e, ok && e != nil
 }
 
 // modelCaps returns the capability list for all configured models (built-ins + locals).
@@ -694,7 +735,7 @@ func (r *providerRegistry) modelCapsForRuntimeProvider(runtimeID, providerID str
 		c.SupportsTools = []string{}
 		if exec := r.executors[name]; exec != nil {
 			c.Runtime = exec.RuntimeID()
-			if status, ok := exec.(executor.ToolCapabilityStatus); ok && !status.EffectiveToolsKnown() {
+			if status, ok := exec.(execution.ToolCapabilityStatus); ok && !status.EffectiveToolsKnown() {
 				c.SupportsTools = nil
 			} else {
 				c.SupportsTools = append([]string{}, exec.EffectiveTools()...)
@@ -721,11 +762,11 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 	disabled := loadDisabledModels()
 	preferences := loadCandidatePreferences()
 	reg := &providerRegistry{
-		executors: make(map[string]executor.RuntimeAdapter),
+		executors: make(map[string]execution.RuntimeAdapter),
 		caps:      make(map[string]router.ModelCapabilities),
 	}
 
-	addBuiltin := func(model router.ModelCapabilities, exec executor.RuntimeAdapter) {
+	addBuiltin := func(model router.ModelCapabilities, exec execution.RuntimeAdapter) {
 		if disabled[model.Name] {
 			return
 		}
@@ -742,7 +783,7 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 		"openrouter": getKey("OPENROUTER_API_KEY", creds),
 	}
 	for _, model := range catalog.All() {
-		var modelExecutor executor.RuntimeAdapter
+		var modelExecutor execution.RuntimeAdapter
 		switch model.Provider {
 		case "anthropic":
 			if subscription {

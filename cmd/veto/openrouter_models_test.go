@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/oleg-koval/veto/pkg/executor"
+	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/oleg-koval/veto/pkg/openroutercatalog"
 	"github.com/oleg-koval/veto/pkg/router"
 	"github.com/stretchr/testify/assert"
@@ -49,7 +49,7 @@ func TestOpenRouterCatalogCapabilitiesPreserveUnknownValues(t *testing.T) {
 
 func TestAddOpenRouterCatalogModelsAppliesPolicyAndPreservesCuratedBinding(t *testing.T) {
 	reg := &providerRegistry{
-		executors: map[string]executor.RuntimeAdapter{"keep": textOnlyTestExecutor{}},
+		executors: map[string]execution.RuntimeAdapter{"keep": textOnlyTestExecutor{}},
 		caps:      map[string]router.ModelCapabilities{"keep": {Name: "keep", Tier: "large"}},
 	}
 	models := []openroutercatalog.Model{

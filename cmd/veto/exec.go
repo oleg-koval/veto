@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/oleg-koval/veto/pkg/executor"
+	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/oleg-koval/veto/pkg/router"
 	"golang.org/x/term"
 )
@@ -23,7 +23,7 @@ func cmdExec(args []string) {
 	quiet := fs.Bool("quiet", false, "suppress routing pipeline — print model output only")
 	dryRun := fs.Bool("dry-run", false, "print steps without executing")
 	timeout := fs.Duration("timeout", 60*time.Second, "per-step timeout")
-	maxOutputTokens := fs.Int("max-output-tokens", executor.DefaultExecutionMaxTokens, "maximum output tokens per step")
+	maxOutputTokens := fs.Int("max-output-tokens", execution.DefaultExecutionMaxTokens, "maximum output tokens per step")
 	onFailure := fs.String("on-failure", "", "abort-ask|abort|continue (default from config or abort-ask)")
 	noFeedback := fs.Bool("no-feedback", false, "disable the opt-in post-run feedback prompt")
 	_ = fs.Parse(args)
@@ -103,7 +103,7 @@ func cmdExec(args []string) {
 		skillNames, skillBodies := resolveSkills(stepCtx, reg, mgr, spec)
 		render.PrintSkills(skillNames)
 
-		modelName, output, execErr := routeAndCaptureWithOptions(stepCtx, reg, mgr, render, spec, skillBodies, executor.ExecutionOptions{MaxOutputTokens: *maxOutputTokens})
+		modelName, output, execErr := routeAndCaptureWithOptions(stepCtx, reg, mgr, render, spec, skillBodies, execution.ExecutionOptions{MaxOutputTokens: *maxOutputTokens})
 		cancel()
 
 		if execErr != nil {

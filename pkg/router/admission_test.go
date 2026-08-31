@@ -6,16 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oleg-koval/veto/pkg/executor"
-	"github.com/oleg-koval/veto/pkg/router/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAdmissionGate_Accept(t *testing.T) {
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
-			return executor.Result{
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, _ string) AdmissionResult {
+			return AdmissionResult{
 				Output: `{"accept":true,"confidence":0.9,"reason_codes":[],"estimated_tokens":500,"estimated_cost_usd":0.001}`,
 			}
 		},
@@ -32,9 +30,9 @@ func TestAdmissionGate_Accept(t *testing.T) {
 }
 
 func TestAdmissionGate_Reject(t *testing.T) {
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
-			return executor.Result{
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, _ string) AdmissionResult {
+			return AdmissionResult{
 				Output: `{"accept":false,"confidence":0.8,"reason_codes":["CONTEXT_TOO_LARGE"]}`,
 			}
 		},
@@ -47,9 +45,9 @@ func TestAdmissionGate_Reject(t *testing.T) {
 }
 
 func TestAdmissionGate_ParseFailure_SoftReject(t *testing.T) {
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
-			return executor.Result{Output: "Sorry, I can't help with that."}
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, _ string) AdmissionResult {
+			return AdmissionResult{Output: "Sorry, I can't help with that."}
 		},
 	}
 	gate := NewAdmissionGate(exec)
@@ -61,9 +59,9 @@ func TestAdmissionGate_ParseFailure_SoftReject(t *testing.T) {
 }
 
 func TestAdmissionGate_ExecError_HardReject(t *testing.T) {
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
-			return executor.Result{Error: errors.New("process killed")}
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, _ string) AdmissionResult {
+			return AdmissionResult{Error: errors.New("process killed")}
 		},
 	}
 	gate := NewAdmissionGate(exec)
@@ -74,10 +72,10 @@ func TestAdmissionGate_ExecError_HardReject(t *testing.T) {
 }
 
 func TestAdmissionGate_ConfigurableTimeout(t *testing.T) {
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(ctx context.Context, _ string) executor.Result {
+	exec := &executorMock{
+		RunFunc: func(ctx context.Context, _ string) AdmissionResult {
 			<-ctx.Done()
-			return executor.Result{Error: ctx.Err()}
+			return AdmissionResult{Error: ctx.Err()}
 		},
 	}
 	gate := NewAdmissionGate(exec)
@@ -91,9 +89,9 @@ func TestAdmissionGate_ConfigurableTimeout(t *testing.T) {
 
 func TestAdmissionGate_JSONWithLeadingText(t *testing.T) {
 	// model sometimes prepends "Here is my response:" — we tolerate framing text
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
-			return executor.Result{
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, _ string) AdmissionResult {
+			return AdmissionResult{
 				Output: `Here is my response: {"accept":true,"confidence":0.85,"reason_codes":[]}`,
 			}
 		},
@@ -194,9 +192,9 @@ func TestParseAdmissionJSON(t *testing.T) {
 }
 
 func TestAdmissionGate_LowConfidenceAccept_Rejected(t *testing.T) {
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
-			return executor.Result{
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, _ string) AdmissionResult {
+			return AdmissionResult{
 				Output: `{"accept":true,"confidence":0.5,"reason_codes":[]}`,
 			}
 		},
@@ -209,9 +207,9 @@ func TestAdmissionGate_LowConfidenceAccept_Rejected(t *testing.T) {
 }
 
 func TestAdmissionGate_AcceptOverEstimatedCostCeiling_Rejected(t *testing.T) {
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, _ string) executor.Result {
-			return executor.Result{Output: `{"accept":true,"confidence":0.95,"estimated_cost_usd":0.02}`}
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, _ string) AdmissionResult {
+			return AdmissionResult{Output: `{"accept":true,"confidence":0.95,"estimated_cost_usd":0.02}`}
 		},
 	}
 	gate := NewAdmissionGate(exec)
@@ -224,10 +222,10 @@ func TestAdmissionGate_AcceptOverEstimatedCostCeiling_Rejected(t *testing.T) {
 
 func TestAdmissionGate_PromptIncludesModelInfo(t *testing.T) {
 	var capturedPrompt string
-	exec := &mocks.ExecutorMock{
-		RunFunc: func(_ context.Context, prompt string) executor.Result {
+	exec := &executorMock{
+		RunFunc: func(_ context.Context, prompt string) AdmissionResult {
 			capturedPrompt = prompt
-			return executor.Result{Output: `{"accept":true,"confidence":0.8,"reason_codes":[]}`}
+			return AdmissionResult{Output: `{"accept":true,"confidence":0.8,"reason_codes":[]}`}
 		},
 	}
 	gate := NewAdmissionGate(exec)
@@ -255,16 +253,16 @@ func TestNewAdmissionGateWithFactory_RoutesPerModel(t *testing.T) {
 	sonnetCalled := false
 
 	factory := &factoryMock{executors: map[string]Executor{
-		"haiku": &mocks.ExecutorMock{
-			RunFunc: func(_ context.Context, _ string) executor.Result {
+		"haiku": &executorMock{
+			RunFunc: func(_ context.Context, _ string) AdmissionResult {
 				haikuCalled = true
-				return executor.Result{Output: `{"accept":true,"confidence":0.9,"reason_codes":[]}`}
+				return AdmissionResult{Output: `{"accept":true,"confidence":0.9,"reason_codes":[]}`}
 			},
 		},
-		"sonnet": &mocks.ExecutorMock{
-			RunFunc: func(_ context.Context, _ string) executor.Result {
+		"sonnet": &executorMock{
+			RunFunc: func(_ context.Context, _ string) AdmissionResult {
 				sonnetCalled = true
-				return executor.Result{Output: `{"accept":true,"confidence":0.8,"reason_codes":[]}`}
+				return AdmissionResult{Output: `{"accept":true,"confidence":0.8,"reason_codes":[]}`}
 			},
 		},
 	}}

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oleg-koval/veto/pkg/executor"
+	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/oleg-koval/veto/pkg/router"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,9 +81,9 @@ func TestBuildProviderRegistryMarksAPIKeyCodexCostUnknown(t *testing.T) {
 
 type textOnlyTestExecutor struct{}
 
-func (textOnlyTestExecutor) Run(context.Context, string) executor.Result { return executor.Result{} }
-func (textOnlyTestExecutor) Execute(context.Context, string, executor.ExecutionOptions) executor.Result {
-	return executor.Result{}
+func (textOnlyTestExecutor) Run(context.Context, string) execution.Result { return execution.Result{} }
+func (textOnlyTestExecutor) Execute(context.Context, string, execution.ExecutionOptions) execution.Result {
+	return execution.Result{}
 }
 func (textOnlyTestExecutor) RuntimeID() string        { return "test-text" }
 func (textOnlyTestExecutor) EffectiveTools() []string { return nil }
@@ -94,7 +94,7 @@ func (toolTestExecutor) EffectiveTools() []string { return []string{"read"} }
 
 func TestProviderRegistryModelCapsUseEffectiveTransportTools(t *testing.T) {
 	reg := &providerRegistry{
-		executors: map[string]executor.RuntimeAdapter{
+		executors: map[string]execution.RuntimeAdapter{
 			"api": textOnlyTestExecutor{},
 			"cli": toolTestExecutor{},
 		},
@@ -120,9 +120,30 @@ func TestProviderRegistryModelCapsUseEffectiveTransportTools(t *testing.T) {
 	}, got["api"].Identity())
 }
 
+func TestProviderRegistryAdmissionAdapterPreservesToolKnowledge(t *testing.T) {
+	reg := &providerRegistry{
+		executors: map[string]execution.RuntimeAdapter{
+			"known":   toolTestExecutor{},
+			"unknown": unknownToolsTestExecutor{},
+		},
+	}
+
+	known, ok := reg.For("known")
+	require.True(t, ok)
+	knownTools, ok := known.(router.ToolProvider)
+	require.True(t, ok)
+	assert.Equal(t, router.ToolCapabilities{Tools: []string{"read"}, Known: true}, knownTools.AdmissionTools())
+
+	unknown, ok := reg.For("unknown")
+	require.True(t, ok)
+	unknownTools, ok := unknown.(router.ToolProvider)
+	require.True(t, ok)
+	assert.Equal(t, router.ToolCapabilities{Known: false}, unknownTools.AdmissionTools())
+}
+
 func TestProviderRegistryModelCapsFiltersExactRuntime(t *testing.T) {
 	reg := &providerRegistry{
-		executors: map[string]executor.RuntimeAdapter{"direct": textOnlyTestExecutor{}, "open": runtimeTestExecutor{id: "opencode"}},
+		executors: map[string]execution.RuntimeAdapter{"direct": textOnlyTestExecutor{}, "open": runtimeTestExecutor{id: "opencode"}},
 		caps:      map[string]router.ModelCapabilities{"direct": {Name: "direct"}, "open": {Name: "open"}},
 	}
 
@@ -135,7 +156,7 @@ func TestProviderRegistryModelCapsFiltersExactRuntime(t *testing.T) {
 
 func TestProviderRegistryModelCapsFiltersProviderForHermesPin(t *testing.T) {
 	reg := &providerRegistry{
-		executors: map[string]executor.RuntimeAdapter{
+		executors: map[string]execution.RuntimeAdapter{
 			"openai":    textOnlyTestExecutor{},
 			"anthropic": textOnlyTestExecutor{},
 		},
@@ -152,9 +173,9 @@ func TestProviderRegistryModelCapsFiltersProviderForHermesPin(t *testing.T) {
 
 type runtimeTestExecutor struct{ id string }
 
-func (r runtimeTestExecutor) Run(context.Context, string) executor.Result { return executor.Result{} }
-func (r runtimeTestExecutor) Execute(context.Context, string, executor.ExecutionOptions) executor.Result {
-	return executor.Result{}
+func (r runtimeTestExecutor) Run(context.Context, string) execution.Result { return execution.Result{} }
+func (r runtimeTestExecutor) Execute(context.Context, string, execution.ExecutionOptions) execution.Result {
+	return execution.Result{}
 }
 func (r runtimeTestExecutor) RuntimeID() string      { return r.id }
 func (runtimeTestExecutor) EffectiveTools() []string { return nil }

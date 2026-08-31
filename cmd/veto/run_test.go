@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/oleg-koval/veto/pkg/executor"
 	"github.com/oleg-koval/veto/pkg/opencode"
 	"github.com/oleg-koval/veto/pkg/router"
@@ -121,7 +122,7 @@ func cleanRunTestEnv(env []string) []string {
 }
 
 func TestValidateExecutionResultRejectsTruncation(t *testing.T) {
-	err := validateExecutionResult(executor.Result{
+	err := validateExecutionResult(execution.Result{
 		Output:       "partial output",
 		FinishReason: "max_output_tokens",
 		Truncated:    true,
@@ -134,12 +135,12 @@ func TestValidateExecutionResultRejectsTruncation(t *testing.T) {
 }
 
 func TestValidateExecutionResultAcceptsCompleteOutput(t *testing.T) {
-	require.NoError(t, validateExecutionResult(executor.Result{Output: "complete output"}))
+	require.NoError(t, validateExecutionResult(execution.Result{Output: "complete output"}))
 }
 
 func TestValidateExecutionResultPreservesProviderError(t *testing.T) {
 	providerErr := errors.New("provider unavailable")
-	err := validateExecutionResult(executor.Result{Error: providerErr})
+	err := validateExecutionResult(execution.Result{Error: providerErr})
 
 	assert.ErrorIs(t, err, providerErr)
 }
@@ -153,8 +154,8 @@ func TestHasEffectiveToolsUsesRuntimeCapabilities(t *testing.T) {
 func TestExecutionMetricsPrefersProviderReportedCost(t *testing.T) {
 	metrics := executionMetrics(router.ModelCapabilities{
 		CostPer1kInputUnknown: true, CostPer1kOutputUnknown: true,
-	}, executor.Result{
-		Usage:   executor.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15, Known: true},
+	}, execution.Result{
+		Usage:   execution.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15, Known: true},
 		CostUSD: 0.0125, CostKnown: true,
 	}, time.Second, "success")
 
@@ -166,8 +167,8 @@ func TestExecutionMetricsPrefersProviderReportedCost(t *testing.T) {
 func TestExecutionMetricsKeepsUnknownPriceUnknown(t *testing.T) {
 	metrics := executionMetrics(router.ModelCapabilities{
 		CostPer1kInputUnknown: true, CostPer1kOutputUnknown: true,
-	}, executor.Result{
-		Usage: executor.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15, Known: true},
+	}, execution.Result{
+		Usage: execution.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15, Known: true},
 	}, time.Second, "success")
 
 	assert.True(t, metrics.UsageKnown)

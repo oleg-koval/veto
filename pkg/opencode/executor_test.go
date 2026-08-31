@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/oleg-koval/veto/pkg/executor"
+	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -57,22 +57,22 @@ func TestServerRuntimeStreamsEventsUsageArtifactsAndCleansUp(t *testing.T) {
 		Dependencies{Do: fake.Client().Do},
 	)
 	var output bytes.Buffer
-	var events []executor.RuntimeEvent
-	result := runtime.ExecuteWithEvents(context.Background(), "do work", executor.ExecutionOptions{}, &output, func(event executor.RuntimeEvent) {
+	var events []execution.RuntimeEvent
+	result := runtime.ExecuteWithEvents(context.Background(), "do work", execution.ExecutionOptions{}, &output, func(event execution.RuntimeEvent) {
 		events = append(events, event)
 	})
 
 	require.NoError(t, result.Error)
 	assert.Equal(t, "hello world", output.String())
 	assert.Equal(t, output.String(), result.Output)
-	assert.Equal(t, executor.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15, Known: true}, result.Usage)
+	assert.Equal(t, execution.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15, Known: true}, result.Usage)
 	assert.True(t, result.CostKnown)
 	assert.InDelta(t, 0.0125, result.CostUSD, 0.000001)
 	assert.Equal(t, "stop", result.FinishReason)
-	assert.Contains(t, events, executor.RuntimeEvent{Kind: executor.RuntimeToolStarted, Name: "bash", Status: "running"})
-	assert.Contains(t, events, executor.RuntimeEvent{Kind: executor.RuntimeToolCompleted, Name: "bash", Status: "completed"})
-	assert.Contains(t, events, executor.RuntimeEvent{Kind: executor.RuntimeArtifactCreated, Name: "attachment", Status: "created", Count: 1})
-	assert.Contains(t, events, executor.RuntimeEvent{Kind: executor.RuntimeArtifactCreated, Name: "patch", Status: "created", Count: 2})
+	assert.Contains(t, events, execution.RuntimeEvent{Kind: execution.RuntimeToolStarted, Name: "bash", Status: "running"})
+	assert.Contains(t, events, execution.RuntimeEvent{Kind: execution.RuntimeToolCompleted, Name: "bash", Status: "completed"})
+	assert.Contains(t, events, execution.RuntimeEvent{Kind: execution.RuntimeArtifactCreated, Name: "attachment", Status: "created", Count: 1})
+	assert.Contains(t, events, execution.RuntimeEvent{Kind: execution.RuntimeArtifactCreated, Name: "patch", Status: "created", Count: 2})
 	assert.Equal(t, int64(1), fake.deleted.Load())
 	assert.Empty(t, fake.lastCreate["permission"], "execution must preserve OpenCode's configured permission policy")
 	assert.True(t, strings.HasPrefix(fake.lastCreate["title"].(string), "veto:execution:"))
@@ -121,7 +121,7 @@ func TestManagedRuntimeOwnsServerForOneFreshExecution(t *testing.T) {
 	}
 	runtime := NewRuntime(Config{Mode: ModeManaged, Server: loopbackURL(t, fake.URL)}, Discovery{}, Model{Provider: "openai", ID: "gpt-5"}, deps)
 
-	result := runtime.Execute(context.Background(), "work", executor.ExecutionOptions{})
+	result := runtime.Execute(context.Background(), "work", execution.ExecutionOptions{})
 	require.NoError(t, result.Error)
 	assert.Equal(t, "managed", result.Output)
 	assert.True(t, process.killed)
@@ -140,16 +140,16 @@ func TestServerRuntimeRejectsPermissionAndPreservesPartialOutput(t *testing.T) {
 	defer fake.Close()
 
 	runtime := NewRuntime(Config{Mode: ModeAttach, Server: loopbackURL(t, fake.URL)}, Discovery{}, Model{Provider: "openai", ID: "gpt-5"}, Dependencies{Do: fake.Client().Do})
-	var events []executor.RuntimeEvent
-	result := runtime.ExecuteWithEvents(context.Background(), "work", executor.ExecutionOptions{}, io.Discard, func(event executor.RuntimeEvent) {
+	var events []execution.RuntimeEvent
+	result := runtime.ExecuteWithEvents(context.Background(), "work", execution.ExecutionOptions{}, io.Discard, func(event execution.RuntimeEvent) {
 		events = append(events, event)
 	})
 
 	require.Error(t, result.Error)
 	assert.ErrorContains(t, result.Error, "never auto-approves")
 	assert.Equal(t, "partial", result.Output)
-	assert.Contains(t, events, executor.RuntimeEvent{Kind: executor.RuntimeApprovalRequested, Name: "bash", Status: "requested"})
-	assert.Contains(t, events, executor.RuntimeEvent{Kind: executor.RuntimeApprovalDenied, Name: "bash", Status: "denied"})
+	assert.Contains(t, events, execution.RuntimeEvent{Kind: execution.RuntimeApprovalRequested, Name: "bash", Status: "requested"})
+	assert.Contains(t, events, execution.RuntimeEvent{Kind: execution.RuntimeApprovalDenied, Name: "bash", Status: "denied"})
 	assert.Equal(t, int64(1), fake.permissionRejected.Load())
 }
 
@@ -166,7 +166,7 @@ func TestServerRuntimeMapsOutputLengthFailureAndPartialOutput(t *testing.T) {
 	defer fake.Close()
 	runtime := NewRuntime(Config{Mode: ModeAttach, Server: loopbackURL(t, fake.URL)}, Discovery{}, Model{Provider: "openai", ID: "gpt-5"}, Dependencies{Do: fake.Client().Do})
 
-	result := runtime.Execute(context.Background(), "work", executor.ExecutionOptions{})
+	result := runtime.Execute(context.Background(), "work", execution.ExecutionOptions{})
 	require.Error(t, result.Error)
 	assert.Equal(t, "partial", result.Output)
 	assert.True(t, result.Truncated)
@@ -180,8 +180,8 @@ func TestServerRuntimeCancellationAbortsAndDeletesSession(t *testing.T) {
 	runtime := NewRuntime(Config{Mode: ModeAttach, Server: loopbackURL(t, fake.URL)}, Discovery{}, Model{Provider: "openai", ID: "gpt-5"}, Dependencies{Do: fake.Client().Do})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	resultCh := make(chan executor.Result, 1)
-	go func() { resultCh <- runtime.Execute(ctx, "wait", executor.ExecutionOptions{}) }()
+	resultCh := make(chan execution.Result, 1)
+	go func() { resultCh <- runtime.Execute(ctx, "wait", execution.ExecutionOptions{}) }()
 	<-prompted
 	cancel()
 	result := <-resultCh
@@ -201,8 +201,8 @@ func TestServerRuntimeDoesNotResumeStaleSessionsAfterRestart(t *testing.T) {
 	defer fake.Close()
 	runtime := NewRuntime(Config{Mode: ModeAttach, Server: loopbackURL(t, fake.URL)}, Discovery{}, Model{Provider: "openai", ID: "gpt-5"}, Dependencies{Do: fake.Client().Do})
 
-	first := runtime.Execute(context.Background(), "one", executor.ExecutionOptions{})
-	second := runtime.Execute(context.Background(), "two", executor.ExecutionOptions{})
+	first := runtime.Execute(context.Background(), "one", execution.ExecutionOptions{})
+	second := runtime.Execute(context.Background(), "two", execution.ExecutionOptions{})
 
 	require.NoError(t, first.Error)
 	require.NoError(t, second.Error)
@@ -225,8 +225,8 @@ func TestCLIRuntimeUsesExactModelStreamsJSONAndNeverPassesAuto(t *testing.T) {
 	}
 	runtime := NewRuntime(Config{Mode: ModeCLI}, Discovery{Executable: "/safe/opencode"}, Model{Provider: "openrouter", ID: "openai/gpt-5"}, deps)
 	var output bytes.Buffer
-	var events []executor.RuntimeEvent
-	result := runtime.ExecuteWithEvents(context.Background(), "--auto must be data", executor.ExecutionOptions{}, &output, func(event executor.RuntimeEvent) {
+	var events []execution.RuntimeEvent
+	result := runtime.ExecuteWithEvents(context.Background(), "--auto must be data", execution.ExecutionOptions{}, &output, func(event execution.RuntimeEvent) {
 		events = append(events, event)
 	})
 
@@ -239,9 +239,9 @@ func TestCLIRuntimeUsesExactModelStreamsJSONAndNeverPassesAuto(t *testing.T) {
 	assert.Empty(t, gotEnv)
 	assert.Equal(t, "hello", output.String())
 	assert.Equal(t, output.String(), result.Output)
-	assert.Equal(t, executor.Usage{InputTokens: 5, OutputTokens: 2, TotalTokens: 7, Known: true}, result.Usage)
+	assert.Equal(t, execution.Usage{InputTokens: 5, OutputTokens: 2, TotalTokens: 7, Known: true}, result.Usage)
 	assert.True(t, result.CostKnown)
-	assert.Contains(t, events, executor.RuntimeEvent{Kind: executor.RuntimeToolCompleted, Name: "read", Status: "completed"})
+	assert.Contains(t, events, execution.RuntimeEvent{Kind: execution.RuntimeToolCompleted, Name: "read", Status: "completed"})
 }
 
 func TestCLIAdmissionUsesDenyOverrideAndIdentifiableSession(t *testing.T) {
@@ -273,8 +273,8 @@ func TestCLIRuntimeCancellationAndPartialFailure(t *testing.T) {
 		},
 	})
 	ctx, cancel := context.WithCancel(context.Background())
-	resultCh := make(chan executor.Result, 1)
-	go func() { resultCh <- runtime.Execute(ctx, "work", executor.ExecutionOptions{}) }()
+	resultCh := make(chan execution.Result, 1)
+	go func() { resultCh <- runtime.Execute(ctx, "work", execution.ExecutionOptions{}) }()
 	<-started
 	cancel()
 	result := <-resultCh
@@ -397,7 +397,7 @@ func TestCLIRuntimeRejectsMalformedEvents(t *testing.T) {
 			return errors.New("stopped")
 		},
 	})
-	result := runtime.Execute(context.Background(), "work", executor.ExecutionOptions{})
+	result := runtime.Execute(context.Background(), "work", execution.ExecutionOptions{})
 	require.Error(t, result.Error)
 	assert.ErrorContains(t, result.Error, "malformed JSON event")
 }
@@ -414,11 +414,11 @@ func TestOpaqueIDsRejectPathInjection(t *testing.T) {
 }
 
 func TestToolPendingAndRunningEmitOneStart(t *testing.T) {
-	var events []executor.RuntimeEvent
-	state := eventState{emit: func(event executor.RuntimeEvent) { events = append(events, event) }, toolStates: map[string]string{}, artifacts: map[string]bool{}}
+	var events []execution.RuntimeEvent
+	state := eventState{emit: func(event execution.RuntimeEvent) { events = append(events, event) }, toolStates: map[string]string{}, artifacts: map[string]bool{}}
 	state.toolEvent("prt_1", "bash", "pending", 0)
 	state.toolEvent("prt_1", "bash", "running", 0)
-	assert.Equal(t, []executor.RuntimeEvent{{Kind: executor.RuntimeToolStarted, Name: "bash", Status: "pending"}}, events)
+	assert.Equal(t, []execution.RuntimeEvent{{Kind: execution.RuntimeToolStarted, Name: "bash", Status: "pending"}}, events)
 }
 
 func TestInternalSessionTitleIsOpaque(t *testing.T) {
@@ -445,9 +445,9 @@ func TestEventStreamLimitIsBounded(t *testing.T) {
 
 func TestRuntimeInterfaces(t *testing.T) {
 	var runtime any = NewRuntime(Config{}, Discovery{}, Model{}, Dependencies{})
-	_, ok := runtime.(executor.RuntimeAdapter)
+	_, ok := runtime.(execution.RuntimeAdapter)
 	assert.True(t, ok)
-	_, ok = runtime.(executor.EventTaskExecutor)
+	_, ok = runtime.(execution.EventTaskExecutor)
 	assert.True(t, ok)
 }
 

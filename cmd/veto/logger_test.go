@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/oleg-koval/veto/pkg/executor"
+	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/oleg-koval/veto/pkg/ledger"
 	"github.com/oleg-koval/veto/pkg/router"
 	"github.com/stretchr/testify/assert"
@@ -112,8 +112,8 @@ func TestLogRuntimeEventUsesAllowlistedFields(t *testing.T) {
 		eventRunID = previousRunID
 	})
 
-	logRuntimeEvent("task-1", router.ModelCapabilities{Name: "opencode/openai/gpt-5", Runtime: "opencode"}, executor.RuntimeEvent{
-		Kind: executor.RuntimeArtifactCreated, Name: "patch", Status: "created", Count: 2,
+	logRuntimeEvent("task-1", router.ModelCapabilities{Name: "opencode/openai/gpt-5", Runtime: "opencode"}, execution.RuntimeEvent{
+		Kind: execution.RuntimeArtifactCreated, Name: "patch", Status: "created", Count: 2,
 	})
 
 	var event ledger.Event
@@ -126,20 +126,20 @@ func TestLogRuntimeEventUsesAllowlistedFields(t *testing.T) {
 }
 
 func TestRuntimeLedgerTypeIsClosed(t *testing.T) {
-	for input, want := range map[executor.RuntimeEventKind]ledger.EventType{
-		executor.RuntimeToolStarted:       ledger.EventToolStarted,
-		executor.RuntimeToolCompleted:     ledger.EventToolCompleted,
-		executor.RuntimeToolError:         ledger.EventToolError,
-		executor.RuntimeApprovalRequested: ledger.EventApprovalRequested,
-		executor.RuntimeApprovalGranted:   ledger.EventApprovalGranted,
-		executor.RuntimeApprovalDenied:    ledger.EventApprovalDenied,
-		executor.RuntimeArtifactCreated:   ledger.EventArtifactCreated,
+	for input, want := range map[execution.RuntimeEventKind]ledger.EventType{
+		execution.RuntimeToolStarted:       ledger.EventToolStarted,
+		execution.RuntimeToolCompleted:     ledger.EventToolCompleted,
+		execution.RuntimeToolError:         ledger.EventToolError,
+		execution.RuntimeApprovalRequested: ledger.EventApprovalRequested,
+		execution.RuntimeApprovalGranted:   ledger.EventApprovalGranted,
+		execution.RuntimeApprovalDenied:    ledger.EventApprovalDenied,
+		execution.RuntimeArtifactCreated:   ledger.EventArtifactCreated,
 	} {
 		got, ok := runtimeLedgerType(input)
 		assert.True(t, ok)
 		assert.Equal(t, want, got)
 	}
-	_, ok := runtimeLedgerType(executor.RuntimeEventKind("future"))
+	_, ok := runtimeLedgerType(execution.RuntimeEventKind("future"))
 	assert.False(t, ok)
 }
 

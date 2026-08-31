@@ -1,45 +1,49 @@
 # Clean architecture evaluation
 
 This evaluation applies the dependency rule, boundary design, component
-principles, and SOLID to Veto's current Go package structure. It was performed
-against `main` at `bf3f40c`.
+principles, and SOLID to Veto's Go package structure. The initial assessment
+of `main` at `bf3f40c` scored 7/10. The implemented boundary changes below
+raise the current architecture to 9/10.
 
-## Verdict: 7/10
+## Verdict: 9/10
 
-Veto has a good architectural core: routing policy is mostly isolated,
-provider implementations are replaceable, the package graph is acyclic, and
-the executable is assembled at the edge. It is not fully clean because one
-source dependency points from routing policy to transport details, persistence
-is co-located with routing policy, and the CLI package owns application
-orchestration that should be independent of terminal delivery.
+Veto is a modular monolith with enforced inward dependencies around its core
+routing policy. Admission contracts are owned by `pkg/router`, full-execution
+contracts are owned by `pkg/execution`, application orchestration lives in
+`internal/application`, and filesystem/provider details remain outward
+adapters.
 
-This is a modular monolith with partial ports-and-adapters boundaries. That is
-an appropriate shape for a single-binary CLI. Reaching 10/10 does not require
-microservices, a framework, or a repository-wide rewrite.
+The remaining point is not a correctness defect. `cmd/veto` is still a large
+component containing several independent command workflows. Those workflows
+should move inward only when actual change pressure justifies another boundary;
+a folder-only rewrite would add ceremony without improving the product.
 
-## Current dependency diagram
+## Dependency diagram
 
-Solid arrows are source-code dependencies. The dashed red arrow is the main
-dependency-rule violation: routing policy imports result and tool-capability
-types from the transport package.
+Solid arrows are source-code dependencies. The domain and contract packages
+have no dependencies on delivery, persistence, provider, or host-integration
+packages.
 
 ```mermaid
 flowchart TB
     user[User or host integration]
 
     subgraph delivery[Delivery and composition]
-        cli[cmd/veto<br/>CLI controllers, composition, orchestration]
+        cli[cmd/veto<br/>CLI controllers and composition root]
         plugins[integrations/hermes and integrations/opencode<br/>embedded host plugins]
     end
 
-    subgraph application[Application policy]
+    subgraph policy[Policy and application]
+        app[internal/application<br/>route, execute, acceptance review]
         router[pkg/router<br/>task model, filtering, scoring, admission]
+        execution[pkg/execution<br/>stable runtime ports and DTOs]
         eval[internal/eval<br/>offline policy replay]
     end
 
     subgraph adapters[Interface adapters and drivers]
-        executor[pkg/executor<br/>transport contracts and provider adapters]
+        executor[pkg/executor<br/>provider and CLI transports]
         opencode[pkg/opencode<br/>OpenCode discovery and runtime adapter]
+        history[internal/adapter/routinghistory<br/>JSON and filesystem persistence]
         catalog[pkg/openroutercatalog<br/>catalog HTTP and cache adapter]
         ledger[pkg/ledger<br/>local event envelope]
     end
@@ -47,157 +51,108 @@ flowchart TB
     external[Provider APIs, CLIs, filesystem, OpenCode]
 
     user --> cli
+    cli --> app
     cli --> router
+    cli --> execution
     cli --> executor
     cli --> opencode
+    cli --> history
     cli --> catalog
     cli --> ledger
     cli --> plugins
+    app --> router
+    app --> execution
     eval --> router
-    opencode --> executor
+    executor --> execution
+    opencode --> execution
     opencode --> ledger
+    history --> router
     executor --> external
     opencode --> external
+    history --> external
     catalog --> external
-    router -. "executor.Result and tool interfaces" .-> executor
-
-    linkStyle 13 stroke:#c62828,stroke-width:3px,stroke-dasharray:6 4
 ```
 
-The runtime flow remains sound despite that source dependency: the CLI builds
-the registry and concrete executors, `router.Manager` filters and ranks models,
-`AdmissionGate` asks candidates through an interface, and the CLI invokes the
-selected executor's separate full-task contract.
+At runtime the CLI builds the registry and concrete adapters. `router.Manager`
+filters and ranks models, the router-owned admission port asks candidates, and
+`application.Runner` invokes the selected runtime through `pkg/execution`.
+Terminal rendering, file output, lifecycle logging, and process exit remain at
+the delivery edge.
 
 ## Scorecard
 
 | Principle | Score | Evidence |
 |---|---:|---|
-| Dependency rule | 6/10 | `cmd/veto` points inward and concrete providers do not enter routing policy, but `pkg/router/admission.go` imports `pkg/executor`. `pkg/router/store.go` also contains both the `Store` port and filesystem persistence. |
-| Entities and use cases | 7/10 | `TaskSpec`, `ModelCapabilities`, filtering, scoring, preferences, and complexity inference are plain Go policy. Route-and-execute, acceptance review, output handling, and some task classification remain application rules inside `cmd/veto`. |
-| Adapters and frameworks | 8/10 | Provider HTTP/CLI implementations, OpenCode, catalog discovery, and host integrations are separated packages. Veto has very few third-party dependencies and no framework dictates its structure. Transport contracts and implementations are still combined in `pkg/executor`. |
-| Component principles | 7/10 | The internal package graph has no cycles and most packages have a clear change reason. `cmd/veto` is an 8,000+ line change hotspot spanning delivery, application orchestration, configuration, persistence, updates, and diagnostics. |
-| SOLID | 7/10 | Consumer-side interfaces such as `ExecutorFactory`, `Store`, `ModelSource`, `httpDoer`, `Process`, and `doctorFilesystem` support substitution and tests. The large CLI package and mixed executor contract/implementation package weaken SRP and DIP. |
-| Boundary anatomy | 7/10 | `main` acts as a composition root, DTOs cross boundaries, and fakes can replace external systems. The admission boundary leaks an outer `executor.Result`, while application output and review flows depend directly on CLI-level types and side effects. |
+| Dependency rule | 10/10 | `pkg/router` has no internal-module imports. `pkg/router/import_boundary_test.go` rejects dependencies on executor, command, and integration packages. `pkg/execution` contains contracts only; transports depend on it. |
+| Entities and use cases | 9/10 | Routing policy uses plain structs and pure functions. Route-and-execute and fail-closed acceptance review now use plain request/response contracts in `internal/application`. Some independent command policy remains in `cmd/veto`. |
+| Adapters and frameworks | 9/10 | Provider HTTP/CLI transports, OpenCode, catalog discovery, routing-history persistence, and host integrations are separate adapters. Compatibility aliases remain in `pkg/executor`, while ownership is in `pkg/execution`. |
+| Component principles | 8/10 | The component graph is acyclic and the new packages have single change reasons. `cmd/veto` remains an 8,000+ line component spanning onboarding, diagnostics, updates, integrations, and terminal UX. |
+| SOLID | 9/10 | Admission, routing, runtime resolution, storage, process, HTTP, and filesystem seams use consumer-owned interfaces. Concrete provider and persistence choices are injected from the composition root. |
+| Boundary anatomy | 9/10 | DTOs cross boundaries, `main` composes adapters, and callbacks carry progress/runtime events outward. Delivery wrappers retain rendering, ledger mapping, output-file policy, and `os.Exit`. |
 
-## What is working well
+## Implemented recommendations
 
-1. **Routing policy is explicit and testable.** Hard filtering, scoring,
-   preferences, complexity inference, and candidate selection live in
-   `pkg/router` and operate on plain structs.
-2. **Admission and execution are separate contracts.** The short admission
-   probe cannot accidentally inherit the full execution budget or authority.
-3. **Concrete providers are composed at the edge.** `providerRegistry` in
-   `cmd/veto/main.go` selects adapters; the router does not import Anthropic,
-   OpenAI, OpenRouter, Codex, or OpenCode implementations.
-4. **External volatility is usually behind narrow seams.** HTTP, process,
-   filesystem, model-source, store, and executor behavior can be replaced in
-   tests.
-5. **Framework independence is strong.** The production module is primarily
-   standard-library Go, so business policy is not organized around an HTTP,
-   CLI, ORM, or dependency-injection framework.
-6. **The component graph is acyclic.** The current internal imports form a
-   directed graph rooted at `cmd/veto`; no lower-level package imports the CLI
-   or embedded integrations.
+### 1. Admission dependency inverted
 
-## Main gaps
+`pkg/router` now owns `AdmissionResult`, `ToolCapabilities`, `Executor`, and
+`ExecutorFactory`. `cmd/veto` adapts a concrete runtime to that admission port.
+Known-empty and not-yet-discovered tool states remain distinct.
 
-### 1. Routing policy depends on a transport package
+The router package no longer imports `pkg/executor`; an automated boundary test
+prevents that edge from returning.
 
-`pkg/router/admission.go` defines the consumer-side `Executor` interface, but
-its method returns `executor.Result` and the admission gate asserts
-`executor.ToolProvider` and `executor.ToolCapabilityStatus`. The interface is
-in the right place; its data and capability contracts are not.
+### 2. Filesystem history moved outward
 
-This is the clearest dependency-rule violation. A transport-level result or
-tool contract can change for full execution reasons and force a change or
-retest of the routing core.
+`Store`, `KindAwareStore`, and `MemoryStore` remain in `pkg/router`.
+`internal/adapter/routinghistory.FileStore` owns JSON serialization, file modes,
+legacy history loading, and best-effort persistence. The persisted format and
+routing signals are unchanged.
 
-### 2. Persistence implementation sits beside routing policy
+This removes the former exported `router.FileStore` and `router.NewFileStore`
+symbols. Veto's CLI is migrated, but external Go consumers of those symbols
+need to own or replace their persistence adapter.
 
-`pkg/router/store.go` correctly defines the `Store` and `KindAwareStore` ports,
-but also implements `FileStore` using `os` and `filepath`. Package boundaries
-therefore cannot prevent routing policy from growing filesystem knowledge.
+### 3. Application use cases extracted
 
-The in-memory implementation is useful as a policy-side test double. The file
-implementation is an adapter and should be outside the core package.
+`internal/application.Runner` owns route-and-execute orchestration, execution
+validation, telemetry mapping, streaming compatibility, text-only prompting,
+and runtime event callbacks. Its acceptance-review use case owns the JSON
+contract, skip-self routing, and fail-closed consistency checks.
 
-### 3. The CLI package is both controller and application layer
+`cmd/veto` retains flag parsing, terminal rendering, ledger event mapping,
+explicit output-file writes, and process termination. Route, run, exec, plan
+conversion, skill generation, and review paths share the application runner.
 
-`cmd/veto` parses flags and renders terminal output, but it also prepares the
-routing graph, performs route-and-execute orchestration, validates execution
-results, records metrics, runs acceptance reviews, classifies objectives, and
-owns output-file policy. These rules are testable today because they are plain
-functions, but they cannot be reused without importing a `main` package and
-CLI-oriented dependencies.
+### 4. Stable execution contracts separated
 
-The symptom is component size rather than a single bad function:
-`cmd/veto` contains more than 8,000 production lines and changes for many
-independent actors, including routing, provider onboarding, diagnostics,
-updates, analytics, integrations, and terminal UX.
+`pkg/execution` owns result, usage, options, runtime-event, tool-capability, and
+runtime port types. `pkg/executor` contains concrete transports and re-exports
+compatibility aliases for existing Go callers. `pkg/opencode` implements the
+inward execution contracts directly.
 
-### 4. Transport contracts and implementations share one package
+## Remaining path to 10/10
 
-`pkg/executor/result.go` defines stable execution contracts, while sibling
-files implement several volatile provider transports. This is a practical
-partial boundary, but it makes every consumer depend on the package that also
-owns provider details. `pkg/opencode` consequently imports `pkg/executor` to
-implement the shared runtime result contract.
+1. Add dependency guards for `internal/application` and `pkg/execution` if the
+   package graph gains more contributors or adapters.
+2. Track change frequency and merge conflicts in `cmd/veto`. Extract the next
+   command workflow only when CLI coupling blocks reuse or makes changes unsafe.
+3. Decide whether Veto promises a public Go library API. If it does, provide a
+   public routing-history adapter or a versioned migration path before the next
+   stable release.
 
-## Path to 10/10
-
-Do these in order and keep each step behavior-preserving.
-
-1. **Invert the admission boundary.** Define a narrow admission port and its
-   response/tool-capability DTOs in `pkg/router`. Adapt provider execution
-   results at the composition edge. Add an import-boundary test that rejects
-   dependencies from `pkg/router` to `pkg/executor`, `cmd`, or `integrations`.
-2. **Move `FileStore` to an adapter package.** Keep `Store`, `KindAwareStore`,
-   and `MemoryStore` with routing policy; put JSON/filesystem persistence in a
-   package such as `internal/adapter/routinghistory`. Inject it from the
-   composition root.
-3. **Extract application use cases from `cmd/veto`.** Start with one vertical
-   slice: route-and-execute plus acceptance review. Give it plain request and
-   response structs and ports for event output, execution, history, clock, and
-   artifact writing. Leave flag parsing, terminal rendering, and `os.Exit` in
-   thin CLI controllers.
-4. **Separate stable execution contracts from provider adapters.** Move result,
-   usage, event, tool-capability, and execution port types into an inward
-   application contract package. Keep Anthropic, OpenAI, CLI, and other
-   implementations in outward adapter packages.
-5. **Repeat extraction only at proven change hotspots.** Diagnostics, updates,
-   login, and integration installers already have useful test seams. Move them
-   only when their CLI coupling blocks reuse or makes changes unsafe; do not
-   create layers solely to satisfy a folder diagram.
-
-The target dependency shape is:
-
-```mermaid
-flowchart TB
-    cli[CLI and host controllers] --> app[Application use cases]
-    app --> domain[Routing policy and domain types]
-
-    cli --> bootstrap[Composition root]
-    bootstrap --> app
-    bootstrap --> providers[Provider and runtime adapters]
-    bootstrap --> persistence[Filesystem and cache adapters]
-
-    providers --> ports[Application-owned ports and DTOs]
-    persistence --> ports
-    app --> ports
-```
-
-The goal is enforceable inward source dependencies, not a specific directory
-layout. The first two steps remove the concrete violations; the later steps
-reduce CLI coupling as features continue to grow.
+The goal is enforceable inward dependencies, not a fixed number of folders or
+layers. Diagnostics, updates, login, and integration installers already have
+test seams and should remain where they are until a concrete use case needs
+them independently from the CLI.
 
 ## Verification criteria
 
 An architectural improvement is complete when:
 
 - `pkg/router` imports only the standard library and inward-owned packages;
-- a package-boundary test fails on a new outward import;
-- routing policy tests run without provider, filesystem, process, or terminal
-  setup;
-- route, run, exec, and acceptance-review behavior remains covered;
+- boundary tests fail on a new outward routing dependency;
+- routing and application policy tests run without real providers, filesystem,
+  processes, or terminal setup;
+- route, run, exec, streaming, telemetry, and acceptance-review behavior remain
+  covered;
 - the full race test, vet, and build commands pass.

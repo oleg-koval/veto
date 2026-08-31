@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/oleg-koval/veto/pkg/executor"
+	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/oleg-koval/veto/pkg/opencode"
 	"github.com/oleg-koval/veto/pkg/router"
 	"github.com/stretchr/testify/assert"
@@ -15,7 +15,7 @@ import (
 
 func TestAddOpenCodeModelsPreservesKnownMetadataAndUnknowns(t *testing.T) {
 	reg := &providerRegistry{
-		executors: map[string]executor.RuntimeAdapter{"gpt-5": textOnlyTestExecutor{}},
+		executors: map[string]execution.RuntimeAdapter{"gpt-5": textOnlyTestExecutor{}},
 		caps: map[string]router.ModelCapabilities{
 			"gpt-5": {
 				Name: "gpt-5", Provider: "openai", APIModel: "gpt-5", Tier: "large", MaxContextTokens: 100,
@@ -48,7 +48,7 @@ func TestAddOpenCodeModelsPreservesKnownMetadataAndUnknowns(t *testing.T) {
 }
 
 func TestAddOpenCodeModelsHonorsDisabledBinding(t *testing.T) {
-	reg := &providerRegistry{executors: map[string]executor.RuntimeAdapter{}, caps: map[string]router.ModelCapabilities{}}
+	reg := &providerRegistry{executors: map[string]execution.RuntimeAdapter{}, caps: map[string]router.ModelCapabilities{}}
 	model := opencode.Model{Provider: "openai", ID: "gpt-5"}
 	addOpenCodeModels(reg, opencode.Config{Mode: opencode.ModeCLI}, opencode.Discovery{Models: []opencode.Model{model}}, opencode.Dependencies{}, map[string]bool{
 		openCodeModelName(model): true,
