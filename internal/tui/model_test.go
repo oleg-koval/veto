@@ -157,6 +157,27 @@ func TestModelCyclesEnumFormFieldsWithSpace(t *testing.T) {
 	}
 }
 
+func TestModelTypingReplacesPrefilledFlagDefault(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	execAction, ok := model.catalog.Find("exec")
+	if !ok {
+		t.Fatal("exec action missing from catalog")
+	}
+	model.openComposer(execAction)
+	if model.composerValues["timeout"] != "60s" {
+		t.Fatalf("timeout default = %q, want 60s", model.composerValues["timeout"])
+	}
+	for model.composerFields[model.composerField].Name != "timeout" {
+		updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+		model = updated.(*Model)
+	}
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "5", Code: '5'}))
+	model = updated.(*Model)
+	if got := model.composerValues["timeout"]; got != "5" {
+		t.Fatalf("typed timeout = %q, want 5", got)
+	}
+}
+
 func TestModelLoginModeChoicesFollowProvider(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	login, ok := model.catalog.Find("login")

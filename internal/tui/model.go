@@ -543,7 +543,11 @@ func (m *Model) updateComposerField(key tea.Key) (tea.Model, tea.Cmd) {
 		return m.startExecution()
 	default:
 		if key.Text != "" {
-			m.composerValues[field.Name] += key.Text
+			value := m.composerValues[field.Name]
+			if value == field.Default {
+				value = ""
+			}
+			m.composerValues[field.Name] = value + key.Text
 		}
 	}
 	return m, nil
