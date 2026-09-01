@@ -173,7 +173,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.cancelRun = nil
 		if message.err != nil {
-			if message.result.Output != "" {
+			if message.result.Output != "" && m.output.Len() == 0 {
 				m.output.WriteString(message.result.Output)
 			}
 			m.status = "Error · " + message.err.Error()

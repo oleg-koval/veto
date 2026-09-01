@@ -486,23 +486,7 @@ func keepDashboardAlive(url string) {
 // inferKind guesses the task kind from the objective text so users don't have
 // to pass --kind. ponytail: keyword heuristic; --kind always overrides it.
 func inferKind(objective string) string {
-	s := strings.ToLower(objective)
-	switch {
-	case containsAny(s, "fix", "bug", "debug", "error", "crash", "broken", "failing"):
-		return "debug"
-	case containsAny(s, "refactor", "clean up", "restructure", "rename", "extract method"):
-		return "refactor"
-	case containsAny(s, "summarize", "summary", "tl;dr", "recap"):
-		return "summarize"
-	case containsAny(s, "extract", "parse", "pull out", "scrape"):
-		return "extract"
-	case containsAny(s, "review", "audit", "critique", "check"):
-		return "review"
-	case containsAny(s, "plan", "design", "architect", "propose"):
-		return "plan"
-	default:
-		return "code-change"
-	}
+	return string(router.InferKind(objective))
 }
 
 // requiresExecutableRuntime recognizes explicit requests to mutate repository

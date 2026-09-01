@@ -61,6 +61,15 @@ func TestTaskFromRequestPreservesComposerCapabilitiesAndCriteria(t *testing.T) {
 	}
 }
 
+func TestTaskFromRequestInfersKindWhenComposerLeavesKindEmpty(t *testing.T) {
+	t.Parallel()
+
+	task := taskFromRequest(controlplane.ActionRequest{}, "summarize this incident")
+	if task.Kind != router.KindSummarize {
+		t.Fatalf("inferred kind = %q, want %q", task.Kind, router.KindSummarize)
+	}
+}
+
 func TestControlServiceTracksBoundedRuntimeMonitorCounters(t *testing.T) {
 	t.Parallel()
 

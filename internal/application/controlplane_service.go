@@ -347,7 +347,7 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 func taskFromRequest(request controlplane.ActionRequest, objective string) router.TaskSpec {
 	kind := router.TaskKind(request.Arguments["kind"])
 	if kind == "" {
-		kind = router.KindCodeChange
+		kind = router.InferKind(objective)
 	}
 	risk := router.Risk(request.Arguments["risk"])
 	if risk == "" {
