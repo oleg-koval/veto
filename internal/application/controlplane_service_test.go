@@ -99,6 +99,25 @@ func TestControlServiceSnapshotExposesOnlyModelMetadata(t *testing.T) {
 	}
 }
 
+func TestControlServiceCancelStopsActiveAction(t *testing.T) {
+	t.Parallel()
+
+	routerPort := &blockingServiceRouter{started: make(chan struct{})}
+	service := NewControlService(Runner{}, routerPort)
+	done := make(chan error, 1)
+	go func() {
+		_, err := service.Execute(context.Background(), controlplane.ActionRequest{ActionID: "route", Arguments: map[string]string{"objective": "wait"}})
+		done <- err
+	}()
+	<-routerPort.started
+	if err := service.Cancel(context.Background(), "route"); err != nil {
+		t.Fatalf("cancel failed: %v", err)
+	}
+	if err := <-done; err == nil {
+		t.Fatal("cancelled action unexpectedly succeeded")
+	}
+}
+
 type serviceRouter struct {
 	model  router.ModelCapabilities
 	called bool
@@ -112,6 +131,18 @@ func (r *serviceRouter) Route(_ context.Context, task router.TaskSpec) (router.M
 }
 
 func (r *serviceRouter) RecordExecution(router.TaskSpec, string, router.ExecutionMetrics) {}
+
+type blockingServiceRouter struct {
+	started chan struct{}
+}
+
+func (r *blockingServiceRouter) Route(ctx context.Context, _ router.TaskSpec) (router.ModelCapabilities, router.AdmissionDecision, error) {
+	close(r.started)
+	<-ctx.Done()
+	return router.ModelCapabilities{}, router.AdmissionDecision{}, ctx.Err()
+}
+
+func (r *blockingServiceRouter) RecordExecution(router.TaskSpec, string, router.ExecutionMetrics) {}
 
 type serviceResolver struct {
 	runtime execution.RuntimeAdapter

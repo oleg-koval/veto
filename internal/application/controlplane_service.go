@@ -25,6 +25,7 @@ type ControlService struct {
 	mu       sync.RWMutex
 	snapshot controlplane.Snapshot
 	subs     map[chan controlplane.Event]struct{}
+	active   map[string]context.CancelFunc
 }
 
 // NewControlService creates a service over an existing Runner and Router.
@@ -34,6 +35,7 @@ func NewControlService(runner Runner, routerPort Router) *ControlService {
 		runner:   runner,
 		router:   routerPort,
 		subs:     make(map[chan controlplane.Event]struct{}),
+		active:   make(map[string]context.CancelFunc),
 		snapshot: controlplane.Snapshot{Status: "idle"},
 	}
 	service.runner.Hooks = service.wrapHooks(runner.Hooks)
@@ -83,8 +85,15 @@ func (s *ControlService) Subscribe(ctx context.Context) <-chan controlplane.Even
 	return updates
 }
 
-func (s *ControlService) Cancel(_ context.Context, _ string) error {
-	return errors.New("control plane: cancellation is owned by the request context")
+func (s *ControlService) Cancel(_ context.Context, actionID string) error {
+	s.mu.RLock()
+	cancel, ok := s.active[actionID]
+	s.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("control plane: no active action %q", actionID)
+	}
+	cancel()
+	return nil
 }
 
 func (s *ControlService) Execute(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
@@ -96,11 +105,21 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		return controlplane.ActionResult{}, errors.New("control plane: objective is required")
 	}
 	task := taskFromRequest(request, objective)
+	requestCtx, cancel := context.WithCancel(ctx)
+	s.mu.Lock()
+	s.active[request.ActionID] = cancel
+	s.mu.Unlock()
+	defer func() {
+		cancel()
+		s.mu.Lock()
+		delete(s.active, request.ActionID)
+		s.mu.Unlock()
+	}()
 	s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "running"})
 
 	switch request.ActionID {
 	case "route":
-		model, decision, err := s.router.Route(ctx, task)
+		model, decision, err := s.router.Route(requestCtx, task)
 		if err != nil {
 			s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "error"})
 			return controlplane.ActionResult{ActionID: request.ActionID}, err
@@ -109,7 +128,7 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "route.completed", Message: fmt.Sprintf("%s accepted (%.0f%% confidence)", model.Name, decision.Confidence*100)})
 		return controlplane.ActionResult{ActionID: request.ActionID, Summary: "model selected", Model: model.Name}, nil
 	case "run":
-		response, err := s.runner.Execute(ctx, Request{Task: task, Options: executionOptions(request), Writer: outputWriter{s: s, actionID: request.ActionID}})
+		response, err := s.runner.Execute(requestCtx, Request{Task: task, Options: executionOptions(request), Writer: outputWriter{s: s, actionID: request.ActionID}})
 		status := "ready"
 		if err != nil {
 			status = "error"

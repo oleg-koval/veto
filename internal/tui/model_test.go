@@ -88,6 +88,19 @@ func TestModelRendersProviderAndModelSnapshots(t *testing.T) {
 	}
 }
 
+func TestModelEscapeCancelsRunningRequest(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	called := false
+	model.running = true
+	model.composerAction = "run"
+	model.cancelRun = func() { called = true }
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+	model = updated.(*Model)
+	if !called || !strings.Contains(model.status, "Cancelling") {
+		t.Fatalf("cancel state = called:%v status:%q", called, model.status)
+	}
+}
+
 func TestModelComposerCapturesObjectiveForRun(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})

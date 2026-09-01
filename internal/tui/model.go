@@ -137,6 +137,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := message.Key()
+	if m.running && key.String() == "esc" {
+		if m.cancelRun != nil {
+			m.cancelRun()
+		}
+		m.status = "Cancelling · " + m.composerAction
+		return m, nil
+	}
 	if m.helpOpen {
 		if key.String() == "esc" || key.String() == "?" {
 			m.helpOpen = false
@@ -150,6 +157,9 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.updateComposer(key)
 	}
 	if key.Mod == tea.ModCtrl && key.Code == 'c' {
+		if m.cancelRun != nil {
+			m.cancelRun()
+		}
 		return m, tea.Quit
 	}
 	if key.Mod == tea.ModCtrl && key.Code == 'k' {
