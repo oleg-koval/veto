@@ -70,6 +70,18 @@ func TestModelShowsCommandTooltipOnMouseHover(t *testing.T) {
 	}
 }
 
+func TestModelMouseHitTestAccountsForTooltipRow(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, Mouse: true, NoColor: true})
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	updated, _ := model.Update(tea.MouseMotionMsg{X: 3, Y: 1})
+	model = updated.(*Model)
+	updated, _ = model.Update(tea.MouseClickMsg{X: 3, Y: 4, Button: tea.MouseLeft})
+	model = updated.(*Model)
+	if model.selected != 2 {
+		t.Fatalf("selected command after tooltip = %d, want 2", model.selected)
+	}
+}
+
 func TestModelClipsLongTooltipStatusOnNarrowTerminal(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, Mouse: true, NoColor: true})
 	model.Update(tea.WindowSizeMsg{Width: 32, Height: 12})

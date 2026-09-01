@@ -246,6 +246,10 @@ func (m *Model) commandIndexAt(x, y int) int {
 		return -1
 	}
 	index := y - listOffset - 1 // COMMANDS header occupies the first row
+	if m.hoveredCommand >= 0 && index > m.hoveredCommand {
+		// The hovered command owns one extra tooltip row in the rail.
+		index--
+	}
 	if index < 0 || index >= len(commands) {
 		return -1
 	}
