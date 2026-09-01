@@ -186,6 +186,22 @@ func TestModelRendersMonitorCountersAndRuntimeState(t *testing.T) {
 	}
 }
 
+func TestModelUsesSmoothRunningSpinnerAndRespectsReducedMotion(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: true, NoColor: true})
+	model.running = true
+	model.frame = 3
+	view := model.View().Content
+	if !strings.Contains(view, string([]rune(runningSpinner)[3])) {
+		t.Fatalf("running view missing spinner frame %q\n%s", string([]rune(runningSpinner)[3]), view)
+	}
+
+	model.options.Motion = false
+	view = model.View().Content
+	if strings.Contains(view, "⠸") {
+		t.Fatalf("reduced-motion view still contains spinner frame\n%s", view)
+	}
+}
+
 func TestModelEscapeCancelsRunningRequest(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	called := false

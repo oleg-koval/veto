@@ -15,6 +15,8 @@ import (
 
 const tickInterval = 80 * time.Millisecond
 
+const runningSpinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
 // Options controls presentation-only behavior. Runtime actions remain owned
 // by the control-plane service and can be added without changing the shell.
 type Options struct {
@@ -1079,7 +1081,10 @@ func eventStage(kind string) string {
 
 func (m *Model) statusLine(width int) string {
 	pulse := "·"
-	if m.options.Motion && m.frame%2 == 1 {
+	if m.running && m.options.Motion {
+		frames := []rune(runningSpinner)
+		pulse = string(frames[int(m.frame)%len(frames)])
+	} else if m.options.Motion && m.frame%2 == 1 {
 		pulse = "•"
 	}
 	status := fmt.Sprintf(" %s  %s", pulse, m.status)
