@@ -27,7 +27,8 @@ Implemented:
 
 Verification currently includes the race-enabled Go test suite, `go vet`, native
 builds, Linux/macOS/Windows cross-builds (also enforced by the CI matrix),
-model/update tests, replay tests, and local PTY smoke. Human keyboard-only,
+model/update tests, replay tests, and the integrated `scripts/tui-pty-smoke.py`
+PTY smoke. Human keyboard-only,
 screen-reader, resize, and multi-terminal trials are still required before a
 beta/release claim. Use the TUI trial protocol in
 `docs/onboarding-trial.md` to record those runs without collecting credentials.
