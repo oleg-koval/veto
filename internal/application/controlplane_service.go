@@ -21,6 +21,7 @@ import (
 type ControlService struct {
 	runner Runner
 	router Router
+	source func(context.Context) (controlplane.Snapshot, error)
 
 	mu       sync.RWMutex
 	snapshot controlplane.Snapshot
@@ -31,9 +32,22 @@ type ControlService struct {
 // NewControlService creates a service over an existing Runner and Router.
 // Hooks on the supplied Runner are preserved and wrapped to publish events.
 func NewControlService(runner Runner, routerPort Router) *ControlService {
+	return newControlService(runner, routerPort, nil)
+}
+
+// NewControlServiceWithSnapshot adds a composition-root snapshot source for
+// local history, health, analytics, and integration metadata. The source must
+// return redacted data and is evaluated only when the shell asks for a
+// snapshot.
+func NewControlServiceWithSnapshot(runner Runner, routerPort Router, source func(context.Context) (controlplane.Snapshot, error)) *ControlService {
+	return newControlService(runner, routerPort, source)
+}
+
+func newControlService(runner Runner, routerPort Router, source func(context.Context) (controlplane.Snapshot, error)) *ControlService {
 	service := &ControlService{
 		runner:   runner,
 		router:   routerPort,
+		source:   source,
 		subs:     make(map[chan controlplane.Event]struct{}),
 		active:   make(map[string]context.CancelFunc),
 		snapshot: controlplane.Snapshot{Status: "idle"},
@@ -47,10 +61,20 @@ func NewControlService(runner Runner, routerPort Router) *ControlService {
 	return service
 }
 
-func (s *ControlService) Snapshot(context.Context) (controlplane.Snapshot, error) {
+func (s *ControlService) Snapshot(ctx context.Context) (controlplane.Snapshot, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s.mu.RLock()
 	snapshot := s.snapshot
 	s.mu.RUnlock()
+	if s.source != nil {
+		provided, err := s.source(ctx)
+		if err != nil {
+			return snapshot, err
+		}
+		snapshot = mergeSnapshot(snapshot, provided)
+	}
 	if source, ok := s.runner.Runtime.(interface {
 		Models() []router.ModelCapabilities
 	}); ok {
@@ -68,6 +92,31 @@ func (s *ControlService) Snapshot(context.Context) (controlplane.Snapshot, error
 		sort.Slice(snapshot.Providers, func(i, j int) bool { return snapshot.Providers[i].Name < snapshot.Providers[j].Name })
 	}
 	return snapshot, nil
+}
+
+func mergeSnapshot(base, provided controlplane.Snapshot) controlplane.Snapshot {
+	if provided.Status != "" {
+		base.Status = provided.Status
+	}
+	if len(provided.Providers) > 0 {
+		base.Providers = provided.Providers
+	}
+	if len(provided.Models) > 0 {
+		base.Models = provided.Models
+	}
+	if len(provided.History) > 0 {
+		base.History = provided.History
+	}
+	if len(provided.Health) > 0 {
+		base.Health = provided.Health
+	}
+	if provided.Analytics.LocalPath != "" {
+		base.Analytics = provided.Analytics
+	}
+	if len(provided.Integrations) > 0 {
+		base.Integrations = provided.Integrations
+	}
+	return base
 }
 
 func (s *ControlService) Subscribe(ctx context.Context) <-chan controlplane.Event {

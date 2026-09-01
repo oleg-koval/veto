@@ -99,6 +99,25 @@ func TestControlServiceSnapshotExposesOnlyModelMetadata(t *testing.T) {
 	}
 }
 
+func TestControlServiceMergesRedactedLocalSnapshotSource(t *testing.T) {
+	t.Parallel()
+
+	routerPort := &serviceRouter{}
+	service := NewControlServiceWithSnapshot(Runner{}, routerPort, func(context.Context) (controlplane.Snapshot, error) {
+		return controlplane.Snapshot{
+			History:   []controlplane.HistorySnapshot{{Type: "execution.completed", Model: "safe"}},
+			Analytics: controlplane.AnalyticsSnapshot{LocalPath: "~/.veto/logs", RetentionDays: 7},
+		}, nil
+	})
+	snapshot, err := service.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot failed: %v", err)
+	}
+	if len(snapshot.History) != 1 || snapshot.Analytics.RetentionDays != 7 {
+		t.Fatalf("snapshot = %#v", snapshot)
+	}
+}
+
 func TestControlServiceCancelStopsActiveAction(t *testing.T) {
 	t.Parallel()
 

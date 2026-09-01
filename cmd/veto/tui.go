@@ -37,7 +37,7 @@ func cmdTUI(args []string) error {
 			if err != nil {
 				return nil, fmt.Errorf("prepare routing: %w", err)
 			}
-			return application.NewControlService(newApplicationRunner(reg, mgr), mgr), nil
+			return application.NewControlServiceWithSnapshot(newApplicationRunner(reg, mgr), mgr, loadTUISnapshot), nil
 		},
 	})
 	_, err := tea.NewProgram(model).Run()

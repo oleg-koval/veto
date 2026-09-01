@@ -205,6 +205,12 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.helpOpen = true
 		return m, nil
+	case "h":
+		m.activeAction = "history"
+		m.status = "Ready · history"
+	case "i":
+		m.activeAction = "integrations"
+		m.status = "Ready · integrations"
 	case "j", "down":
 		m.moveSelection(1)
 	case "k", "up":
@@ -550,6 +556,22 @@ func (m *Model) renderMain(width int) string {
 		b.WriteString(m.renderProviders(width))
 		return lipgloss.NewStyle().Width(width).Render(b.String())
 	}
+	if m.activeAction == "history" {
+		b.WriteString(m.renderHistory(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
+	if m.activeAction == "doctor" {
+		b.WriteString(m.renderHealth(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
+	if m.activeAction == "analytics" {
+		b.WriteString(m.renderAnalytics(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
+	if m.activeAction == "integrations" || m.activeAction == "opencode" || m.activeAction == "hermes" {
+		b.WriteString(m.renderIntegrations(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
 	if m.composerOpen {
 		b.WriteString(headerStyle.Render("COMPOSER · " + m.composerAction))
 		b.WriteString("\n")
@@ -602,6 +624,63 @@ func (m *Model) renderProviders(width int) string {
 			state = "not configured"
 		}
 		b.WriteString(fmt.Sprintf("%-18s %-16s %d model(s)\n", provider.Name, state, provider.ModelCount))
+	}
+	return b.String()
+}
+
+func (m *Model) renderHistory(width int) string {
+	if len(m.snapshot.History) == 0 {
+		return mutedStyle.Render("No redacted activity yet. Completed routes and runs appear here.")
+	}
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("RECENT ACTIVITY"))
+	b.WriteString("\n")
+	for _, item := range m.snapshot.History {
+		stamp := item.Timestamp.Local().Format("15:04:05")
+		b.WriteString(truncate(fmt.Sprintf("%s  %-24s %-18s %-10s %s", stamp, item.Type, item.Model, item.Status, item.Runtime), width-2))
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func (m *Model) renderHealth(width int) string {
+	if len(m.snapshot.Health) == 0 {
+		return mutedStyle.Render("No health findings. Press Enter on Doctor to refresh diagnostics.")
+	}
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("HEALTH · SAFE DIAGNOSTICS"))
+	b.WriteString("\n")
+	for _, check := range m.snapshot.Health {
+		b.WriteString(truncate(fmt.Sprintf("%-6s %-24s %s", check.Status, check.ID, check.Message), width-2))
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func (m *Model) renderAnalytics(width int) string {
+	analytics := m.snapshot.Analytics
+	lines := []string{
+		headerStyle.Render("ANALYTICS & DATA"),
+		fmt.Sprintf("Local collection: %t", analytics.LocalCollection),
+		fmt.Sprintf("Local path: %s", analytics.LocalPath),
+		fmt.Sprintf("Retention: %d days", analytics.RetentionDays),
+		fmt.Sprintf("Future remote sharing: %s", analytics.RemoteSharing),
+		fmt.Sprintf("Remote transport active: %t", analytics.RemoteTransportActive),
+		mutedStyle.Render("Remote analytics are not active; preference changes remain explicit."),
+	}
+	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m *Model) renderIntegrations(width int) string {
+	if len(m.snapshot.Integrations) == 0 {
+		return mutedStyle.Render("No integrations detected. Use the OpenCode or Hermes command for setup.")
+	}
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("INTEGRATIONS"))
+	b.WriteString("\n")
+	for _, integration := range m.snapshot.Integrations {
+		b.WriteString(truncate(fmt.Sprintf("%-12s %-18s %s", integration.Name, integration.Status, integration.Detail), width-2))
+		b.WriteByte('\n')
 	}
 	return b.String()
 }
@@ -674,6 +753,8 @@ func (m *Model) renderHelp(background string) string {
 		"Ctrl+K / /   open command palette",
 		"r           compose a route or run task",
 		"Tab         edit the command's CLI-compatible flags",
+		"h           open redacted history",
+		"i           inspect integrations",
 		"Enter       select the focused command",
 		"Esc         close an overlay",
 		"q / Ctrl+C  quit cleanly",

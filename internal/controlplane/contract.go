@@ -1,7 +1,10 @@
 // Package controlplane defines the in-process boundary shared by CLI and TUI.
 package controlplane
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // FlagSpec describes a CLI-compatible argument exposed by an action.
 type FlagSpec struct {
@@ -45,6 +48,10 @@ type Snapshot struct {
 	Model        string
 	Providers    []ProviderSnapshot
 	Models       []ModelSnapshot
+	History      []HistorySnapshot
+	Health       []HealthSnapshot
+	Analytics    AnalyticsSnapshot
+	Integrations []IntegrationSnapshot
 }
 
 // ProviderSnapshot contains safe availability metadata only.
@@ -61,6 +68,35 @@ type ModelSnapshot struct {
 	Provider string
 	Runtime  string
 	Tier     string
+}
+
+// HistorySnapshot is a redacted ledger entry suitable for local rendering.
+type HistorySnapshot struct {
+	Timestamp time.Time
+	Type      string
+	Model     string
+	Runtime   string
+	Status    string
+}
+
+type HealthSnapshot struct {
+	ID      string
+	Status  string
+	Message string
+}
+
+type AnalyticsSnapshot struct {
+	LocalCollection       bool
+	LocalPath             string
+	RetentionDays         int
+	RemoteSharing         string
+	RemoteTransportActive bool
+}
+
+type IntegrationSnapshot struct {
+	Name   string
+	Status string
+	Detail string
 }
 
 // Event is an ephemeral, non-sensitive update for an active operation.
