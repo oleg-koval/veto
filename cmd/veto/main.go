@@ -892,7 +892,7 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 	}
 
 	if len(reg.executors) == 0 {
-		return nil, fmt.Errorf("no providers configured — run 'veto login' or set ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY / XAI_API_KEY")
+		return nil, errNoProvidersConfigured
 	}
 	return reg, nil
 }

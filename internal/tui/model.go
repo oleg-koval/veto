@@ -385,6 +385,7 @@ func (m *Model) actionSupportsForm(action controlplane.ActionSpec) bool {
 var directActions = map[string]bool{
 	"benchmark": true,
 	"doctor":    true,
+	"providers": true,
 	"version":   true,
 }
 

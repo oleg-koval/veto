@@ -43,6 +43,15 @@ func NewManager(registry *Registry, gate *AdmissionGate, store Store) *Manager {
 	}
 }
 
+// SetRegistry replaces the model catalog used by subsequent routes. It is
+// intentionally small and synchronous so an in-process client can refresh
+// provider bindings after login/logout without rebuilding its control service.
+func (m *Manager) SetRegistry(registry *Registry) {
+	if registry != nil {
+		m.registry = registry
+	}
+}
+
 // SetOnEvent installs the delivery adapter used to observe routing progress.
 // The manager remains unaware of whether the consumer is a CLI, TUI, or
 // ledger logger.

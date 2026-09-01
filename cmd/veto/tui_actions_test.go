@@ -21,7 +21,7 @@ func TestTUIModelPolicyRefreshesLiveRoutingPreferences(t *testing.T) {
 
 	service := application.NewControlService(application.Runner{}, nil)
 	refreshed := false
-	registerTUIActionHandlers(service, func() { refreshed = true })
+	registerTUIActionHandlers(service, func() error { refreshed = true; return nil })
 	result, err := service.Execute(context.Background(), controlplane.ActionRequest{
 		ActionID:  "disable",
 		Arguments: map[string]string{"model": "gpt-test"},
@@ -48,6 +48,29 @@ func TestTUIProvidersActionUsesInjectableCLIOutput(t *testing.T) {
 	}
 	if !bytes.Contains([]byte(result.Output), []byte("provider")) || !strings.Contains(result.Summary, "inspected") {
 		t.Fatalf("providers result = %#v", result)
+	}
+}
+
+func TestPrepareTUIRoutingAllowsFreshProviderOnboarding(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY", "CLAUDE_SUBSCRIPTION"} {
+		t.Setenv(key, "")
+	}
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	previousConfig := vetoCfgPathOverride
+	vetoCfgPathOverride = configPath
+	t.Cleanup(func() { vetoCfgPathOverride = previousConfig })
+
+	reg, mgr, store, err := prepareTUIRouting()
+	if err != nil {
+		t.Fatalf("fresh TUI routing failed: %v", err)
+	}
+	if reg == nil || mgr == nil || store == nil {
+		t.Fatalf("fresh TUI routing returned nil components: reg=%v mgr=%v store=%v", reg, mgr, store)
+	}
+	if len(reg.modelCaps()) != 0 {
+		t.Fatalf("fresh registry unexpectedly contains models: %#v", reg.modelCaps())
 	}
 }
 

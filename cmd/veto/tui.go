@@ -43,7 +43,7 @@ func cmdTUI(args []string) error {
 		NoColor: *noColor || os.Getenv("NO_COLOR") != "",
 		Mouse:   !*noMouse,
 		ServiceFactory: func() (controlplane.Service, error) {
-			reg, mgr, _, err := prepareRouting()
+			reg, mgr, _, err := prepareTUIRouting()
 			if err != nil {
 				return nil, fmt.Errorf("prepare routing: %w", err)
 			}
@@ -74,8 +74,8 @@ func cmdTUI(args []string) error {
 			service.RegisterHandler("version", func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error) {
 				return controlplane.ActionResult{ActionID: "version", Summary: "veto " + resolvedVersion()}, nil
 			})
-			registerTUIActionHandlers(service, func() {
-				mgr.SetCandidatePreferences(loadCandidatePreferences())
+			registerTUIActionHandlers(service, func() error {
+				return refreshTUIRouting(reg, mgr)
 			})
 			service.RegisterHandler("setup", runTUISetup)
 			service.RegisterHandler("exec", func(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
@@ -92,20 +92,40 @@ func cmdTUI(args []string) error {
 // CLI functions while giving the TUI a real, redacted execution path. Actions
 // that mutate credentials or integration files are invoked only after the
 // model's explicit confirmation overlay.
-func registerTUIActionHandlers(service *application.ControlService, refreshPreferences func()) {
-	service.RegisterHandler("login", runTUILogin)
-	service.RegisterHandler("logout", runTUILogout)
+func registerTUIActionHandlers(service *application.ControlService, refreshPreferences func() error) {
+	service.RegisterHandler("login", func(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+		result, err := runTUILogin(ctx, request)
+		if err == nil && refreshPreferences != nil {
+			if refreshErr := refreshPreferences(); refreshErr != nil {
+				return result, fmt.Errorf("refresh routing after login: %w", refreshErr)
+			}
+		}
+		return result, err
+	})
+	service.RegisterHandler("logout", func(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+		result, err := runTUILogout(ctx, request)
+		if err == nil && refreshPreferences != nil {
+			if refreshErr := refreshPreferences(); refreshErr != nil {
+				return result, fmt.Errorf("refresh routing after logout: %w", refreshErr)
+			}
+		}
+		return result, err
+	})
 	service.RegisterHandler("disable", func(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 		result, err := runTUIDisable(ctx, request)
 		if err == nil && refreshPreferences != nil {
-			refreshPreferences()
+			if refreshErr := refreshPreferences(); refreshErr != nil {
+				return result, fmt.Errorf("refresh routing after disable: %w", refreshErr)
+			}
 		}
 		return result, err
 	})
 	service.RegisterHandler("enable", func(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 		result, err := runTUIEnable(ctx, request)
 		if err == nil && refreshPreferences != nil {
-			refreshPreferences()
+			if refreshErr := refreshPreferences(); refreshErr != nil {
+				return result, fmt.Errorf("refresh routing after enable: %w", refreshErr)
+			}
 		}
 		return result, err
 	})

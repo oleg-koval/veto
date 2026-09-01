@@ -25,6 +25,8 @@ const (
 	defaultAdmissionTimeout = 60 * time.Second
 )
 
+var errNoProvidersConfigured = errors.New("no providers configured — run 'veto login' or set ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY / XAI_API_KEY")
+
 // cmdRun routes the task then executes it on the winning model, printing the response.
 func cmdRun(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
@@ -316,6 +318,44 @@ func prepareRouting() (*providerRegistry, *router.Manager, *routinghistory.FileS
 	mgr := router.NewManager(modelReg, gate, store)
 	mgr.SetCandidatePreferences(loadCandidatePreferences())
 	return reg, mgr, store, nil
+}
+
+// prepareTUIRouting keeps the shell usable on a fresh install. Provider
+// actions can then establish credentials and refresh the same in-process
+// Runner/Router without requiring a restart.
+func prepareTUIRouting() (*providerRegistry, *router.Manager, *routinghistory.FileStore, error) {
+	reg, err := buildProviderRegistry()
+	if errors.Is(err, errNoProvidersConfigured) {
+		reg = newEmptyProviderRegistry()
+	} else if err != nil {
+		return nil, nil, nil, err
+	}
+	modelReg := router.NewRegistryFromModels(reg.modelCaps())
+	gate := router.NewAdmissionGateWithFactory(reg)
+	store := routinghistory.NewFileStore(historyPath())
+	mgr := router.NewManager(modelReg, gate, store)
+	mgr.SetCandidatePreferences(loadCandidatePreferences())
+	return reg, mgr, store, nil
+}
+
+func newEmptyProviderRegistry() *providerRegistry {
+	return &providerRegistry{executors: make(map[string]execution.RuntimeAdapter), caps: make(map[string]router.ModelCapabilities)}
+}
+
+// refreshTUIRouting reloads provider bindings in place so the existing Runner
+// and control service observe a successful login/logout immediately.
+func refreshTUIRouting(reg *providerRegistry, mgr *router.Manager) error {
+	refreshed, err := buildProviderRegistry()
+	if errors.Is(err, errNoProvidersConfigured) {
+		refreshed = newEmptyProviderRegistry()
+	} else if err != nil {
+		return err
+	}
+	reg.executors = refreshed.executors
+	reg.caps = refreshed.caps
+	mgr.SetRegistry(router.NewRegistryFromModels(reg.modelCaps()))
+	mgr.SetCandidatePreferences(loadCandidatePreferences())
+	return nil
 }
 
 // routeAndCapture routes spec to the best model and runs the executor.
