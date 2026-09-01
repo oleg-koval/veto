@@ -174,7 +174,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.output.Len() == 0 {
 			m.output.WriteString(message.result.Output)
 		}
-		if message.result.ActionID == "doctor" && m.options.Service != nil {
+		if m.options.Service != nil {
 			return m, m.loadSnapshot()
 		}
 		return m, nil
