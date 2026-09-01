@@ -7,6 +7,7 @@ import (
 	"os"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/oleg-koval/veto/internal/application"
 	"github.com/oleg-koval/veto/internal/controlplane"
 	"github.com/oleg-koval/veto/internal/tui"
 )
@@ -27,11 +28,17 @@ func cmdTUI(args []string) error {
 		return fmt.Errorf("tui does not accept positional arguments")
 	}
 
+	reg, mgr, _, err := prepareRouting()
+	if err != nil {
+		return fmt.Errorf("prepare routing: %w", err)
+	}
+	service := application.NewControlService(newApplicationRunner(reg, mgr), mgr)
 	model := tui.NewModel(controlplane.DefaultCatalog(), tui.Options{
 		Motion:  !*reduceMotion,
 		NoColor: *noColor || os.Getenv("NO_COLOR") != "",
 		Mouse:   !*noMouse,
+		Service: service,
 	})
-	_, err := tea.NewProgram(model).Run()
+	_, err = tea.NewProgram(model).Run()
 	return err
 }

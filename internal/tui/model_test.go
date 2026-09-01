@@ -71,3 +71,31 @@ func TestModelNoColorStripsANSI(t *testing.T) {
 		t.Fatal("no-color view contains ANSI escape codes")
 	}
 }
+
+func TestModelComposerCapturesObjectiveForRun(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	var updated tea.Model = model
+	for range 3 {
+		updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+		model = updated.(*Model)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	model = updated.(*Model)
+	if !model.composerOpen || model.composerAction != "run" {
+		t.Fatalf("composer state = open:%v action:%q", model.composerOpen, model.composerAction)
+	}
+	for _, text := range []string{"h", "i"} {
+		updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: text, Code: rune(text[0])}))
+		model = updated.(*Model)
+	}
+	if model.composerInput != "hi" {
+		t.Fatalf("composer input = %q, want hi", model.composerInput)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(*Model)
+	if !model.composerEditing || len(model.composerFields) == 0 {
+		t.Fatal("composer did not enter the CLI flag step")
+	}
+}

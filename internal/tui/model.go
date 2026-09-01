@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -19,25 +20,48 @@ type Options struct {
 	Motion  bool
 	NoColor bool
 	Mouse   bool
+	Service controlplane.Service
 }
 
 type tickMsg time.Time
 
+type eventMsg struct {
+	event controlplane.Event
+	ok    bool
+}
+
+type executionResultMsg struct {
+	result controlplane.ActionResult
+	err    error
+}
+
 // Model is the keyboard-first Veto shell. It intentionally contains no
 // provider clients or credential state.
 type Model struct {
-	catalog       controlplane.Catalog
-	options       Options
-	width         int
-	height        int
-	selected      int
-	activeAction  string
-	paletteOpen   bool
-	helpOpen      bool
-	paletteQuery  string
-	paletteCursor int
-	frame         uint8
-	status        string
+	catalog         controlplane.Catalog
+	options         Options
+	width           int
+	height          int
+	selected        int
+	activeAction    string
+	composerOpen    bool
+	composerAction  string
+	composerInput   string
+	composerFields  []controlplane.FlagSpec
+	composerValues  map[string]string
+	composerField   int
+	composerEditing bool
+	running         bool
+	lastEvent       string
+	output          strings.Builder
+	events          <-chan controlplane.Event
+	cancelRun       context.CancelFunc
+	paletteOpen     bool
+	helpOpen        bool
+	paletteQuery    string
+	paletteCursor   int
+	frame           uint8
+	status          string
 }
 
 // NewModel creates a shell with a deterministic initial state.
@@ -67,6 +91,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nextTick()
 		}
 		return m, nil
+	case eventMsg:
+		if !message.ok {
+			return m, nil
+		}
+		m.lastEvent = message.event.Kind + " · " + message.event.Message
+		if message.event.Kind == "output" {
+			m.output.WriteString(message.event.Message)
+		}
+		return m, waitForEvent(m.events)
+	case executionResultMsg:
+		m.running = false
+		m.cancelRun = nil
+		if message.err != nil {
+			m.status = "Error · " + message.err.Error()
+			return m, nil
+		}
+		m.activeAction = message.result.ActionID
+		m.status = "Ready · " + message.result.Summary
+		if m.output.Len() == 0 {
+			m.output.WriteString(message.result.Output)
+		}
+		return m, nil
 	case tea.KeyPressMsg:
 		return m.updateKey(message)
 	default:
@@ -85,6 +131,9 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.paletteOpen {
 		return m.updatePalette(key)
 	}
+	if m.composerOpen {
+		return m.updateComposer(key)
+	}
 	if key.Mod == tea.ModCtrl && key.Code == 'c' {
 		return m, tea.Quit
 	}
@@ -97,6 +146,9 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch key.String() {
 	case "q":
+		if m.cancelRun != nil {
+			m.cancelRun()
+		}
 		return m, tea.Quit
 	case "/":
 		m.paletteOpen = true
@@ -113,9 +165,146 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "tab":
 		m.moveSelection(1)
 	case "enter":
-		m.activateSelected()
+		commands := m.catalog.Commands()
+		if len(commands) > 0 && (commands[m.selected].ID == "run" || commands[m.selected].ID == "route") {
+			m.openComposer(commands[m.selected])
+		} else {
+			m.activateSelected()
+		}
+	case "r":
+		commands := m.catalog.Commands()
+		if len(commands) > 0 && (commands[m.selected].ID == "run" || commands[m.selected].ID == "route") {
+			m.openComposer(commands[m.selected])
+		}
 	}
 	return m, nil
+}
+
+func (m *Model) updateComposer(key tea.Key) (tea.Model, tea.Cmd) {
+	if m.composerEditing {
+		return m.updateComposerField(key)
+	}
+	switch key.String() {
+	case "esc":
+		m.composerOpen = false
+		m.composerInput = ""
+	case "backspace":
+		if len(m.composerInput) > 0 {
+			m.composerInput = m.composerInput[:len(m.composerInput)-1]
+		}
+	case "enter":
+		objective := strings.TrimSpace(m.composerInput)
+		if objective == "" {
+			m.status = "Error · enter a task objective"
+			return m, nil
+		}
+		if len(m.composerFields) > 0 {
+			m.composerEditing = true
+			m.composerField = 0
+			m.status = "Flags · " + m.composerFields[0].Name
+			return m, nil
+		}
+		return m.startExecution()
+	default:
+		if key.Text != "" {
+			m.composerInput += key.Text
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) openComposer(action controlplane.ActionSpec) {
+	m.composerAction = action.ID
+	m.composerInput = ""
+	m.composerFields = make([]controlplane.FlagSpec, 0, len(action.Flags))
+	m.composerValues = make(map[string]string)
+	for _, field := range action.Flags {
+		if field.Name == "task" {
+			continue
+		}
+		m.composerFields = append(m.composerFields, field)
+		m.composerValues[field.Name] = field.Default
+	}
+	m.composerField = 0
+	m.composerEditing = false
+	m.composerOpen = true
+}
+
+func (m *Model) updateComposerField(key tea.Key) (tea.Model, tea.Cmd) {
+	if len(m.composerFields) == 0 {
+		return m.startExecution()
+	}
+	field := m.composerFields[m.composerField]
+	switch key.String() {
+	case "esc":
+		m.composerOpen = false
+		m.composerEditing = false
+	case "tab", "down":
+		m.composerField = (m.composerField + 1) % len(m.composerFields)
+		m.status = "Flags · " + m.composerFields[m.composerField].Name
+	case "shift+tab", "up":
+		m.composerField = (m.composerField - 1 + len(m.composerFields)) % len(m.composerFields)
+		m.status = "Flags · " + m.composerFields[m.composerField].Name
+	case "backspace":
+		value := m.composerValues[field.Name]
+		if len(value) > 0 {
+			m.composerValues[field.Name] = value[:len(value)-1]
+		}
+	case "enter":
+		if m.composerField < len(m.composerFields)-1 {
+			m.composerField++
+			m.status = "Flags · " + m.composerFields[m.composerField].Name
+			return m, nil
+		}
+		return m.startExecution()
+	default:
+		if key.Text != "" {
+			m.composerValues[field.Name] += key.Text
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) startExecution() (tea.Model, tea.Cmd) {
+	objective := strings.TrimSpace(m.composerInput)
+	m.composerOpen = false
+	m.composerEditing = false
+	m.running = true
+	m.output.Reset()
+	m.lastEvent = "starting"
+	m.status = "Running · " + m.composerAction
+	if m.options.Service == nil {
+		m.activeAction = m.composerAction
+		m.running = false
+		m.status = "Ready · service unavailable in preview"
+		return m, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancelRun = cancel
+	m.events = m.options.Service.Subscribe(ctx)
+	arguments := make(map[string]string, len(m.composerValues)+1)
+	arguments["objective"] = objective
+	for name, value := range m.composerValues {
+		if value != "" {
+			arguments[name] = value
+		}
+	}
+	request := controlplane.ActionRequest{ActionID: m.composerAction, Arguments: arguments}
+	return m, tea.Batch(m.execute(request, ctx), waitForEvent(m.events))
+}
+
+func (m *Model) execute(request controlplane.ActionRequest, ctx context.Context) tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.options.Service.Execute(ctx, request)
+		return executionResultMsg{result: result, err: err}
+	}
+}
+
+func waitForEvent(updates <-chan controlplane.Event) tea.Cmd {
+	return func() tea.Msg {
+		event, ok := <-updates
+		return eventMsg{event: event, ok: ok}
+	}
 }
 
 func (m *Model) updatePalette(key tea.Key) (tea.Model, tea.Cmd) {
@@ -292,6 +481,21 @@ func (m *Model) renderMain(width int) string {
 	b.WriteString("\n")
 	b.WriteString(mutedStyle.Render("Every CLI command is available through the palette."))
 	b.WriteString("\n\n")
+	if m.composerOpen {
+		b.WriteString(headerStyle.Render("COMPOSER · " + m.composerAction))
+		b.WriteString("\n")
+		b.WriteString(panelStyle.Render("objective: " + m.composerInput + "▌"))
+		b.WriteString("\n")
+		if m.composerEditing && len(m.composerFields) > 0 {
+			field := m.composerFields[m.composerField]
+			b.WriteString(panelStyle.Render(field.Name + ": " + m.composerValues[field.Name] + "▌"))
+			b.WriteString("\n")
+			b.WriteString(mutedStyle.Render("Enter next field/run · Tab move · Esc cancel"))
+		} else {
+			b.WriteString(mutedStyle.Render("Enter edit flags · Esc cancel"))
+		}
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
 	b.WriteString(panelStyle.Render(truncate("⌘  Run a task   /  Find command   ?  Help", width-4)))
 	b.WriteString("\n\n")
 	b.WriteString(headerStyle.Render("NEXT"))
@@ -311,6 +515,12 @@ func (m *Model) renderInspector(width int) string {
 	b.WriteString(headerStyle.Render("GUIDANCE"))
 	b.WriteString("\n")
 	b.WriteString(mutedStyle.Render("Tab moves focus\nEnter selects\nEsc closes overlays"))
+	if m.lastEvent != "" {
+		b.WriteString("\n\n")
+		b.WriteString(headerStyle.Render("LIVE"))
+		b.WriteString("\n")
+		b.WriteString(truncate(m.lastEvent, width))
+	}
 	return lipgloss.NewStyle().Width(width).Render(b.String())
 }
 
@@ -361,6 +571,8 @@ func (m *Model) renderHelp(background string) string {
 		"k / ↑       move selection backwards",
 		"Tab         move focus",
 		"Ctrl+K / /   open command palette",
+		"r           compose a route or run task",
+		"Tab         edit the command's CLI-compatible flags",
 		"Enter       select the focused command",
 		"Esc         close an overlay",
 		"q / Ctrl+C  quit cleanly",

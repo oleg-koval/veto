@@ -28,10 +28,13 @@ type ActionRequest struct {
 	Arguments map[string]string
 }
 
-// ActionResult contains a redacted, user-facing completion summary.
+// ActionResult contains a completion summary and ephemeral output. Output is
+// never persisted by the control plane; clients decide how to render it.
 type ActionResult struct {
 	ActionID string
 	Summary  string
+	Model    string
+	Output   string
 }
 
 // Snapshot is the read-only state needed to render the shell.

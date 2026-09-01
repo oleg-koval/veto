@@ -32,6 +32,13 @@ func NewManager(registry *Registry, gate *AdmissionGate, store Store) *Manager {
 	}
 }
 
+// SetOnEvent installs the delivery adapter used to observe routing progress.
+// The manager remains unaware of whether the consumer is a CLI, TUI, or
+// ledger logger.
+func (m *Manager) SetOnEvent(handler func(ProgressEvent)) {
+	m.OnEvent = handler
+}
+
 // Route selects a model for the task.
 // It hard-filters, ranks, then asks each candidate in score order.
 // The first accepted candidate is returned. All decisions are logged.
