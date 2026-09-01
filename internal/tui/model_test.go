@@ -267,3 +267,26 @@ func TestModelConfirmationCanBeCancelled(t *testing.T) {
 		t.Fatalf("confirmation cancel state = open:%v request:%#v status:%q", model.confirmOpen, model.pendingRequest, model.status)
 	}
 }
+
+func TestRequiresConfirmationOnlyForMutatingOperations(t *testing.T) {
+	tests := []struct {
+		name    string
+		request controlplane.ActionRequest
+		want    bool
+	}{
+		{name: "analytics status", request: controlplane.ActionRequest{ActionID: "analytics", Arguments: map[string]string{"subcommand": "status"}}},
+		{name: "analytics enable", request: controlplane.ActionRequest{ActionID: "analytics", Arguments: map[string]string{"subcommand": "enable"}}, want: true},
+		{name: "opencode status", request: controlplane.ActionRequest{ActionID: "opencode", Arguments: map[string]string{"subcommand": "status"}}},
+		{name: "opencode connect", request: controlplane.ActionRequest{ActionID: "opencode", Arguments: map[string]string{"subcommand": "connect"}}, want: true},
+		{name: "hermes api", request: controlplane.ActionRequest{ActionID: "hermes", Arguments: map[string]string{"subcommand": "api"}}},
+		{name: "setup discovery", request: controlplane.ActionRequest{ActionID: "setup"}},
+		{name: "setup approval", request: controlplane.ActionRequest{ActionID: "setup", Arguments: map[string]string{"auto-approve": "true"}}, want: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := requiresConfirmation(test.request); got != test.want {
+				t.Fatalf("requiresConfirmation = %v, want %v", got, test.want)
+			}
+		})
+	}
+}

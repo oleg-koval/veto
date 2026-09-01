@@ -541,6 +541,14 @@ func runTUIExec(ctx context.Context, request controlplane.ActionRequest, service
 	if failureMode != "abort" && failureMode != "continue" && failureMode != "abort-ask" {
 		return controlplane.ActionResult{ActionID: "exec"}, fmt.Errorf("invalid on-failure mode %q", failureMode)
 	}
+	stepTimeout := 60 * time.Second
+	if raw := request.Arguments["timeout"]; raw != "" {
+		parsed, parseErr := time.ParseDuration(raw)
+		if parseErr != nil || parsed <= 0 {
+			return controlplane.ActionResult{ActionID: "exec"}, fmt.Errorf("invalid timeout %q", raw)
+		}
+		stepTimeout = parsed
+	}
 	maxTokens := request.Arguments["max-output-tokens"]
 	outputs := make([]string, 0, len(plan.Steps))
 	failed := make([]int, 0)
@@ -548,11 +556,13 @@ func runTUIExec(ctx context.Context, request controlplane.ActionRequest, service
 		if err := ctx.Err(); err != nil {
 			return controlplane.ActionResult{ActionID: "exec", Output: strings.Join(outputs, "\n\n---\n\n")}, err
 		}
+		stepCtx, cancel := context.WithTimeout(ctx, stepTimeout)
 		arguments := map[string]string{"objective": step.Task, "kind": step.Kind, "risk": step.Risk}
 		if maxTokens != "" {
 			arguments["max-output-tokens"] = maxTokens
 		}
-		result, runErr := service.Execute(ctx, controlplane.ActionRequest{ActionID: "run", Arguments: arguments})
+		result, runErr := service.Execute(stepCtx, controlplane.ActionRequest{ActionID: "run", Arguments: arguments})
+		cancel()
 		if runErr != nil {
 			failed = append(failed, index+1)
 			if failureMode != "continue" {

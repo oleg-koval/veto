@@ -438,8 +438,15 @@ func (m *Model) beginExecution(request controlplane.ActionRequest) (tea.Model, t
 
 func requiresConfirmation(request controlplane.ActionRequest) bool {
 	switch request.ActionID {
-	case "login", "logout", "setup", "opencode", "hermes", "disable", "enable", "install-git-hook":
+	case "login", "logout", "disable", "enable", "install-git-hook":
 		return true
+	case "setup":
+		return request.Arguments["auto-approve"] == "true"
+	case "opencode":
+		subcommand := request.Arguments["subcommand"]
+		return subcommand == "connect" || subcommand == "disconnect" || (subcommand == "plugin" && request.Arguments["operation"] != "status")
+	case "hermes":
+		return request.Arguments["subcommand"] == "plugin" && request.Arguments["operation"] != "status"
 	case "analytics":
 		return request.Arguments["subcommand"] == "enable" || request.Arguments["subcommand"] == "disable"
 	default:
