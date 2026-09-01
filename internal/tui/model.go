@@ -501,7 +501,19 @@ func (m *Model) renderShell() string {
 	default:
 		body = m.renderWide(commands, width)
 	}
-	return lipgloss.NewStyle().Width(width).Render(body) + "\n" + m.statusLine(width)
+	body = lipgloss.NewStyle().Width(width).Render(body)
+	status := m.statusLine(width)
+	height := m.height
+	if height < 1 {
+		height = 24
+	}
+	bodyLines := strings.Split(strings.TrimSuffix(body, "\n"), "\n")
+	statusHeight := lipgloss.Height(status)
+	if len(bodyLines) > height-statusHeight {
+		limit := max(1, height-statusHeight-1)
+		bodyLines = append(bodyLines[:limit], mutedStyle.Render("… more below; resize or use the palette"))
+	}
+	return strings.Join(bodyLines, "\n") + "\n" + status
 }
 
 func (m *Model) renderWide(commands []controlplane.ActionSpec, width int) string {
