@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -59,6 +60,19 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 	}
 
 	all := m.registry.All()
+	if task.RuntimeFilter != "" || task.ProviderFilter != "" {
+		filtered := all[:0]
+		for _, model := range all {
+			if task.RuntimeFilter != "" && !strings.EqualFold(model.Runtime, task.RuntimeFilter) {
+				continue
+			}
+			if task.ProviderFilter != "" && !strings.EqualFold(model.Provider, task.ProviderFilter) {
+				continue
+			}
+			filtered = append(filtered, model)
+		}
+		all = filtered
+	}
 	eligible := m.preferences.Filter(all)
 	// Store history is the routing signal source. This is deliberately kept
 	// separate from the static registry so persisted outcomes affect later runs.

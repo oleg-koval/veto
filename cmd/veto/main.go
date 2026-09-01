@@ -355,6 +355,8 @@ func cmdRoute(args []string) {
 		Risk:                    router.Risk(*risk),
 		MaxCostUSD:              *maxCost,
 		SkipModels:              cp.triedNames(),
+		RuntimeFilter:           *runtimeFilter,
+		ProviderFilter:          *providerFilter,
 	}
 
 	model, decision, err := mgr.Route(ctx, spec)

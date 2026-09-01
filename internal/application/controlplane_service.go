@@ -296,6 +296,7 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 				return controlplane.ActionResult{ActionID: request.ActionID, Model: response.Model.Name, Output: response.Output}, errors.New("control plane: output writing is unavailable")
 			}
 			if err := s.outputWriter(outputPath, response.Output, request.Arguments["force"] == "true"); err != nil {
+				s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "error"})
 				return controlplane.ActionResult{ActionID: request.ActionID, Model: response.Model.Name, Output: response.Output}, fmt.Errorf("write output: %w", err)
 			}
 			s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "output.saved", Message: outputPath})
@@ -352,7 +353,7 @@ func taskFromRequest(request controlplane.ActionRequest, objective string) route
 	}
 	maxCost, _ := strconv.ParseFloat(request.Arguments["max-cost"], 64)
 	maxTokens, _ := strconv.Atoi(request.Arguments["max-output-tokens"])
-	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, MaxTokens: maxTokens, RequiredTools: splitRequestList(request.Arguments["required-tools"]), RequiresExecutableTools: request.Arguments["requires-executable-tools"] == "true", SuccessCriteria: splitRequestList(request.Arguments["criteria"]), Source: "tui"}
+	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, MaxTokens: maxTokens, RequiredTools: splitRequestList(request.Arguments["required-tools"]), RequiresExecutableTools: request.Arguments["requires-executable-tools"] == "true", SuccessCriteria: splitRequestList(request.Arguments["criteria"]), RuntimeFilter: request.Arguments["runtime"], ProviderFilter: request.Arguments["provider"], Source: "tui"}
 }
 
 func splitRequestList(value string) []string {
