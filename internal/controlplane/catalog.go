@@ -71,6 +71,8 @@ func routeFlags() []FlagSpec {
 		{Name: "task", Value: "string", Description: "Task objective (or positional argument)."},
 		{Name: "kind", Value: "string", Description: "Task kind; auto-detected when omitted."},
 		{Name: "risk", Value: "string", Default: "medium", Description: "Risk level: low, medium, or high."},
+		{Name: "required-tools", Value: "string", Description: "Comma-separated capabilities required by the task."},
+		{Name: "requires-executable-tools", Value: "bool", Description: "Require a runtime that exposes executable tools."},
 		{Name: "max-cost", Value: "float", Description: "Estimated preflight ceiling in USD."},
 		{Name: "timeout", Value: "duration", Default: "30s", Description: "Per-model admission timeout."},
 		{Name: "quiet", Value: "bool", Description: "Suppress routing animation."},
@@ -106,7 +108,7 @@ func feedbackFlags() []FlagSpec {
 }
 
 func runFlags() []FlagSpec {
-	return []FlagSpec{{Name: "task", Value: "string", Description: "Task objective (or positional argument)."}, {Name: "kind", Value: "string", Description: "Task kind; auto-detected when omitted."}, {Name: "risk", Value: "string", Default: "medium", Description: "Risk level: low, medium, or high."}, {Name: "max-cost", Value: "float", Description: "Estimated preflight ceiling in USD."}, {Name: "timeout", Value: "duration", Default: "2h0m0s", Description: "Total routing and execution timeout."}, {Name: "admission-timeout", Value: "duration", Default: "1m0s", Description: "Timeout for each model admission decision."}, {Name: "quiet", Value: "bool", Description: "Suppress routing pipeline."}, {Name: "criteria", Value: "string", Description: "Comma-separated acceptance criteria."}, {Name: "max-output-tokens", Value: "int", Description: "Maximum output tokens for task execution."}, {Name: "output", Value: "path", Description: "Write task output to a relative file path."}, {Name: "force", Value: "bool", Description: "Overwrite an existing output file."}, {Name: "no-feedback", Value: "bool", Description: "Disable the opt-in post-run feedback prompt."}}
+	return []FlagSpec{{Name: "task", Value: "string", Description: "Task objective (or positional argument)."}, {Name: "kind", Value: "string", Description: "Task kind; auto-detected when omitted."}, {Name: "risk", Value: "string", Default: "medium", Description: "Risk level: low, medium, or high."}, {Name: "required-tools", Value: "string", Description: "Comma-separated capabilities required by the task."}, {Name: "requires-executable-tools", Value: "bool", Description: "Require a runtime that exposes executable tools."}, {Name: "max-cost", Value: "float", Description: "Estimated preflight ceiling in USD."}, {Name: "timeout", Value: "duration", Default: "2h0m0s", Description: "Total routing and execution timeout."}, {Name: "admission-timeout", Value: "duration", Default: "1m0s", Description: "Timeout for each model admission decision."}, {Name: "quiet", Value: "bool", Description: "Suppress routing pipeline."}, {Name: "criteria", Value: "string", Description: "Comma-separated acceptance criteria."}, {Name: "max-output-tokens", Value: "int", Description: "Maximum output tokens for task execution."}, {Name: "output", Value: "path", Description: "Write task output to a relative file path."}, {Name: "force", Value: "bool", Description: "Overwrite an existing output file."}, {Name: "no-feedback", Value: "bool", Description: "Disable the opt-in post-run feedback prompt."}}
 }
 
 func execFlags() []FlagSpec {

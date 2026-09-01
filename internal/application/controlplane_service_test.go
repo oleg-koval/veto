@@ -47,6 +47,20 @@ func TestControlServiceRejectsUnsupportedRequestSchema(t *testing.T) {
 	}
 }
 
+func TestTaskFromRequestPreservesComposerCapabilitiesAndCriteria(t *testing.T) {
+	t.Parallel()
+
+	task := taskFromRequest(controlplane.ActionRequest{Arguments: map[string]string{
+		"kind": "review", "risk": "high", "required-tools": "read, browser-dom", "requires-executable-tools": "true", "criteria": "tests pass; no regression", "max-cost": "0.25", "max-output-tokens": "120",
+	}}, "inspect the change")
+	if task.Kind != router.KindReview || task.Risk != router.RiskHigh || !task.RequiresExecutableTools || task.MaxCostUSD != 0.25 || task.MaxTokens != 120 {
+		t.Fatalf("task = %#v", task)
+	}
+	if len(task.RequiredTools) != 2 || task.RequiredTools[1] != "browser-dom" || len(task.SuccessCriteria) != 2 {
+		t.Fatalf("task capabilities = %#v criteria = %#v", task.RequiredTools, task.SuccessCriteria)
+	}
+}
+
 func TestControlServiceRejectsMissingObjectiveBeforeRouting(t *testing.T) {
 	t.Parallel()
 

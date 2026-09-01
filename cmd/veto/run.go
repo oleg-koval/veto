@@ -31,6 +31,8 @@ func cmdRun(args []string) {
 	taskObj := fs.String("task", "", "task objective (or pass as a positional argument)")
 	kindFlag := fs.String("kind", "", "task kind (auto-detected if omitted)")
 	risk := fs.String("risk", "medium", "risk level: low|medium|high")
+	requiredTools := fs.String("required-tools", "", "comma-separated capabilities required by the task")
+	requiresExecutableTools := fs.Bool("requires-executable-tools", false, "require a runtime that exposes executable tools")
 	maxCost := fs.Float64("max-cost", 0, "estimated preflight cost ceiling in USD (0 = none)")
 	timeout := fs.Duration("timeout", defaultRunTimeout, "total timeout (routing + execution)")
 	admissionTimeout := fs.Duration("admission-timeout", defaultAdmissionTimeout, "timeout for each model admission decision")
@@ -96,7 +98,8 @@ func cmdRun(args []string) {
 		Kind:                    router.TaskKind(kind),
 		Complexity:              complexity,
 		Objective:               objective,
-		RequiresExecutableTools: requiresExecutableRuntime(objective),
+		RequiredTools:           splitTaskList(*requiredTools),
+		RequiresExecutableTools: *requiresExecutableTools || requiresExecutableRuntime(objective),
 		Risk:                    router.Risk(*risk),
 		MaxCostUSD:              *maxCost,
 		SuccessCriteria:         criteria,

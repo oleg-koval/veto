@@ -286,7 +286,18 @@ func taskFromRequest(request controlplane.ActionRequest, objective string) route
 	}
 	maxCost, _ := strconv.ParseFloat(request.Arguments["max-cost"], 64)
 	maxTokens, _ := strconv.Atoi(request.Arguments["max-output-tokens"])
-	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, MaxTokens: maxTokens, Source: "tui"}
+	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, MaxTokens: maxTokens, RequiredTools: splitRequestList(request.Arguments["required-tools"]), RequiresExecutableTools: request.Arguments["requires-executable-tools"] == "true", SuccessCriteria: splitRequestList(request.Arguments["criteria"]), Source: "tui"}
+}
+
+func splitRequestList(value string) []string {
+	parts := strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' || r == '\n' })
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
 
 func executionOptions(request controlplane.ActionRequest) execution.ExecutionOptions {

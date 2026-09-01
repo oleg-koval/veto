@@ -106,6 +106,17 @@ func isInteractiveTerminal(file *os.File) bool {
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
+func splitTaskList(value string) []string {
+	parts := strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' || r == '\n' })
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
 func rootHelpRequested(arg string) bool {
 	switch arg {
 	case "help", "--help", "-h":
@@ -205,6 +216,8 @@ func cmdRoute(args []string) {
 	taskObj := fs.String("task", "", "task objective (or pass as a positional argument)")
 	kindFlag := fs.String("kind", "", "task kind (auto-detected from objective if omitted): extract|summarize|code-change|debug|plan|review|refactor")
 	risk := fs.String("risk", "medium", "risk level: low|medium|high")
+	requiredTools := fs.String("required-tools", "", "comma-separated capabilities required by the task")
+	requiresExecutableTools := fs.Bool("requires-executable-tools", false, "require a runtime that exposes executable tools")
 	maxCost := fs.Float64("max-cost", 0, "estimated preflight cost ceiling in USD (0 = none)")
 	timeout := fs.Duration("timeout", 30*time.Second, "per-model admission timeout")
 	quiet := fs.Bool("quiet", false, "suppress routing animation (useful in scripts)")
@@ -335,7 +348,8 @@ func cmdRoute(args []string) {
 		Kind:                    router.TaskKind(kind),
 		Complexity:              router.Complexity(complexity),
 		Objective:               objective,
-		RequiresExecutableTools: requiresExecutableRuntime(objective),
+		RequiredTools:           splitTaskList(*requiredTools),
+		RequiresExecutableTools: *requiresExecutableTools || requiresExecutableRuntime(objective),
 		Risk:                    router.Risk(*risk),
 		MaxCostUSD:              *maxCost,
 		SkipModels:              cp.triedNames(),
