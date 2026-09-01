@@ -72,6 +72,22 @@ func TestModelNoColorStripsANSI(t *testing.T) {
 	}
 }
 
+func TestModelRendersProviderAndModelSnapshots(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	model.snapshot = controlplane.Snapshot{
+		Providers: []controlplane.ProviderSnapshot{{Name: "openai", Configured: true, ModelCount: 2}},
+		Models:    []controlplane.ModelSnapshot{{Name: "gpt-test", Provider: "openai", Runtime: "api", Tier: "mid"}},
+	}
+	model.activeAction = "providers"
+	if !strings.Contains(model.View().Content, "openai") {
+		t.Fatal("provider snapshot did not render")
+	}
+	model.activeAction = "models"
+	if !strings.Contains(model.View().Content, "gpt-test") {
+		t.Fatal("model snapshot did not render")
+	}
+}
+
 func TestModelComposerCapturesObjectiveForRun(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})

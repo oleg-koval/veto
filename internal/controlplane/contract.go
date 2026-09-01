@@ -43,6 +43,24 @@ type Snapshot struct {
 	Status       string
 	Provider     string
 	Model        string
+	Providers    []ProviderSnapshot
+	Models       []ModelSnapshot
+}
+
+// ProviderSnapshot contains safe availability metadata only.
+type ProviderSnapshot struct {
+	Name       string
+	Configured bool
+	ModelCount int
+}
+
+// ModelSnapshot contains safe catalog metadata only; credentials and prompt
+// content are deliberately absent.
+type ModelSnapshot struct {
+	Name     string
+	Provider string
+	Runtime  string
+	Tier     string
 }
 
 // Event is an ephemeral, non-sensitive update for an active operation.

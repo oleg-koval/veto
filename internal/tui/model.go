@@ -35,6 +35,11 @@ type executionResultMsg struct {
 	err    error
 }
 
+type snapshotMsg struct {
+	snapshot controlplane.Snapshot
+	err      error
+}
+
 // Model is the keyboard-first Veto shell. It intentionally contains no
 // provider clients or credential state.
 type Model struct {
@@ -56,6 +61,7 @@ type Model struct {
 	output          strings.Builder
 	events          <-chan controlplane.Event
 	cancelRun       context.CancelFunc
+	snapshot        controlplane.Snapshot
 	paletteOpen     bool
 	helpOpen        bool
 	paletteQuery    string
@@ -70,10 +76,14 @@ func NewModel(catalog controlplane.Catalog, options Options) *Model {
 }
 
 func (m *Model) Init() tea.Cmd {
-	if !m.options.Motion {
-		return nil
+	commands := make([]tea.Cmd, 0, 2)
+	if m.options.Motion {
+		commands = append(commands, nextTick())
 	}
-	return nextTick()
+	if m.options.Service != nil {
+		commands = append(commands, m.loadSnapshot())
+	}
+	return tea.Batch(commands...)
 }
 
 func nextTick() tea.Cmd {
@@ -89,6 +99,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.frame++
 		if m.options.Motion {
 			return m, nextTick()
+		}
+		return m, nil
+	case snapshotMsg:
+		if message.err == nil {
+			m.snapshot = message.snapshot
 		}
 		return m, nil
 	case eventMsg:
@@ -300,6 +315,13 @@ func (m *Model) execute(request controlplane.ActionRequest, ctx context.Context)
 	}
 }
 
+func (m *Model) loadSnapshot() tea.Cmd {
+	return func() tea.Msg {
+		snapshot, err := m.options.Service.Snapshot(context.Background())
+		return snapshotMsg{snapshot: snapshot, err: err}
+	}
+}
+
 func waitForEvent(updates <-chan controlplane.Event) tea.Cmd {
 	return func() tea.Msg {
 		event, ok := <-updates
@@ -481,6 +503,14 @@ func (m *Model) renderMain(width int) string {
 	b.WriteString("\n")
 	b.WriteString(mutedStyle.Render("Every CLI command is available through the palette."))
 	b.WriteString("\n\n")
+	if m.activeAction == "models" {
+		b.WriteString(m.renderModels(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
+	if m.activeAction == "providers" {
+		b.WriteString(m.renderProviders(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
 	if m.composerOpen {
 		b.WriteString(headerStyle.Render("COMPOSER · " + m.composerAction))
 		b.WriteString("\n")
@@ -503,6 +533,38 @@ func (m *Model) renderMain(width int) string {
 	b.WriteString("Start with a command or open the palette to inspect flags.\n")
 	b.WriteString(mutedStyle.Render("No provider calls are made until you confirm an action."))
 	return lipgloss.NewStyle().Width(width).Render(b.String())
+}
+
+func (m *Model) renderModels(width int) string {
+	if len(m.snapshot.Models) == 0 {
+		return mutedStyle.Render("No configured models. Run veto login or open Providers.")
+	}
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("MODEL CATALOG"))
+	b.WriteString("\n")
+	for _, model := range m.snapshot.Models {
+		line := fmt.Sprintf("%-24s %-12s %-10s %s", model.Name, model.Provider, model.Runtime, model.Tier)
+		b.WriteString(truncate(line, width-2))
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func (m *Model) renderProviders(width int) string {
+	if len(m.snapshot.Providers) == 0 {
+		return mutedStyle.Render("No providers configured. Run veto login to connect one.")
+	}
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("PROVIDER HEALTH"))
+	b.WriteString("\n")
+	for _, provider := range m.snapshot.Providers {
+		state := "ready"
+		if !provider.Configured {
+			state = "not configured"
+		}
+		b.WriteString(fmt.Sprintf("%-18s %-16s %d model(s)\n", provider.Name, state, provider.ModelCount))
+	}
+	return b.String()
 }
 
 func (m *Model) renderInspector(width int) string {

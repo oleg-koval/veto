@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,8 +47,25 @@ func NewControlService(runner Runner, routerPort Router) *ControlService {
 
 func (s *ControlService) Snapshot(context.Context) (controlplane.Snapshot, error) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.snapshot, nil
+	snapshot := s.snapshot
+	s.mu.RUnlock()
+	if source, ok := s.runner.Runtime.(interface {
+		Models() []router.ModelCapabilities
+	}); ok {
+		for _, model := range source.Models() {
+			snapshot.Models = append(snapshot.Models, controlplane.ModelSnapshot{Name: model.Name, Provider: model.Provider, Runtime: model.Runtime, Tier: model.Tier})
+		}
+		sort.Slice(snapshot.Models, func(i, j int) bool { return snapshot.Models[i].Name < snapshot.Models[j].Name })
+		counts := make(map[string]int)
+		for _, model := range snapshot.Models {
+			counts[model.Provider]++
+		}
+		for provider, count := range counts {
+			snapshot.Providers = append(snapshot.Providers, controlplane.ProviderSnapshot{Name: provider, Configured: count > 0, ModelCount: count})
+		}
+		sort.Slice(snapshot.Providers, func(i, j int) bool { return snapshot.Providers[i].Name < snapshot.Providers[j].Name })
+	}
+	return snapshot, nil
 }
 
 func (s *ControlService) Subscribe(ctx context.Context) <-chan controlplane.Event {

@@ -742,6 +742,12 @@ func (r *providerRegistry) modelCaps() []router.ModelCapabilities {
 	return r.modelCapsForRuntime("")
 }
 
+// Models exposes safe catalog metadata to the in-process control plane. It
+// never returns credentials or runtime client state.
+func (r *providerRegistry) Models() []router.ModelCapabilities {
+	return r.modelCaps()
+}
+
 // modelCapsForRuntime returns effective capabilities, optionally restricted to
 // one execution runtime. Runtime integrations use this to avoid selecting a
 // model that their host cannot execute.

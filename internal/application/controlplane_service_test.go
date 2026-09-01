@@ -25,6 +25,9 @@ func TestControlServiceRoutesAndPublishesProgress(t *testing.T) {
 	if result.Model != "test-model" {
 		t.Fatalf("result model = %q, want test-model", result.Model)
 	}
+	if routerPort.task.Objective != "summarize this" || routerPort.task.Risk != router.RiskMedium {
+		t.Fatalf("routed task = %#v", routerPort.task)
+	}
 	select {
 	case event := <-updates:
 		if event.Kind != "route.completed" || event.ActionID != "route" {
@@ -79,13 +82,32 @@ func TestControlServiceRunsThroughRunnerAndStreamsOutput(t *testing.T) {
 	}
 }
 
+func TestControlServiceSnapshotExposesOnlyModelMetadata(t *testing.T) {
+	t.Parallel()
+
+	routerPort := &serviceRouter{}
+	service := NewControlService(Runner{Runtime: modelSource{models: []router.ModelCapabilities{{Name: "safe", Provider: "test", Runtime: "cli", Tier: "small"}}}}, routerPort)
+	snapshot, err := service.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot failed: %v", err)
+	}
+	if len(snapshot.Models) != 1 || snapshot.Models[0].Name != "safe" {
+		t.Fatalf("models = %#v", snapshot.Models)
+	}
+	if len(snapshot.Providers) != 1 || !snapshot.Providers[0].Configured {
+		t.Fatalf("providers = %#v", snapshot.Providers)
+	}
+}
+
 type serviceRouter struct {
 	model  router.ModelCapabilities
 	called bool
+	task   router.TaskSpec
 }
 
-func (r *serviceRouter) Route(_ context.Context, _ router.TaskSpec) (router.ModelCapabilities, router.AdmissionDecision, error) {
+func (r *serviceRouter) Route(_ context.Context, task router.TaskSpec) (router.ModelCapabilities, router.AdmissionDecision, error) {
 	r.called = true
+	r.task = task
 	return r.model, router.AdmissionDecision{Accept: true}, nil
 }
 
@@ -94,6 +116,13 @@ func (r *serviceRouter) RecordExecution(router.TaskSpec, string, router.Executio
 type serviceResolver struct {
 	runtime execution.RuntimeAdapter
 }
+
+type modelSource struct {
+	models []router.ModelCapabilities
+}
+
+func (m modelSource) RuntimeFor(string) (execution.RuntimeAdapter, bool) { return nil, false }
+func (m modelSource) Models() []router.ModelCapabilities                 { return m.models }
 
 func (r serviceResolver) RuntimeFor(string) (execution.RuntimeAdapter, bool) {
 	return r.runtime, r.runtime != nil
