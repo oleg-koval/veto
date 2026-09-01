@@ -66,6 +66,18 @@ func TestDefaultCatalogPreservesRouteAndFeedbackFlags(t *testing.T) {
 	}
 }
 
+func TestDefaultCatalogPreservesIntegrationOutputFlags(t *testing.T) {
+	t.Parallel()
+
+	opencode, ok := DefaultCatalog().Find("opencode")
+	if !ok {
+		t.Fatal("opencode action missing")
+	}
+	if !hasFlag(opencode, "json") {
+		t.Fatal("opencode json flag missing")
+	}
+}
+
 func TestCatalogReturnsDefensiveCopies(t *testing.T) {
 	t.Parallel()
 
