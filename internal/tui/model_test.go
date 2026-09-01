@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -100,6 +101,34 @@ func TestModelEscapeCancelsRunningRequest(t *testing.T) {
 		t.Fatalf("cancel state = called:%v status:%q", called, model.status)
 	}
 }
+
+func TestModelLoadsServiceAfterFirstFrame(t *testing.T) {
+	service := staticService{}
+	model := NewModel(controlplane.DefaultCatalog(), Options{ServiceFactory: func() (controlplane.Service, error) {
+		return service, nil
+	}})
+	if !strings.Contains(model.View().Content, "Loading") {
+		t.Fatal("initial frame did not show loading state")
+	}
+	updated, _ := model.Update(serviceReadyMsg{service: service})
+	model = updated.(*Model)
+	if model.options.Service == nil || !strings.Contains(model.status, "Ready") {
+		t.Fatal("service was not installed after readiness message")
+	}
+}
+
+type staticService struct{}
+
+func (staticService) Snapshot(context.Context) (controlplane.Snapshot, error) {
+	return controlplane.Snapshot{Status: "idle"}, nil
+}
+func (staticService) Execute(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error) {
+	return controlplane.ActionResult{}, nil
+}
+func (staticService) Subscribe(context.Context) <-chan controlplane.Event {
+	return make(chan controlplane.Event)
+}
+func (staticService) Cancel(context.Context, string) error { return nil }
 
 func TestModelComposerCapturesObjectiveForRun(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})

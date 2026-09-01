@@ -17,10 +17,11 @@ const tickInterval = 80 * time.Millisecond
 // Options controls presentation-only behavior. Runtime actions remain owned
 // by the control-plane service and can be added without changing the shell.
 type Options struct {
-	Motion  bool
-	NoColor bool
-	Mouse   bool
-	Service controlplane.Service
+	Motion         bool
+	NoColor        bool
+	Mouse          bool
+	Service        controlplane.Service
+	ServiceFactory func() (controlplane.Service, error)
 }
 
 type tickMsg time.Time
@@ -38,6 +39,11 @@ type executionResultMsg struct {
 type snapshotMsg struct {
 	snapshot controlplane.Snapshot
 	err      error
+}
+
+type serviceReadyMsg struct {
+	service controlplane.Service
+	err     error
 }
 
 // Model is the keyboard-first Veto shell. It intentionally contains no
@@ -72,7 +78,11 @@ type Model struct {
 
 // NewModel creates a shell with a deterministic initial state.
 func NewModel(catalog controlplane.Catalog, options Options) *Model {
-	return &Model{catalog: catalog, options: options, status: "Ready · choose a command"}
+	status := "Ready · choose a command"
+	if options.ServiceFactory != nil {
+		status = "Loading · control plane"
+	}
+	return &Model{catalog: catalog, options: options, status: status}
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -82,6 +92,9 @@ func (m *Model) Init() tea.Cmd {
 	}
 	if m.options.Service != nil {
 		commands = append(commands, m.loadSnapshot())
+	}
+	if m.options.ServiceFactory != nil {
+		commands = append(commands, m.loadService())
 	}
 	return tea.Batch(commands...)
 }
@@ -106,6 +119,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.snapshot = message.snapshot
 		}
 		return m, nil
+	case serviceReadyMsg:
+		m.options.ServiceFactory = nil
+		if message.err != nil {
+			m.status = "Error · control plane unavailable"
+			return m, nil
+		}
+		m.options.Service = message.service
+		m.status = "Ready · choose a command"
+		return m, m.loadSnapshot()
 	case eventMsg:
 		if !message.ok {
 			return m, nil
@@ -329,6 +351,13 @@ func (m *Model) loadSnapshot() tea.Cmd {
 	return func() tea.Msg {
 		snapshot, err := m.options.Service.Snapshot(context.Background())
 		return snapshotMsg{snapshot: snapshot, err: err}
+	}
+}
+
+func (m *Model) loadService() tea.Cmd {
+	return func() tea.Msg {
+		service, err := m.options.ServiceFactory()
+		return serviceReadyMsg{service: service, err: err}
 	}
 }
 

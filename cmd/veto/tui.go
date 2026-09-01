@@ -28,17 +28,18 @@ func cmdTUI(args []string) error {
 		return fmt.Errorf("tui does not accept positional arguments")
 	}
 
-	reg, mgr, _, err := prepareRouting()
-	if err != nil {
-		return fmt.Errorf("prepare routing: %w", err)
-	}
-	service := application.NewControlService(newApplicationRunner(reg, mgr), mgr)
 	model := tui.NewModel(controlplane.DefaultCatalog(), tui.Options{
 		Motion:  !*reduceMotion,
 		NoColor: *noColor || os.Getenv("NO_COLOR") != "",
 		Mouse:   !*noMouse,
-		Service: service,
+		ServiceFactory: func() (controlplane.Service, error) {
+			reg, mgr, _, err := prepareRouting()
+			if err != nil {
+				return nil, fmt.Errorf("prepare routing: %w", err)
+			}
+			return application.NewControlService(newApplicationRunner(reg, mgr), mgr), nil
+		},
 	})
-	_, err = tea.NewProgram(model).Run()
+	_, err := tea.NewProgram(model).Run()
 	return err
 }
