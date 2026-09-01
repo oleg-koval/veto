@@ -56,6 +56,10 @@ func loadOpenRouterCatalogModels(apiKey, cachePath string, offline bool) ([]open
 }
 
 func addOpenRouterCatalogModels(reg *providerRegistry, apiKey string, models []openroutercatalog.Model, preferences router.CandidatePreferences) {
+	// Keep disabled bindings available in the registry so an in-process TUI can
+	// re-enable a model without rebuilding its service. Routing still applies
+	// the full preference set before any admission call.
+	preferences.DisabledModels = nil
 	for _, capability := range preferences.Filter(openRouterCatalogCapabilities(models)) {
 		if _, exists := reg.caps[capability.Name]; exists {
 			continue

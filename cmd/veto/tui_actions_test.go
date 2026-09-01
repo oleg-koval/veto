@@ -8,8 +8,33 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-koval/veto/internal/application"
 	"github.com/oleg-koval/veto/internal/controlplane"
 )
+
+func TestTUIModelPolicyRefreshesLiveRoutingPreferences(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	previousConfig := vetoCfgPathOverride
+	vetoCfgPathOverride = configPath
+	t.Cleanup(func() { vetoCfgPathOverride = previousConfig })
+
+	service := application.NewControlService(application.Runner{}, nil)
+	refreshed := false
+	registerTUIActionHandlers(service, func() { refreshed = true })
+	result, err := service.Execute(context.Background(), controlplane.ActionRequest{
+		ActionID:  "disable",
+		Arguments: map[string]string{"model": "gpt-test"},
+	})
+	if err != nil {
+		t.Fatalf("disable failed: %v", err)
+	}
+	if !refreshed {
+		t.Fatal("live routing preferences were not refreshed")
+	}
+	if !strings.Contains(result.Summary, "disabled") {
+		t.Fatalf("disable result = %#v", result)
+	}
+}
 
 func TestRunTUISetupDiscoversWithoutChangingConfig(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")

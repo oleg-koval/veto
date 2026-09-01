@@ -74,7 +74,9 @@ func cmdTUI(args []string) error {
 			service.RegisterHandler("version", func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error) {
 				return controlplane.ActionResult{ActionID: "version", Summary: "veto " + resolvedVersion()}, nil
 			})
-			registerTUIActionHandlers(service)
+			registerTUIActionHandlers(service, func() {
+				mgr.SetCandidatePreferences(loadCandidatePreferences())
+			})
 			service.RegisterHandler("setup", runTUISetup)
 			service.RegisterHandler("exec", func(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 				return runTUIExec(ctx, request, service, reg, mgr)
@@ -90,11 +92,23 @@ func cmdTUI(args []string) error {
 // CLI functions while giving the TUI a real, redacted execution path. Actions
 // that mutate credentials or integration files are invoked only after the
 // model's explicit confirmation overlay.
-func registerTUIActionHandlers(service *application.ControlService) {
+func registerTUIActionHandlers(service *application.ControlService, refreshPreferences func()) {
 	service.RegisterHandler("login", runTUILogin)
 	service.RegisterHandler("logout", runTUILogout)
-	service.RegisterHandler("disable", runTUIDisable)
-	service.RegisterHandler("enable", runTUIEnable)
+	service.RegisterHandler("disable", func(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+		result, err := runTUIDisable(ctx, request)
+		if err == nil && refreshPreferences != nil {
+			refreshPreferences()
+		}
+		return result, err
+	})
+	service.RegisterHandler("enable", func(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+		result, err := runTUIEnable(ctx, request)
+		if err == nil && refreshPreferences != nil {
+			refreshPreferences()
+		}
+		return result, err
+	})
 	service.RegisterHandler("install-git-hook", runTUIInstallGitHook)
 	service.RegisterHandler("analytics", func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 		subcommand := request.Arguments["subcommand"]

@@ -47,13 +47,14 @@ func TestAddOpenCodeModelsPreservesKnownMetadataAndUnknowns(t *testing.T) {
 	}
 }
 
-func TestAddOpenCodeModelsHonorsDisabledBinding(t *testing.T) {
+func TestAddOpenCodeModelsRetainsDisabledBindingForLiveReenable(t *testing.T) {
 	reg := &providerRegistry{executors: map[string]execution.RuntimeAdapter{}, caps: map[string]router.ModelCapabilities{}}
 	model := opencode.Model{Provider: "openai", ID: "gpt-5"}
 	addOpenCodeModels(reg, opencode.Config{Mode: opencode.ModeCLI}, opencode.Discovery{Models: []opencode.Model{model}}, opencode.Dependencies{}, map[string]bool{
 		openCodeModelName(model): true,
 	})
-	assert.Empty(t, reg.caps)
+	assert.Contains(t, reg.caps, openCodeModelName(model))
+	assert.Contains(t, reg.executors, openCodeModelName(model))
 }
 
 func TestBuildProviderRegistryLoadsConnectedOpenCodeModels(t *testing.T) {

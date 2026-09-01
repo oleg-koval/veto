@@ -793,7 +793,6 @@ func buildProviderRegistry() (*providerRegistry, error) {
 func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 	creds, _ := loadCredentials() // best-effort; env vars take precedence
 	catalog := router.NewRegistry()
-	disabled := loadDisabledModels()
 	preferences := loadCandidatePreferences()
 	reg := &providerRegistry{
 		executors: make(map[string]execution.RuntimeAdapter),
@@ -801,9 +800,6 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 	}
 
 	addBuiltin := func(model router.ModelCapabilities, exec execution.RuntimeAdapter) {
-		if disabled[model.Name] {
-			return
-		}
 		reg.executors[model.Name] = exec
 		reg.caps[model.Name] = model
 	}
@@ -884,7 +880,7 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 		discovery, discoverErr := opencodert.Discover(ctx, openCodeConfig, deps)
 		cancel()
 		if discoverErr == nil {
-			addOpenCodeModels(reg, openCodeConfig, discovery, deps, disabled)
+			addOpenCodeModels(reg, openCodeConfig, discovery, deps, nil)
 		} else if len(reg.executors) == 0 {
 			return nil, fmt.Errorf("connect configured OpenCode runtime: %w", discoverErr)
 		}
