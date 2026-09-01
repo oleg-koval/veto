@@ -278,6 +278,25 @@ func TestModelRendersOperationalScreens(t *testing.T) {
 	}
 }
 
+func TestModelOperationalScreensExplainEmptyState(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
+	model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	for action, want := range map[string]string{
+		"providers":    "No providers configured",
+		"models":       "No configured models",
+		"history":      "No redacted activity yet",
+		"plans":        "No plans found",
+		"exec":         "No plans found",
+		"doctor":       "No health findings",
+		"integrations": "No integrations detected",
+	} {
+		model.activeAction = action
+		if view := model.View().Content; !strings.Contains(view, want) {
+			t.Errorf("%s empty screen missing %q:\n%s", action, want, view)
+		}
+	}
+}
+
 func TestModelPlanSelectionOpensExecuteComposer(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	model.snapshot = controlplane.Snapshot{
