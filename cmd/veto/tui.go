@@ -561,16 +561,6 @@ func runTUIVerifyModels(ctx context.Context, request controlplane.ActionRequest)
 
 func runTUIModels(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 	args := tuiFlagArguments(request)
-	hasOffline := false
-	for _, arg := range args {
-		if arg == "--offline" || strings.HasPrefix(arg, "--offline=") {
-			hasOffline = true
-			break
-		}
-	}
-	if !hasOffline {
-		args = append(args, "--offline")
-	}
 	return runTUICommand("models", args, func(arguments []string, output, diagnostics *strings.Builder) int {
 		return runModelsCommand(arguments, output, diagnostics, buildProviderRegistryWithCatalog)
 	})

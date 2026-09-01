@@ -51,6 +51,18 @@ func TestTUIProvidersActionUsesInjectableCLIOutput(t *testing.T) {
 	}
 }
 
+func TestTUIModelsPreservesOfflineFlagChoice(t *testing.T) {
+	request := controlplane.ActionRequest{ActionID: "models"}
+	if args := tuiFlagArguments(request); len(args) != 0 {
+		t.Fatalf("models default unexpectedly changed CLI behavior: %#v", args)
+	}
+	request.Arguments = map[string]string{"offline": "true"}
+	args := tuiFlagArguments(request)
+	if len(args) != 1 || args[0] != "--offline" {
+		t.Fatalf("models offline flag = %#v, want --offline", args)
+	}
+}
+
 func TestPrepareTUIRoutingAllowsFreshProviderOnboarding(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
