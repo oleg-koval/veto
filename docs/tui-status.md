@@ -9,12 +9,14 @@ Implemented:
   navigation, no-color, reduced motion, loading, cancellation, and small
   terminal clipping;
 - typed forms for routing, execution, provider login/logout (including
-  OpenRouter browser OAuth), setup, feedback,
+  OpenRouter browser OAuth), setup (directory or individual skill approval), feedback,
   verification, analytics, integrations, model policy, and git-hook actions;
 - masked secret fields and explicit confirmation for state-changing actions;
 - live versioned routing/runtime event timeline with bounded monitor counters;
 - provider/model explorer plus redacted history, plans, doctor health,
   analytics, and integration views;
+- plan selection opens the Execute-plan form with safe `~/.veto/plans` name
+  resolution; doctor JSON and feedback JSON-input modes are available;
 - plan validation, dry-run, step execution, failure policy, per-step criteria
   review, and a final cross-step regression review through the same control
   service used by route/run;
