@@ -105,6 +105,32 @@ func TestControlServiceSnapshotExposesOnlyModelMetadata(t *testing.T) {
 	}
 }
 
+func TestControlServiceSnapshotKeepsKnownProvidersWithoutDuplicatingRuntimeMetadata(t *testing.T) {
+	t.Parallel()
+
+	routerPort := &serviceRouter{}
+	service := NewControlServiceWithSnapshot(
+		Runner{Runtime: modelSource{models: []router.ModelCapabilities{{Name: "safe", Provider: "openai", Runtime: "api"}}}},
+		routerPort,
+		func(context.Context) (controlplane.Snapshot, error) {
+			return controlplane.Snapshot{
+				Providers: []controlplane.ProviderSnapshot{{Name: "OpenAI", Configured: true}},
+				Models:    []controlplane.ModelSnapshot{{Name: "stale", Provider: "openai"}},
+			}, nil
+		},
+	)
+	snapshot, err := service.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot failed: %v", err)
+	}
+	if len(snapshot.Models) != 1 || snapshot.Models[0].Name != "safe" {
+		t.Fatalf("models = %#v, want runtime metadata only", snapshot.Models)
+	}
+	if len(snapshot.Providers) != 1 || snapshot.Providers[0].Name != "OpenAI" || snapshot.Providers[0].ModelCount != 1 {
+		t.Fatalf("providers = %#v, want merged known provider", snapshot.Providers)
+	}
+}
+
 func TestControlServiceMergesRedactedLocalSnapshotSource(t *testing.T) {
 	t.Parallel()
 

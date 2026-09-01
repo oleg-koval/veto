@@ -226,7 +226,7 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.moveSelection(1)
 	case "enter":
 		commands := m.catalog.Commands()
-		if len(commands) > 0 && (commands[m.selected].ID == "run" || commands[m.selected].ID == "route") {
+		if len(commands) > 0 && m.actionSupportsForm(commands[m.selected]) {
 			m.openComposer(commands[m.selected])
 		} else {
 			m.activateSelected()
@@ -236,11 +236,29 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "r":
 		commands := m.catalog.Commands()
-		if len(commands) > 0 && (commands[m.selected].ID == "run" || commands[m.selected].ID == "route") {
+		if len(commands) > 0 && m.actionHasForm(commands[m.selected]) {
 			m.openComposer(commands[m.selected])
 		}
 	}
 	return m, nil
+}
+
+func (m *Model) actionHasForm(action controlplane.ActionSpec) bool {
+	return action.ID == "run" || action.ID == "route" || len(action.Flags) > 0 || len(action.Subcommands) > 0
+}
+
+func (m *Model) actionSupportsForm(action controlplane.ActionSpec) bool {
+	if action.ID == "run" || action.ID == "route" {
+		return true
+	}
+	// These commands are also navigation surfaces. Enter opens their screen;
+	// r opens the typed flag/subcommand form when an operation is needed.
+	switch action.ID {
+	case "analytics", "hermes", "models", "opencode":
+		return false
+	default:
+		return m.actionHasForm(action)
+	}
 }
 
 var directActions = map[string]bool{
@@ -262,8 +280,7 @@ func (m *Model) updateComposer(key tea.Key) (tea.Model, tea.Cmd) {
 			m.composerInput = m.composerInput[:len(m.composerInput)-1]
 		}
 	case "enter":
-		objective := strings.TrimSpace(m.composerInput)
-		if objective == "" {
+		if m.composerNeedsObjective() && strings.TrimSpace(m.composerInput) == "" {
 			m.status = "Error · enter a task objective"
 			return m, nil
 		}
@@ -287,6 +304,12 @@ func (m *Model) openComposer(action controlplane.ActionSpec) {
 	m.composerInput = ""
 	m.composerFields = make([]controlplane.FlagSpec, 0, len(action.Flags))
 	m.composerValues = make(map[string]string)
+	for _, subcommand := range action.Subcommands {
+		subcommand = defaultSubcommand(action.ID, subcommand)
+		m.composerFields = append(m.composerFields, controlplane.FlagSpec{Name: "subcommand", Value: "command", Default: subcommand, Description: "Command operation."})
+		m.composerValues["subcommand"] = subcommand
+		break
+	}
 	for _, field := range action.Flags {
 		if field.Name == "task" {
 			continue
@@ -297,6 +320,25 @@ func (m *Model) openComposer(action controlplane.ActionSpec) {
 	m.composerField = 0
 	m.composerEditing = false
 	m.composerOpen = true
+	if !m.composerNeedsObjective() && len(m.composerFields) > 0 {
+		m.composerEditing = true
+		m.status = "Flags · " + m.composerFields[0].Name
+	}
+}
+
+func defaultSubcommand(actionID, fallback string) string {
+	switch actionID {
+	case "analytics", "opencode":
+		return "status"
+	case "hermes":
+		return "api"
+	default:
+		return fallback
+	}
+}
+
+func (m *Model) composerNeedsObjective() bool {
+	return m.composerAction == "run" || m.composerAction == "route"
 }
 
 func (m *Model) updateComposerField(key tea.Key) (tea.Model, tea.Cmd) {
@@ -618,15 +660,19 @@ func (m *Model) renderMain(width int) string {
 	if m.composerOpen {
 		b.WriteString(headerStyle.Render("COMPOSER · " + m.composerAction))
 		b.WriteString("\n")
-		b.WriteString(panelStyle.Render("objective: " + m.composerInput + "▌"))
-		b.WriteString("\n")
+		if m.composerNeedsObjective() {
+			b.WriteString(panelStyle.Render("objective: " + m.composerInput + "▌"))
+			b.WriteString("\n")
+		}
 		if m.composerEditing && len(m.composerFields) > 0 {
 			field := m.composerFields[m.composerField]
 			b.WriteString(panelStyle.Render(field.Name + ": " + m.composerValues[field.Name] + "▌"))
 			b.WriteString("\n")
 			b.WriteString(mutedStyle.Render("Enter next field/run · Tab move · Esc cancel"))
-		} else {
+		} else if m.composerNeedsObjective() {
 			b.WriteString(mutedStyle.Render("Enter edit flags · Esc cancel"))
+		} else {
+			b.WriteString(mutedStyle.Render("Enter run · Esc cancel"))
 		}
 		return lipgloss.NewStyle().Width(width).Render(b.String())
 	}

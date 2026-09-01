@@ -201,3 +201,38 @@ func TestModelComposerCapturesObjectiveForRun(t *testing.T) {
 		t.Fatal("composer did not enter the CLI flag step")
 	}
 }
+
+func TestModelOpensFlagFormForNonRoutingActionWithR(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	for range 9 { // feedback
+		updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+		model = updated.(*Model)
+	}
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	model = updated.(*Model)
+	if !model.composerOpen || !model.composerEditing || model.composerAction != "feedback" {
+		t.Fatalf("feedback form = open:%v editing:%v action:%q", model.composerOpen, model.composerEditing, model.composerAction)
+	}
+	if len(model.composerFields) == 0 || model.composerFields[0].Name != "kind" {
+		t.Fatalf("feedback fields = %#v", model.composerFields)
+	}
+}
+
+func TestModelKeepsOperationalScreensOnEnterAndUsesSafeSubcommandDefaults(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	for range 10 { // analytics
+		updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+		model = updated.(*Model)
+	}
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(*Model)
+	if model.activeAction != "analytics" || model.composerOpen {
+		t.Fatalf("analytics enter = action:%q composer:%v", model.activeAction, model.composerOpen)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	model = updated.(*Model)
+	if !model.composerOpen || model.composerValues["subcommand"] != "status" {
+		t.Fatalf("analytics form = open:%v subcommand:%q", model.composerOpen, model.composerValues["subcommand"])
+	}
+}

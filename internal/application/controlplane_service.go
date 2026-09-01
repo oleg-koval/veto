@@ -91,13 +91,20 @@ func (s *ControlService) Snapshot(ctx context.Context) (controlplane.Snapshot, e
 	if source, ok := s.runner.Runtime.(interface {
 		Models() []router.ModelCapabilities
 	}); ok {
+		runtimeModels := source.Models()
 		preferences := router.CandidatePreferences{}
 		if preferenceSource, ok := s.runner.Runtime.(interface {
 			Preferences() router.CandidatePreferences
 		}); ok {
 			preferences = preferenceSource.Preferences()
 		}
-		for _, model := range source.Models() {
+		if len(runtimeModels) > 0 {
+			// Runtime metadata is authoritative for routable models. Keep the
+			// composition-root provider list, but never duplicate stale models
+			// returned by a separate snapshot source.
+			snapshot.Models = nil
+		}
+		for _, model := range runtimeModels {
 			pinned := slices.Contains(preferences.PinnedModels, model.Name) || slices.Contains(preferences.PinnedProviders, model.Provider)
 			favorite := slices.Contains(preferences.FavoriteModels, model.Name) || slices.Contains(preferences.FavoriteProviders, model.Provider)
 			excluded := slices.Contains(preferences.DisabledModels, model.Name) || slices.Contains(preferences.ExcludedModels, model.Name) || slices.Contains(preferences.ExcludedProviders, model.Provider)
@@ -115,7 +122,18 @@ func (s *ControlService) Snapshot(ctx context.Context) (controlplane.Snapshot, e
 			counts[model.Provider]++
 		}
 		for provider, count := range counts {
-			snapshot.Providers = append(snapshot.Providers, controlplane.ProviderSnapshot{Name: provider, Configured: count > 0, ModelCount: count})
+			found := false
+			for index := range snapshot.Providers {
+				if strings.EqualFold(snapshot.Providers[index].Name, provider) {
+					snapshot.Providers[index].Configured = snapshot.Providers[index].Configured || count > 0
+					snapshot.Providers[index].ModelCount = count
+					found = true
+					break
+				}
+			}
+			if !found {
+				snapshot.Providers = append(snapshot.Providers, controlplane.ProviderSnapshot{Name: provider, Configured: count > 0, ModelCount: count})
+			}
 		}
 		sort.Slice(snapshot.Providers, func(i, j int) bool { return snapshot.Providers[i].Name < snapshot.Providers[j].Name })
 	}
@@ -151,10 +169,16 @@ func mergeSnapshot(base, provided controlplane.Snapshot) controlplane.Snapshot {
 }
 
 func (s *ControlService) Subscribe(ctx context.Context) <-chan controlplane.Event {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	updates := make(chan controlplane.Event, 64)
 	s.mu.Lock()
 	s.subs[updates] = struct{}{}
 	s.mu.Unlock()
+	if ctx.Done() == nil {
+		return updates
+	}
 	go func() {
 		<-ctx.Done()
 		s.mu.Lock()
