@@ -171,6 +171,68 @@ def run_execution(binary: str, home: str) -> None:
         os.close(master)
 
 
+def run_cancellation(binary: str, home: str) -> None:
+    pid, master = pty.fork()
+    if pid == 0:
+        env = os.environ.copy()
+        env.update({"HOME": home, "NO_COLOR": "1"})
+        os.execve(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
+
+    output = bytearray()
+    status = None
+    try:
+        termios.tcsetwinsize(master, (24, 100))
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select([master], [], [], 0.2)
+            if ready:
+                try:
+                    output.extend(os.read(master, 8192))
+                except OSError:
+                    break
+                if b"VETO" in output:
+                    break
+
+        # Select Run, submit a task that only the delayed fake model accepts,
+        # then cancel while the admission request is still in flight.
+        os.write(master, b"jjjr")
+        time.sleep(0.15)
+        os.write(master, b"debug this example\r")
+        for _ in range(13):
+            time.sleep(0.03)
+            os.write(master, b"\r")
+        time.sleep(0.35)
+        os.write(master, b"\x1b")
+
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select([master], [], [], 0.2)
+            if ready:
+                try:
+                    output.extend(os.read(master, 8192))
+                except OSError:
+                    break
+                if b"action cancelled" in output:
+                    break
+        if b"action cancelled" not in output:
+            raise SystemExit(f"TUI Run cancellation was not rendered: output={bytes(output)!r}")
+        os.write(master, b"q")
+
+        end = time.monotonic() + 8
+        while time.monotonic() < end:
+            waited, status = os.waitpid(pid, os.WNOHANG)
+            if waited == pid:
+                break
+            time.sleep(0.05)
+        if status is None:
+            os.kill(pid, signal.SIGTERM)
+            _, status = os.waitpid(pid, 0)
+        if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
+            raise SystemExit(f"TUI cancellation exited unsuccessfully: status={status} output={bytes(output)!r}")
+    finally:
+        os.close(master)
+
+
 def run_route(binary: str, home: str) -> None:
     pid, master = pty.fork()
     if pid == 0:
@@ -358,6 +420,7 @@ def main() -> int:
     run_resize(sys.argv[1])
     if len(sys.argv) == 4:
         run_route(sys.argv[1], sys.argv[3])
+        run_cancellation(sys.argv[1], sys.argv[3])
         run_execution(sys.argv[1], sys.argv[3])
         run_plan(sys.argv[1], sys.argv[3])
     print("TUI PTY smoke passed")

@@ -121,6 +121,12 @@ with open(path, "w", encoding="utf-8") as models:
         "model": "review-model",
         "strengths": ["review"],
         "weaknesses": ["summarize"],
+    }, {
+        "name": "slow-local",
+        "endpoint": f"http://127.0.0.1:{port}/slow/v1/chat/completions",
+        "model": "slow-model",
+        "tier": "mid",
+        "strengths": ["debug"],
     }], models)
 os.chmod(path, 0o600)
 PY
@@ -168,7 +174,7 @@ python3 scripts/tui-pty-smoke.py "${veto_binary}" --execution-home "${smoke_home
 
 providers_output=$(veto providers)
 assert_contains "${providers_output}" 'smoke-local'
-assert_contains "${providers_output}" '2 model(s) available for routing'
+assert_contains "${providers_output}" '3 model(s) available for routing'
 
 route_output=$(veto route --json --timeout 10s 'summarize this example')
 python3 - "${route_output}" <<'PY'
