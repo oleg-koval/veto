@@ -61,6 +61,25 @@ func TestTaskFromRequestPreservesComposerCapabilitiesAndCriteria(t *testing.T) {
 	}
 }
 
+func TestControlServiceTracksBoundedRuntimeMonitorCounters(t *testing.T) {
+	t.Parallel()
+
+	service := NewControlService(Runner{}, &serviceRouter{})
+	service.recordExecutionMonitor(ExecutionEvent{Kind: ExecutionStarted})
+	service.recordRuntimeMonitor(execution.RuntimeEvent{Kind: execution.RuntimeToolStarted})
+	service.recordRuntimeMonitor(execution.RuntimeEvent{Kind: execution.RuntimeApprovalRequested})
+	service.recordRuntimeMonitor(execution.RuntimeEvent{Kind: execution.RuntimeArtifactCreated, Count: 2})
+	service.recordExecutionMonitor(ExecutionEvent{Kind: ExecutionCompleted, Metrics: router.ExecutionMetrics{TotalTokens: 42, UsageKnown: true, CostUSD: 0.12, CostKnown: true, LatencyMs: 80, LatencyKnown: true}})
+	snapshot, err := service.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot failed: %v", err)
+	}
+	monitor := snapshot.Monitor
+	if monitor.ActiveSessions != 0 || monitor.ActiveTools != 1 || monitor.PendingApprovals != 1 || monitor.Artifacts != 2 || monitor.TotalTokens != 42 || !monitor.CostKnown || monitor.LatencyMs != 80 {
+		t.Fatalf("monitor = %#v", monitor)
+	}
+}
+
 func TestControlServiceRejectsMissingObjectiveBeforeRouting(t *testing.T) {
 	t.Parallel()
 

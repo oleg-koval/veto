@@ -923,8 +923,25 @@ func (m *Model) renderInspector(width int) string {
 	var b strings.Builder
 	b.WriteString(headerStyle.Render("STATUS"))
 	b.WriteString("\n")
-	b.WriteString("● ready\n")
-	b.WriteString(mutedStyle.Render("providers  —\nmodel      —\nlatency    —"))
+	state := "ready"
+	if m.running {
+		state = "running"
+	}
+	b.WriteString("● " + state + "\n")
+	monitor := m.snapshot.Monitor
+	latency := "unknown"
+	if monitor.LatencyKnown {
+		latency = fmt.Sprintf("%dms", monitor.LatencyMs)
+	}
+	cost := "unknown"
+	if monitor.CostKnown {
+		cost = fmt.Sprintf("$%.4f", monitor.CostUSD)
+	}
+	tokens := "unknown"
+	if monitor.TokensKnown {
+		tokens = strconv.Itoa(monitor.TotalTokens)
+	}
+	b.WriteString(mutedStyle.Render(fmt.Sprintf("providers  %d\nmodel      %s\nsessions   %d\ntools      %d\napprovals  %d\ntokens     %s\ncost       %s\nlatency    %s\nartifacts  %d", len(m.snapshot.Providers), valueOrDash(m.snapshot.Model), monitor.ActiveSessions, monitor.ActiveTools, monitor.PendingApprovals, tokens, cost, latency, monitor.Artifacts)))
 	b.WriteString("\n\n")
 	b.WriteString(headerStyle.Render("GUIDANCE"))
 	b.WriteString("\n")
@@ -934,6 +951,13 @@ func (m *Model) renderInspector(width int) string {
 		b.WriteString(m.renderLiveTimeline(width))
 	}
 	return lipgloss.NewStyle().Width(width).Render(b.String())
+}
+
+func valueOrDash(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "—"
+	}
+	return value
 }
 
 func (m *Model) renderLiveTimeline(width int) string {

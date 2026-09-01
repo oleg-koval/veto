@@ -106,6 +106,23 @@ func TestModelRendersOperationalScreens(t *testing.T) {
 	}
 }
 
+func TestModelRendersMonitorCountersAndRuntimeState(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
+	model.snapshot = controlplane.Snapshot{
+		Model:     "gpt-test",
+		Providers: []controlplane.ProviderSnapshot{{Name: "openai", Configured: true}},
+		Monitor:   controlplane.MonitorSnapshot{ActiveSessions: 1, ActiveTools: 2, PendingApprovals: 1, Artifacts: 3, TotalTokens: 99, TokensKnown: true, CostUSD: 0.42, CostKnown: true, LatencyMs: 120, LatencyKnown: true},
+	}
+	model.running = true
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	view := model.View().Content
+	for _, want := range []string{"running", "sessions   1", "tools      2", "approvals  1", "tokens     99", "cost       $0.4200", "latency    120ms", "artifacts  3"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("monitor view missing %q\n%s", want, view)
+		}
+	}
+}
+
 func TestModelEscapeCancelsRunningRequest(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	called := false

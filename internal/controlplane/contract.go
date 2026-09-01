@@ -51,6 +51,7 @@ type Snapshot struct {
 	Status       string
 	Provider     string
 	Model        string
+	Monitor      MonitorSnapshot
 	Providers    []ProviderSnapshot
 	Models       []ModelSnapshot
 	History      []HistorySnapshot
@@ -58,6 +59,21 @@ type Snapshot struct {
 	Health       []HealthSnapshot
 	Analytics    AnalyticsSnapshot
 	Integrations []IntegrationSnapshot
+}
+
+// MonitorSnapshot contains bounded, non-sensitive operational counters for
+// active and recently completed work.
+type MonitorSnapshot struct {
+	ActiveSessions   int
+	ActiveTools      int
+	PendingApprovals int
+	Artifacts        int
+	TotalTokens      int
+	TokensKnown      bool
+	CostUSD          float64
+	CostKnown        bool
+	LatencyMs        int64
+	LatencyKnown     bool
 }
 
 // ProviderSnapshot contains safe availability metadata only.

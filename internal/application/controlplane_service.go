@@ -144,6 +144,9 @@ func mergeSnapshot(base, provided controlplane.Snapshot) controlplane.Snapshot {
 	if provided.Status != "" {
 		base.Status = provided.Status
 	}
+	if provided.Monitor != (controlplane.MonitorSnapshot{}) {
+		base.Monitor = provided.Monitor
+	}
 	if len(provided.Providers) > 0 {
 		base.Providers = provided.Providers
 	}
@@ -311,15 +314,71 @@ func (s *ControlService) wrapHooks(original Hooks) Hooks {
 			if original.OnExecutionEvent != nil {
 				original.OnExecutionEvent(event)
 			}
+			s.recordExecutionMonitor(event)
 			s.publish(controlplane.Event{ActionID: "run", Kind: "execution." + string(event.Kind), Message: event.Detail})
 		},
 		OnRuntimeEvent: func(taskID string, model router.ModelCapabilities, event execution.RuntimeEvent) {
 			if original.OnRuntimeEvent != nil {
 				original.OnRuntimeEvent(taskID, model, event)
 			}
+			s.recordRuntimeMonitor(event)
 			s.publish(controlplane.Event{ActionID: "run", Kind: "runtime." + string(event.Kind), Message: event.Status})
 		},
 	}
+}
+
+func (s *ControlService) recordExecutionMonitor(event ExecutionEvent) {
+	s.mu.Lock()
+	monitor := s.snapshot.Monitor
+	switch event.Kind {
+	case ExecutionStarted:
+		monitor.ActiveSessions++
+	case ExecutionCompleted, ExecutionFailed:
+		if monitor.ActiveSessions > 0 {
+			monitor.ActiveSessions--
+		}
+		if event.Metrics.UsageKnown {
+			monitor.TotalTokens = event.Metrics.TotalTokens
+			monitor.TokensKnown = true
+		}
+		if event.Metrics.CostKnown {
+			monitor.CostUSD = event.Metrics.CostUSD
+			monitor.CostKnown = true
+		}
+		if event.Metrics.LatencyKnown {
+			monitor.LatencyMs = event.Metrics.LatencyMs
+			monitor.LatencyKnown = true
+		}
+	}
+	s.snapshot.Monitor = monitor
+	s.mu.Unlock()
+}
+
+func (s *ControlService) recordRuntimeMonitor(event execution.RuntimeEvent) {
+	s.mu.Lock()
+	monitor := s.snapshot.Monitor
+	switch event.Kind {
+	case execution.RuntimeToolStarted:
+		monitor.ActiveTools++
+	case execution.RuntimeToolCompleted, execution.RuntimeToolError:
+		if monitor.ActiveTools > 0 {
+			monitor.ActiveTools--
+		}
+	case execution.RuntimeApprovalRequested:
+		monitor.PendingApprovals++
+	case execution.RuntimeApprovalGranted, execution.RuntimeApprovalDenied:
+		if monitor.PendingApprovals > 0 {
+			monitor.PendingApprovals--
+		}
+	case execution.RuntimeArtifactCreated:
+		count := event.Count
+		if count < 1 {
+			count = 1
+		}
+		monitor.Artifacts += count
+	}
+	s.snapshot.Monitor = monitor
+	s.mu.Unlock()
 }
 
 func (s *ControlService) publishRouteEvent(event router.ProgressEvent) {
@@ -342,6 +401,7 @@ func (s *ControlService) publish(event controlplane.Event) {
 
 func (s *ControlService) setSnapshot(snapshot controlplane.Snapshot) {
 	s.mu.Lock()
+	snapshot.Monitor = s.snapshot.Monitor
 	if len(snapshot.Providers) == 0 {
 		snapshot.Providers = s.snapshot.Providers
 	}
