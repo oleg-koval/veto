@@ -22,6 +22,8 @@ Implemented:
   service used by route/run;
 - animated running status with reduced-motion and no-color text fallbacks.
 - live model disable/enable updates the active router without restarting the TUI.
+- fresh installs open the shell without providers; login/logout reloads the
+  in-process Runner/Router bindings immediately.
 
 Verification currently includes the race-enabled Go test suite, `go vet`, native
 builds, Linux/macOS/Windows cross-builds (also enforced by the CI matrix),
