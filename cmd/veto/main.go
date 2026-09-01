@@ -668,7 +668,8 @@ func runProvidersCommand(stdout io.Writer) int {
 		// build an accurate model count from the registry
 		reg, err := buildProviderRegistryWithCatalog(true)
 		if err == nil {
-			fmt.Fprintf(stdout, "  %d model(s) available for routing\n", len(reg.modelCaps()))
+			available := loadCandidatePreferences().Filter(reg.modelCaps())
+			fmt.Fprintf(stdout, "  %d model(s) available for routing\n", len(available))
 		}
 	}
 	return 0
