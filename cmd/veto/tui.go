@@ -556,14 +556,33 @@ func runTUIVerifyModels(ctx context.Context, request controlplane.ActionRequest)
 	if err != nil {
 		return controlplane.ActionResult{ActionID: "verify-models"}, err
 	}
-	data, err := json.Marshal(result)
+	output, err := formatTUIModelVerification(result, request.Arguments["json"] == "true")
 	if err != nil {
 		return controlplane.ActionResult{ActionID: "verify-models"}, err
 	}
 	if len(result.MissingModels) > 0 {
-		return controlplane.ActionResult{ActionID: "verify-models", Output: string(data)}, fmt.Errorf("%d catalog model(s) are unavailable", len(result.MissingModels))
+		return controlplane.ActionResult{ActionID: "verify-models", Output: output}, fmt.Errorf("%d catalog model(s) are unavailable", len(result.MissingModels))
 	}
-	return controlplane.ActionResult{ActionID: "verify-models", Summary: "models verified", Output: string(data)}, nil
+	return controlplane.ActionResult{ActionID: "verify-models", Summary: "models verified", Output: output}, nil
+}
+
+func formatTUIModelVerification(result modelVerification, jsonOutput bool) (string, error) {
+	if jsonOutput {
+		data, err := json.Marshal(result)
+		if err != nil {
+			return "", err
+		}
+		return string(data), nil
+	}
+	var output strings.Builder
+	fmt.Fprintf(&output, "  %s: %d catalog model(s), %d available\n", result.Provider, len(result.ConfiguredModels), len(result.ConfiguredModels)-len(result.MissingModels))
+	if len(result.MissingModels) > 0 {
+		fmt.Fprintf(&output, "  Missing: %s\n", strings.Join(result.MissingModels, ", "))
+	} else {
+		output.WriteString("  All catalog model IDs are available to this account.\n")
+	}
+	fmt.Fprintf(&output, "  Raw response: %s", result.Artifact)
+	return output.String(), nil
 }
 
 func runTUIModels(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {

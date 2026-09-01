@@ -105,6 +105,28 @@ func TestTUIModelsPreservesOfflineFlagChoice(t *testing.T) {
 	}
 }
 
+func TestTUIModelVerificationPreservesOutputFormatChoice(t *testing.T) {
+	result := modelVerification{Provider: "OpenAI", ConfiguredModels: []string{"gpt-test"}, Artifact: "artifacts/http/openai.json"}
+	textOutput, err := formatTUIModelVerification(result, false)
+	if err != nil {
+		t.Fatalf("text formatting failed: %v", err)
+	}
+	if !strings.Contains(textOutput, "OpenAI: 1 catalog model(s), 1 available") || strings.HasPrefix(strings.TrimSpace(textOutput), "{") {
+		t.Fatalf("text verification output = %q", textOutput)
+	}
+	jsonOutput, err := formatTUIModelVerification(result, true)
+	if err != nil {
+		t.Fatalf("json formatting failed: %v", err)
+	}
+	var decoded modelVerification
+	if err := json.Unmarshal([]byte(jsonOutput), &decoded); err != nil {
+		t.Fatalf("json verification output is invalid: %v", err)
+	}
+	if decoded.Provider != result.Provider {
+		t.Fatalf("json provider = %q, want %q", decoded.Provider, result.Provider)
+	}
+}
+
 func TestPrepareTUIRoutingAllowsFreshProviderOnboarding(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
