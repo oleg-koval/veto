@@ -255,6 +255,29 @@ func TestControlServiceMergesRedactedLocalSnapshotSource(t *testing.T) {
 	}
 }
 
+func TestControlServiceSnapshotSourceClearsStaleCollections(t *testing.T) {
+	t.Parallel()
+
+	service := NewControlServiceWithSnapshot(Runner{}, &serviceRouter{}, func(context.Context) (controlplane.Snapshot, error) {
+		return controlplane.Snapshot{Status: "ready"}, nil
+	})
+	service.setSnapshot(controlplane.Snapshot{
+		Providers:    []controlplane.ProviderSnapshot{{Name: "stale"}},
+		History:      []controlplane.HistorySnapshot{{Model: "stale"}},
+		Plans:        []controlplane.PlanSnapshot{{Name: "stale.md"}},
+		Health:       []controlplane.HealthSnapshot{{ID: "stale"}},
+		Integrations: []controlplane.IntegrationSnapshot{{Name: "stale"}},
+		Analytics:    controlplane.AnalyticsSnapshot{LocalPath: "stale"},
+	})
+	snapshot, err := service.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot failed: %v", err)
+	}
+	if len(snapshot.Providers) != 0 || len(snapshot.History) != 0 || len(snapshot.Plans) != 0 || len(snapshot.Health) != 0 || len(snapshot.Integrations) != 0 || snapshot.Analytics.LocalPath != "" {
+		t.Fatalf("stale collections survived source refresh: %#v", snapshot)
+	}
+}
+
 func TestControlServiceRunsRegisteredReadOnlyHandler(t *testing.T) {
 	t.Parallel()
 

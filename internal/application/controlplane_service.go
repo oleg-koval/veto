@@ -163,27 +163,16 @@ func mergeSnapshot(base, provided controlplane.Snapshot) controlplane.Snapshot {
 	if provided.Monitor != (controlplane.MonitorSnapshot{}) {
 		base.Monitor = provided.Monitor
 	}
-	if len(provided.Providers) > 0 {
-		base.Providers = provided.Providers
-	}
-	if len(provided.Models) > 0 {
-		base.Models = provided.Models
-	}
-	if len(provided.History) > 0 {
-		base.History = provided.History
-	}
-	if len(provided.Plans) > 0 {
-		base.Plans = provided.Plans
-	}
-	if len(provided.Health) > 0 {
-		base.Health = provided.Health
-	}
-	if provided.Analytics.LocalPath != "" {
-		base.Analytics = provided.Analytics
-	}
-	if len(provided.Integrations) > 0 {
-		base.Integrations = provided.Integrations
-	}
+	// The composition-root source is authoritative and returns a complete
+	// redacted snapshot. Replace collections even when they are empty so a
+	// logout, cleanup, or recovered empty state cannot leave stale UI data.
+	base.Providers = append([]controlplane.ProviderSnapshot(nil), provided.Providers...)
+	base.Models = append([]controlplane.ModelSnapshot(nil), provided.Models...)
+	base.History = append([]controlplane.HistorySnapshot(nil), provided.History...)
+	base.Plans = append([]controlplane.PlanSnapshot(nil), provided.Plans...)
+	base.Health = append([]controlplane.HealthSnapshot(nil), provided.Health...)
+	base.Analytics = provided.Analytics
+	base.Integrations = append([]controlplane.IntegrationSnapshot(nil), provided.Integrations...)
 	return base
 }
 
