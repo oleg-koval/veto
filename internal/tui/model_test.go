@@ -125,6 +125,38 @@ func TestModelTogglesBooleanFormFlagsWithSpace(t *testing.T) {
 	}
 }
 
+func TestModelCyclesEnumFormFieldsWithSpace(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	analytics, ok := model.catalog.Find("analytics")
+	if !ok {
+		t.Fatal("analytics action missing from catalog")
+	}
+	model.openComposer(analytics)
+	if model.composerValues["subcommand"] != "status" {
+		t.Fatalf("default subcommand = %q", model.composerValues["subcommand"])
+	}
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: " ", Code: ' '}))
+	model = updated.(*Model)
+	if model.composerValues["subcommand"] != "enable" {
+		t.Fatalf("cycled subcommand = %q, want enable", model.composerValues["subcommand"])
+	}
+
+	run, ok := model.catalog.Find("run")
+	if !ok {
+		t.Fatal("run action missing from catalog")
+	}
+	model.openComposer(run)
+	if model.composerFields[0].Name != "kind" {
+		t.Fatalf("first run field = %q, want kind", model.composerFields[0].Name)
+	}
+	model.composerEditing = true
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: " ", Code: ' '}))
+	model = updated.(*Model)
+	if model.composerValues["kind"] != "extract" {
+		t.Fatalf("cycled kind = %q, want extract", model.composerValues["kind"])
+	}
+}
+
 func TestModelCommandPaletteFiltersAndSelectsAction(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})

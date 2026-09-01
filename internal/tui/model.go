@@ -497,6 +497,19 @@ func (m *Model) updateComposerField(key tea.Key) (tea.Model, tea.Cmd) {
 		return m.startExecution()
 	}
 	field := m.composerFields[m.composerField]
+	if choices := m.fieldChoices(field); len(choices) > 0 && (key.String() == "space" || key.Text == " ") {
+		current := m.composerValues[field.Name]
+		index := 0
+		for choiceIndex, choice := range choices {
+			if choice == current {
+				index = (choiceIndex + 1) % len(choices)
+				break
+			}
+		}
+		m.composerValues[field.Name] = choices[index]
+		m.status = "Flags · " + field.Name + "=" + choices[index]
+		return m, nil
+	}
 	if field.Value == "bool" && (key.String() == "space" || key.Text == " ") {
 		if m.composerValues[field.Name] == "true" {
 			m.composerValues[field.Name] = "false"
@@ -942,6 +955,9 @@ func (m *Model) renderComposer(width int) string {
 			b.WriteString("\n")
 		}
 		hint := "Enter next field/run · Tab move · Esc cancel"
+		if choices := m.fieldChoices(field); len(choices) > 0 {
+			hint = "Space cycle (" + strings.Join(choices, "/") + ") · Enter next field/run · Esc cancel"
+		}
 		if field.Value == "bool" {
 			hint = "Space toggle · Enter next field/run · Tab move · Esc cancel"
 		}
@@ -952,6 +968,35 @@ func (m *Model) renderComposer(width int) string {
 		b.WriteString(mutedStyle.Render("Enter run · Esc cancel"))
 	}
 	return lipgloss.NewStyle().Width(width).Render(b.String())
+}
+
+func (m *Model) fieldChoices(field controlplane.FlagSpec) []string {
+	switch field.Name {
+	case "subcommand":
+		if action, ok := m.catalog.Find(m.composerAction); ok {
+			return action.Subcommands
+		}
+	case "operation":
+		if m.composerAction == "opencode" || m.composerAction == "hermes" {
+			return []string{"status", "install", "uninstall"}
+		}
+	case "mode":
+		if m.composerAction == "login" {
+			return []string{"api-key", "browser", "subscription", "runtime"}
+		}
+	case "kind":
+		if m.composerAction == "run" || m.composerAction == "route" {
+			return []string{"extract", "summarize", "code-change", "debug", "plan", "review", "refactor"}
+		}
+		if m.composerAction == "feedback" {
+			return []string{"bug", "feature", "optimization", "success"}
+		}
+	case "risk":
+		return []string{"low", "medium", "high"}
+	case "on-failure":
+		return []string{"abort-ask", "abort", "continue"}
+	}
+	return nil
 }
 
 func (m *Model) renderConfirmation(width int) string {
