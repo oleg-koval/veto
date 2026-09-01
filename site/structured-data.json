@@ -1,0 +1,15 @@
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Veto",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "macOS, Linux",
+  "description": "Cost-aware AI model router that requires explicit model admission before execution. Filters by capability, task complexity, and estimated cost, then asks viable models to accept the task.",
+  "url": "https://veto.olegkoval.com/",
+  "downloadUrl": "https://github.com/oleg-koval/veto/releases/latest",
+  "softwareVersion": "0.6.3",
+  "programmingLanguage": "Go",
+  "license": "https://www.apache.org/licenses/LICENSE-2.0",
+  "author": { "@type": "Person", "name": "Oleg Koval", "url": "https://github.com/oleg-koval" },
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
