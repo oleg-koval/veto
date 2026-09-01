@@ -132,6 +132,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.options.Service = message.service
 		m.status = "Ready · choose a command"
 		return m, m.loadSnapshot()
+	case tea.MouseClickMsg:
+		m.updateMouse(message)
+		return m, nil
+	case tea.MouseWheelMsg:
+		if message.Button == tea.MouseWheelDown {
+			m.moveSelection(1)
+		} else if message.Button == tea.MouseWheelUp {
+			m.moveSelection(-1)
+		}
+		return m, nil
 	case eventMsg:
 		if !message.ok {
 			return m, nil
@@ -168,6 +178,41 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		return m, nil
 	}
+}
+
+func (m *Model) updateMouse(message tea.MouseClickMsg) {
+	if message.Button != tea.MouseLeft || m.composerOpen || m.confirmOpen || m.paletteOpen || m.helpOpen {
+		return
+	}
+	commands := m.catalog.Commands()
+	if len(commands) == 0 {
+		return
+	}
+	width := m.width
+	if width < 1 {
+		width = 80
+	}
+	listWidth := 25
+	listOffset := 0
+	switch {
+	case width < 58:
+		listWidth = width
+		listOffset = lipgloss.Height(m.renderMain(width)) + 2
+	case width < 96:
+		listWidth = width / 3
+		if listWidth < 20 {
+			listWidth = 20
+		}
+	}
+	if message.X < 0 || message.X >= listWidth || message.Y < listOffset+1 {
+		return
+	}
+	index := message.Y - listOffset - 1 // COMMANDS header occupies the first row
+	if index < 0 || index >= len(commands) {
+		return
+	}
+	m.selected = index
+	m.status = "Ready · " + commands[index].Command
 }
 
 func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {

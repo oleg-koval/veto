@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/oleg-koval/veto/internal/controlplane"
 )
 
@@ -38,6 +39,32 @@ func TestModelSupportsKeyboardNavigationAndHelp(t *testing.T) {
 	}
 	if !strings.Contains(model.View().Content, "Keyboard help") {
 		t.Fatal("help overlay did not render")
+	}
+}
+
+func TestModelSupportsMouseSelectionAndWheelNavigation(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, Mouse: true})
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	updated, _ := model.Update(tea.MouseClickMsg{X: 3, Y: 3, Button: tea.MouseLeft})
+	model = updated.(*Model)
+	if model.selected != 2 {
+		t.Fatalf("mouse selected = %d, want 2", model.selected)
+	}
+	updated, _ = model.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	model = updated.(*Model)
+	if model.selected != 3 {
+		t.Fatalf("wheel selected = %d, want 3", model.selected)
+	}
+}
+
+func TestModelSupportsMouseSelectionInNarrowLayout(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, Mouse: true})
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 24})
+	offset := lipgloss.Height(model.renderMain(40)) + 2
+	updated, _ := model.Update(tea.MouseClickMsg{X: 2, Y: offset + 2, Button: tea.MouseLeft})
+	model = updated.(*Model)
+	if model.selected != 1 {
+		t.Fatalf("narrow mouse selected = %d, want 1", model.selected)
 	}
 }
 
