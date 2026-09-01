@@ -39,16 +39,18 @@ func (r testResolver) RuntimeFor(string) (execution.RuntimeAdapter, bool) {
 }
 
 type testRuntime struct {
-	result  execution.Result
-	prompt  string
-	options execution.ExecutionOptions
-	tools   []string
-	known   bool
+	result        execution.Result
+	prompt        string
+	options       execution.ExecutionOptions
+	tools         []string
+	known         bool
+	executeCalled bool
 }
 
 func (r *testRuntime) Run(context.Context, string) execution.Result { return execution.Result{} }
 
 func (r *testRuntime) Execute(_ context.Context, prompt string, options execution.ExecutionOptions) execution.Result {
+	r.executeCalled = true
 	r.prompt, r.options = prompt, options
 	return r.result
 }
@@ -157,12 +159,61 @@ func TestRunnerEventRuntimeForwardsEventsAndOutput(t *testing.T) {
 	assert.Equal(t, execution.RuntimeToolCompleted, gotEvent.Kind)
 }
 
+func TestRunnerCaptureOnlyUsesValidatedExecuteForDualInterfaceRuntime(t *testing.T) {
+	emptyResponseErr := errors.New("empty response")
+	runtime := &dualRuntime{testRuntime: testRuntime{
+		result: execution.Result{Error: emptyResponseErr}, known: true,
+	}}
+	runner := Runner{
+		Router:  &testRouter{model: router.ModelCapabilities{Name: "agent"}},
+		Runtime: testResolver{runtime: runtime},
+	}
+
+	response, err := runner.Execute(context.Background(), Request{Task: router.TaskSpec{ID: "task"}})
+
+	require.ErrorIs(t, err, emptyResponseErr)
+	assert.Empty(t, response.Output)
+	assert.True(t, runtime.executeCalled)
+	assert.False(t, runtime.streamCalled)
+}
+
+func TestRunnerLiveWriterUsesStreamForDualInterfaceRuntime(t *testing.T) {
+	runtime := &dualRuntime{testRuntime: testRuntime{known: true}}
+	var output strings.Builder
+	runner := Runner{
+		Router:  &testRouter{model: router.ModelCapabilities{Name: "agent"}},
+		Runtime: testResolver{runtime: runtime},
+	}
+
+	response, err := runner.Execute(context.Background(), Request{
+		Task: router.TaskSpec{ID: "task"}, Writer: &output,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "streamed", output.String())
+	assert.Equal(t, "streamed", response.Output)
+	assert.True(t, response.OutputWritten)
+	assert.True(t, runtime.streamCalled)
+	assert.False(t, runtime.executeCalled)
+}
+
 type eventRuntime struct{ testRuntime }
 
 func (r *eventRuntime) ExecuteWithEvents(_ context.Context, _ string, _ execution.ExecutionOptions, w io.Writer, onEvent func(execution.RuntimeEvent)) execution.Result {
 	_, _ = io.WriteString(w, "streamed")
 	onEvent(execution.RuntimeEvent{Kind: execution.RuntimeToolCompleted, Name: "write", Status: "ok"})
 	return execution.Result{Output: "streamed"}
+}
+
+type dualRuntime struct {
+	testRuntime
+	streamCalled bool
+}
+
+func (r *dualRuntime) Stream(_ context.Context, _ string, writer io.Writer) error {
+	r.streamCalled = true
+	_, err := io.WriteString(writer, "streamed")
+	return err
 }
 
 func eventKinds(events []ExecutionEvent) []ExecutionEventKind {
