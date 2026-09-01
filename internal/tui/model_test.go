@@ -133,6 +133,19 @@ func TestModelLoadsServiceAfterFirstFrame(t *testing.T) {
 	}
 }
 
+func TestModelDoctorEnterRunsThroughService(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Service: staticService{}})
+	for range 8 {
+		updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+		model = updated.(*Model)
+	}
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(*Model)
+	if model.activeAction != "doctor" || !model.running || cmd == nil {
+		t.Fatalf("doctor execution state = action:%q running:%v cmd:%v", model.activeAction, model.running, cmd != nil)
+	}
+}
+
 type staticService struct{}
 
 func (staticService) Snapshot(context.Context) (controlplane.Snapshot, error) {

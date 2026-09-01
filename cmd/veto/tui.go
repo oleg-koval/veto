@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -37,7 +38,12 @@ func cmdTUI(args []string) error {
 			if err != nil {
 				return nil, fmt.Errorf("prepare routing: %w", err)
 			}
-			return application.NewControlServiceWithSnapshot(newApplicationRunner(reg, mgr), mgr, loadTUISnapshot), nil
+			service := application.NewControlServiceWithSnapshot(newApplicationRunner(reg, mgr), mgr, loadTUISnapshot)
+			service.RegisterHandler("doctor", func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error) {
+				report := runDoctor(doctorOptions{offline: true}, defaultDoctorDeps())
+				return controlplane.ActionResult{ActionID: "doctor", Summary: fmt.Sprintf("%d pass, %d warn, %d fail", report.Summary.Pass, report.Summary.Warn, report.Summary.Fail)}, nil
+			})
+			return service, nil
 		},
 	})
 	_, err := tea.NewProgram(model).Run()

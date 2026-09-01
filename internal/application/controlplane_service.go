@@ -19,9 +19,10 @@ import (
 // control-plane contract. It is in-process by design; no daemon or HTTP hop is
 // introduced between the shell and the Runner.
 type ControlService struct {
-	runner Runner
-	router Router
-	source func(context.Context) (controlplane.Snapshot, error)
+	runner   Runner
+	router   Router
+	source   func(context.Context) (controlplane.Snapshot, error)
+	handlers map[string]func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error)
 
 	mu       sync.RWMutex
 	snapshot controlplane.Snapshot
@@ -50,6 +51,7 @@ func newControlService(runner Runner, routerPort Router, source func(context.Con
 		source:   source,
 		subs:     make(map[chan controlplane.Event]struct{}),
 		active:   make(map[string]context.CancelFunc),
+		handlers: make(map[string]func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error)),
 		snapshot: controlplane.Snapshot{Status: "idle"},
 	}
 	service.runner.Hooks = service.wrapHooks(runner.Hooks)
@@ -59,6 +61,16 @@ func newControlService(runner Runner, routerPort Router, source func(context.Con
 		emitter.SetOnEvent(service.publishRouteEvent)
 	}
 	return service
+}
+
+// RegisterHandler adds a non-routing action at the composition root. Handlers
+// are for existing CLI use cases (doctor, benchmark, integrations, and
+// similar); they must preserve the same redaction and confirmation rules.
+func (s *ControlService) RegisterHandler(actionID string, handler func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error)) {
+	if strings.TrimSpace(actionID) == "" || handler == nil {
+		return
+	}
+	s.handlers[actionID] = handler
 }
 
 func (s *ControlService) Snapshot(ctx context.Context) (controlplane.Snapshot, error) {
@@ -146,14 +158,13 @@ func (s *ControlService) Cancel(_ context.Context, actionID string) error {
 }
 
 func (s *ControlService) Execute(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
-	if s.router == nil {
-		return controlplane.ActionResult{}, errors.New("control plane: router is nil")
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	objective := strings.TrimSpace(request.Arguments["objective"])
-	if objective == "" {
+	if (request.ActionID == "route" || request.ActionID == "run") && objective == "" {
 		return controlplane.ActionResult{}, errors.New("control plane: objective is required")
 	}
-	task := taskFromRequest(request, objective)
 	requestCtx, cancel := context.WithCancel(ctx)
 	s.mu.Lock()
 	s.active[request.ActionID] = cancel
@@ -168,6 +179,10 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 
 	switch request.ActionID {
 	case "route":
+		if s.router == nil {
+			return controlplane.ActionResult{}, errors.New("control plane: router is nil")
+		}
+		task := taskFromRequest(request, objective)
 		model, decision, err := s.router.Route(requestCtx, task)
 		if err != nil {
 			s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "error"})
@@ -177,6 +192,10 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "route.completed", Message: fmt.Sprintf("%s accepted (%.0f%% confidence)", model.Name, decision.Confidence*100)})
 		return controlplane.ActionResult{ActionID: request.ActionID, Summary: "model selected", Model: model.Name}, nil
 	case "run":
+		if s.router == nil {
+			return controlplane.ActionResult{}, errors.New("control plane: router is nil")
+		}
+		task := taskFromRequest(request, objective)
 		response, err := s.runner.Execute(requestCtx, Request{Task: task, Options: executionOptions(request), Writer: outputWriter{s: s, actionID: request.ActionID}})
 		status := "ready"
 		if err != nil {
@@ -189,6 +208,18 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "run.completed", Message: "task completed"})
 		return controlplane.ActionResult{ActionID: request.ActionID, Summary: "task completed", Model: response.Model.Name, Output: response.Output}, nil
 	default:
+		if handler, ok := s.handlers[request.ActionID]; ok {
+			result, err := handler(requestCtx, request)
+			status := "ready"
+			if err != nil {
+				status = "error"
+			}
+			s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: status})
+			if err == nil {
+				s.publish(controlplane.Event{ActionID: request.ActionID, Kind: request.ActionID + ".completed", Message: result.Summary})
+			}
+			return result, err
+		}
 		s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "unsupported"})
 		return controlplane.ActionResult{}, fmt.Errorf("control plane: action %q is not executable yet", request.ActionID)
 	}

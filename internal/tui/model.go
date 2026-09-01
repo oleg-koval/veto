@@ -149,6 +149,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.output.Len() == 0 {
 			m.output.WriteString(message.result.Output)
 		}
+		if message.result.ActionID == "doctor" && m.options.Service != nil {
+			return m, m.loadSnapshot()
+		}
 		return m, nil
 	case tea.KeyPressMsg:
 		return m.updateKey(message)
@@ -223,6 +226,9 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.openComposer(commands[m.selected])
 		} else {
 			m.activateSelected()
+			if len(commands) > 0 && commands[m.selected].ID == "doctor" && m.options.Service != nil {
+				return m.startAction("doctor")
+			}
 		}
 	case "r":
 		commands := m.catalog.Commands()
@@ -343,6 +349,17 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 		}
 	}
 	request := controlplane.ActionRequest{ActionID: m.composerAction, Arguments: arguments}
+	return m, tea.Batch(m.execute(request, ctx), waitForEvent(m.events))
+}
+
+func (m *Model) startAction(actionID string) (tea.Model, tea.Cmd) {
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancelRun = cancel
+	m.events = m.options.Service.Subscribe(ctx)
+	m.running = true
+	m.lastEvent = "starting"
+	m.status = "Running · " + actionID
+	request := controlplane.ActionRequest{ActionID: actionID, Arguments: map[string]string{}}
 	return m, tea.Batch(m.execute(request, ctx), waitForEvent(m.events))
 }
 

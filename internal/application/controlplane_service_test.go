@@ -118,6 +118,19 @@ func TestControlServiceMergesRedactedLocalSnapshotSource(t *testing.T) {
 	}
 }
 
+func TestControlServiceRunsRegisteredReadOnlyHandler(t *testing.T) {
+	t.Parallel()
+
+	service := NewControlService(Runner{}, &serviceRouter{})
+	service.RegisterHandler("doctor", func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+		return controlplane.ActionResult{ActionID: request.ActionID, Summary: "doctor complete"}, nil
+	})
+	result, err := service.Execute(context.Background(), controlplane.ActionRequest{ActionID: "doctor"})
+	if err != nil || result.Summary != "doctor complete" {
+		t.Fatalf("handler result = %#v, err=%v", result, err)
+	}
+}
+
 func TestControlServiceCancelStopsActiveAction(t *testing.T) {
 	t.Parallel()
 
