@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -177,6 +178,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if message.result.Output != "" && m.output.Len() == 0 {
 				m.output.WriteString(message.result.Output)
 			}
+			if errors.Is(message.err, context.Canceled) {
+				m.status = "Ready · action cancelled"
+				return m, nil
+			}
 			m.status = "Error · " + message.err.Error()
 			return m, nil
 		}
@@ -266,7 +271,11 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.cancelRun != nil {
 			m.cancelRun()
 		}
-		m.status = "Cancelling · " + m.composerAction
+		action := m.composerAction
+		if action == "" {
+			action = m.activeAction
+		}
+		m.status = "Cancelling · " + action
 		return m, nil
 	}
 	if m.confirmOpen {
@@ -556,6 +565,7 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 
 func (m *Model) beginExecution(request controlplane.ActionRequest) (tea.Model, tea.Cmd) {
 	m.running = true
+	m.activeAction = request.ActionID
 	m.output.Reset()
 	m.eventHistory = nil
 	m.lastEvent = "starting"
@@ -597,6 +607,7 @@ func (m *Model) startAction(actionID string) (tea.Model, tea.Cmd) {
 	m.cancelRun = cancel
 	m.events = m.options.Service.Subscribe(ctx)
 	m.running = true
+	m.activeAction = actionID
 	m.lastEvent = "starting"
 	m.status = "Running · " + actionID
 	request := controlplane.ActionRequest{ActionID: actionID, Arguments: map[string]string{}}

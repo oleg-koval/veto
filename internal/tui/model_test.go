@@ -272,6 +272,18 @@ func TestModelEscapeCancelsRunningRequest(t *testing.T) {
 	}
 }
 
+func TestModelReportsCancelledExecutionAsReady(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	model.running = true
+	model.activeAction = "doctor"
+	model.cancelRun = func() {}
+	updated, _ := model.Update(executionResultMsg{result: controlplane.ActionResult{ActionID: "doctor"}, err: context.Canceled})
+	model = updated.(*Model)
+	if model.running || !strings.Contains(model.status, "action cancelled") {
+		t.Fatalf("cancelled execution state = running:%v status:%q", model.running, model.status)
+	}
+}
+
 func TestModelLoadsServiceAfterFirstFrame(t *testing.T) {
 	service := staticService{}
 	model := NewModel(controlplane.DefaultCatalog(), Options{ServiceFactory: func() (controlplane.Service, error) {
