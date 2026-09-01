@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"unicode/utf8"
 )
@@ -9,6 +11,10 @@ import (
 // printCLITable renders a terminal table with widths based on its content.
 // Provider and local-model values are not bounded by their column headers.
 func printCLITable(headers []string, rows [][]string) {
+	writeCLITable(os.Stdout, headers, rows)
+}
+
+func writeCLITable(writer io.Writer, headers []string, rows [][]string) {
 	if len(headers) == 0 {
 		return
 	}
@@ -25,14 +31,14 @@ func printCLITable(headers []string, rows [][]string) {
 		}
 	}
 
-	fmt.Println(formatCLITableRow(headers, widths))
+	fmt.Fprintln(writer, formatCLITableRow(headers, widths))
 	separator := make([]string, len(widths))
 	for i, width := range widths {
 		separator[i] = strings.Repeat("─", width)
 	}
-	fmt.Println(formatCLITableRow(separator, widths))
+	fmt.Fprintln(writer, formatCLITableRow(separator, widths))
 	for _, row := range rows {
-		fmt.Println(formatCLITableRow(row, widths))
+		fmt.Fprintln(writer, formatCLITableRow(row, widths))
 	}
 }
 

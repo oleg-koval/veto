@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -33,6 +34,20 @@ func TestTUIModelPolicyRefreshesLiveRoutingPreferences(t *testing.T) {
 	}
 	if !strings.Contains(result.Summary, "disabled") {
 		t.Fatalf("disable result = %#v", result)
+	}
+}
+
+func TestTUIProvidersActionUsesInjectableCLIOutput(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	service := application.NewControlService(application.Runner{}, nil)
+	registerTUIActionHandlers(service, nil)
+	result, err := service.Execute(context.Background(), controlplane.ActionRequest{ActionID: "providers"})
+	if err != nil {
+		t.Fatalf("providers failed: %v", err)
+	}
+	if !bytes.Contains([]byte(result.Output), []byte("provider")) || !strings.Contains(result.Summary, "inspected") {
+		t.Fatalf("providers result = %#v", result)
 	}
 }
 

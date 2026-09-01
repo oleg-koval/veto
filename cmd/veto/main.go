@@ -597,6 +597,10 @@ func cmdInstallGitHook(args []string) {
 
 // cmdProviders prints which provider API keys are configured and their source.
 func cmdProviders() {
+	_ = runProvidersCommand(os.Stdout)
+}
+
+func runProvidersCommand(stdout io.Writer) int {
 	creds, _ := loadCredentials()
 	providerRows := make([][]string, 0, len(knownProviders)+2)
 	configured := 0
@@ -644,29 +648,30 @@ func cmdProviders() {
 		providerRows = append(providerRows, []string{"OpenCode", string(config.Mode), "run 'veto opencode status'"})
 		configured++
 	}
-	printCLITable([]string{"provider", "status", "models"}, providerRows)
+	writeCLITable(stdout, []string{"provider", "status", "models"}, providerRows)
 
 	locals, _ := loadLocalModels()
 	if len(locals) > 0 {
-		fmt.Println()
+		fmt.Fprintln(stdout)
 		localRows := make([][]string, 0, len(locals))
 		for _, lm := range locals {
 			localRows = append(localRows, []string{lm.Name, lm.Endpoint, lm.Model})
 		}
-		printCLITable([]string{"local model", "endpoint", "model id"}, localRows)
+		writeCLITable(stdout, []string{"local model", "endpoint", "model id"}, localRows)
 		configured += len(locals)
 	}
 
-	fmt.Println()
+	fmt.Fprintln(stdout)
 	if configured == 0 {
-		fmt.Println("  No providers configured — run 'veto login' to get started.")
+		fmt.Fprintln(stdout, "  No providers configured — run 'veto login' to get started.")
 	} else {
 		// build an accurate model count from the registry
 		reg, err := buildProviderRegistryWithCatalog(true)
 		if err == nil {
-			fmt.Printf("  %d model(s) available for routing\n", len(reg.modelCaps()))
+			fmt.Fprintf(stdout, "  %d model(s) available for routing\n", len(reg.modelCaps()))
 		}
 	}
+	return 0
 }
 
 func catalogModelDescription(provider string) string {

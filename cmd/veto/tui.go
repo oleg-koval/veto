@@ -168,6 +168,13 @@ func registerTUIActionHandlers(service *application.ControlService, refreshPrefe
 	service.RegisterHandler("feedback", runTUIFeedback)
 	service.RegisterHandler("verify-models", runTUIVerifyModels)
 	service.RegisterHandler("models", runTUIModels)
+	service.RegisterHandler("providers", func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+		var output strings.Builder
+		if code := runProvidersCommand(&output); code != 0 {
+			return controlplane.ActionResult{ActionID: "providers", Output: output.String()}, fmt.Errorf("providers exited with status %d", code)
+		}
+		return controlplane.ActionResult{ActionID: "providers", Summary: "providers inspected", Output: output.String()}, nil
+	})
 }
 
 func runTUIDoctor(request controlplane.ActionRequest) (controlplane.ActionResult, error) {
