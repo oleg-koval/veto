@@ -432,6 +432,7 @@ func TestRequiresConfirmationOnlyForMutatingOperations(t *testing.T) {
 		{name: "hermes api", request: controlplane.ActionRequest{ActionID: "hermes", Arguments: map[string]string{"subcommand": "api"}}},
 		{name: "setup discovery", request: controlplane.ActionRequest{ActionID: "setup"}},
 		{name: "setup approval", request: controlplane.ActionRequest{ActionID: "setup", Arguments: map[string]string{"auto-approve": "true"}}, want: true},
+		{name: "setup individual approval", request: controlplane.ActionRequest{ActionID: "setup", Arguments: map[string]string{"approved-files": "review.md"}}, want: true},
 		{name: "doctor diagnostics", request: controlplane.ActionRequest{ActionID: "doctor", Arguments: map[string]string{"fix": "false"}}},
 		{name: "doctor repair", request: controlplane.ActionRequest{ActionID: "doctor", Arguments: map[string]string{"fix": "true"}}, want: true},
 	}

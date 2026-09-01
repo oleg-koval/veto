@@ -574,7 +574,7 @@ func requiresConfirmation(request controlplane.ActionRequest) bool {
 	case "doctor":
 		return request.Arguments["fix"] == "true"
 	case "setup":
-		return request.Arguments["auto-approve"] == "true"
+		return request.Arguments["auto-approve"] == "true" || strings.TrimSpace(request.Arguments["approved-files"]) != ""
 	case "opencode":
 		subcommand := request.Arguments["subcommand"]
 		return subcommand == "connect" || subcommand == "disconnect" || (subcommand == "plugin" && request.Arguments["operation"] != "status")
