@@ -412,8 +412,8 @@ func runTUIEnable(_ context.Context, request controlplane.ActionRequest) (contro
 }
 
 func runTUIModelPolicy(request controlplane.ActionRequest, disable bool) (controlplane.ActionResult, error) {
-	name := strings.TrimSpace(request.Arguments["model"])
-	if name == "" {
+	requested := splitTaskList(request.Arguments["model"])
+	if len(requested) == 0 {
 		return controlplane.ActionResult{ActionID: request.ActionID}, errors.New("model is required")
 	}
 	disabled := loadDisabledModels()
@@ -421,23 +421,27 @@ func runTUIModelPolicy(request controlplane.ActionRequest, disable bool) (contro
 		disabled = make(map[string]bool)
 	}
 	if disable {
-		disabled[name] = true
+		for _, name := range requested {
+			disabled[name] = true
+		}
 	} else {
-		delete(disabled, name)
+		for _, name := range requested {
+			delete(disabled, name)
+		}
 	}
-	names := make([]string, 0, len(disabled))
+	disabledNames := make([]string, 0, len(disabled))
 	for model := range disabled {
-		names = append(names, model)
+		disabledNames = append(disabledNames, model)
 	}
-	sort.Strings(names)
-	if err := saveDisabledModels(names); err != nil {
+	sort.Strings(disabledNames)
+	if err := saveDisabledModels(disabledNames); err != nil {
 		return controlplane.ActionResult{ActionID: request.ActionID}, err
 	}
 	action := "enabled"
 	if disable {
 		action = "disabled"
 	}
-	return controlplane.ActionResult{ActionID: request.ActionID, Summary: name + " " + action}, nil
+	return controlplane.ActionResult{ActionID: request.ActionID, Summary: strings.Join(requested, ", ") + " " + action}, nil
 }
 
 func runTUIInstallGitHook(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {

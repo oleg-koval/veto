@@ -54,6 +54,31 @@ func TestTUIModelPolicyRefreshesLiveRoutingPreferences(t *testing.T) {
 	}
 }
 
+func TestTUIModelPolicySupportsMultipleCLIModels(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	previousConfig := vetoCfgPathOverride
+	vetoCfgPathOverride = configPath
+	t.Cleanup(func() { vetoCfgPathOverride = previousConfig })
+
+	result, err := runTUIModelPolicy(controlplane.ActionRequest{ActionID: "disable", Arguments: map[string]string{"model": "alpha, beta"}}, true)
+	if err != nil {
+		t.Fatalf("disable failed: %v", err)
+	}
+	if !strings.Contains(result.Summary, "alpha, beta disabled") {
+		t.Fatalf("disable summary = %q", result.Summary)
+	}
+	disabled := loadDisabledModels()
+	if !disabled["alpha"] || !disabled["beta"] {
+		t.Fatalf("disabled models = %#v", disabled)
+	}
+	if _, err := runTUIModelPolicy(controlplane.ActionRequest{ActionID: "enable", Arguments: map[string]string{"model": "alpha, beta"}}, false); err != nil {
+		t.Fatalf("enable failed: %v", err)
+	}
+	if disabled = loadDisabledModels(); len(disabled) != 0 {
+		t.Fatalf("disabled models after enable = %#v", disabled)
+	}
+}
+
 func TestTUIProvidersActionUsesInjectableCLIOutput(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
