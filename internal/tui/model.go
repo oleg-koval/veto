@@ -570,8 +570,18 @@ func (m *Model) updatePalette(key tea.Key) (tea.Model, tea.Cmd) {
 	case "enter":
 		filtered := m.filteredActions()
 		if len(filtered) > 0 {
-			m.activeAction = filtered[m.paletteCursor%len(filtered)].ID
-			m.status = "Ready · " + filtered[m.paletteCursor%len(filtered)].Command
+			action := filtered[m.paletteCursor%len(filtered)]
+			m.activeAction = action.ID
+			m.status = "Ready · " + action.Command
+			m.paletteOpen = false
+			m.paletteQuery = ""
+			if m.actionSupportsForm(action) {
+				m.openComposer(action)
+				return m, nil
+			}
+			if m.options.Service != nil && directActions[action.ID] {
+				return m.startAction(action.ID)
+			}
 		}
 		m.paletteOpen = false
 		m.paletteQuery = ""
