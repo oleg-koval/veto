@@ -421,7 +421,7 @@ func runTUIFeedback(_ context.Context, request controlplane.ActionRequest) (cont
 	args := tuiFlagArguments(request)
 	input := strings.NewReader("")
 	if request.Arguments["stdin"] == "true" {
-		payload, err := json.Marshal(tUIFeedbackReport(request))
+		payload, err := json.Marshal(tuiFeedbackReport(request))
 		if err != nil {
 			return controlplane.ActionResult{ActionID: "feedback"}, err
 		}
@@ -443,7 +443,7 @@ func runTUIFeedback(_ context.Context, request controlplane.ActionRequest) (cont
 	return controlplane.ActionResult{ActionID: "feedback", Summary: "redacted feedback saved", Output: string(data)}, nil
 }
 
-func tUIFeedbackReport(request controlplane.ActionRequest) FeedbackReport {
+func tuiFeedbackReport(request controlplane.ActionRequest) FeedbackReport {
 	return FeedbackReport{
 		Kind:                request.Arguments["kind"],
 		Summary:             request.Arguments["summary"],
