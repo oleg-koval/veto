@@ -28,6 +28,13 @@ func main() {
 		return
 	}
 	if len(os.Args) < 2 {
+		if isInteractiveTerminal(os.Stdin) && isInteractiveTerminal(os.Stdout) {
+			if err := cmdTUI(nil); err != nil {
+				fmt.Fprintln(os.Stderr, "tui:", err)
+				os.Exit(1)
+			}
+			return
+		}
 		printUsage(os.Stdout)
 		os.Exit(0)
 	}
@@ -36,10 +43,15 @@ func main() {
 		return
 	}
 	// Notify once if new skills are pending approval (non-blocking).
-	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" && os.Args[1] != "feedback" && os.Args[1] != "analytics" && os.Args[1] != "opencode" && os.Args[1] != "hermes" && os.Args[1] != "models" {
+	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" && os.Args[1] != "feedback" && os.Args[1] != "analytics" && os.Args[1] != "opencode" && os.Args[1] != "hermes" && os.Args[1] != "models" && os.Args[1] != "tui" {
 		checkPendingSkills()
 	}
 	switch os.Args[1] {
+	case "tui":
+		if err := cmdTUI(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "tui:", err)
+			os.Exit(1)
+		}
 	case "route":
 		cmdRoute(os.Args[2:])
 	case "benchmark":
@@ -89,6 +101,11 @@ func main() {
 	}
 }
 
+func isInteractiveTerminal(file *os.File) bool {
+	info, err := file.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
 func rootHelpRequested(arg string) bool {
 	switch arg {
 	case "help", "--help", "-h":
@@ -109,6 +126,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  veto <command> [flags]")
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "COMMANDS")
+	fmt.Fprintln(o, "  tui                open the keyboard-first full-screen interface")
 	fmt.Fprintln(o, "  login              connect a provider (opens browser, masked key input)")
 	fmt.Fprintln(o, "  logout             remove a configured provider or local model")
 	fmt.Fprintln(o, "  setup              discover and approve skills from your skill directories")
@@ -160,6 +178,11 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  --json       emit one machine-readable result object")
 	fmt.Fprintln(o, "  --include-provider  explicitly include the provider/model name")
 	fmt.Fprintln(o, "  --no-browser prepare the issue URL without opening a browser")
+	fmt.Fprintln(o)
+	fmt.Fprintln(o, "TUI FLAGS")
+	fmt.Fprintln(o, "  --reduce-motion  disable non-essential animation")
+	fmt.Fprintln(o, "  --no-color       disable styling and ANSI colors (also respects NO_COLOR)")
+	fmt.Fprintln(o, "  --no-mouse       disable mouse reporting")
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "SKILLS")
 	fmt.Fprintln(o, "  Skills are instruction snippets injected into the executor prompt.")

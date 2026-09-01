@@ -1,0 +1,97 @@
+package controlplane
+
+// Catalog is the command inventory used by both palette and help surfaces.
+type Catalog struct {
+	actions []ActionSpec
+}
+
+// DefaultCatalog mirrors the top-level commands printed by veto help. Flags
+// are added here as the typed parity contract, keeping the TUI from inventing
+// a second command router.
+func DefaultCatalog() Catalog {
+	return Catalog{actions: []ActionSpec{
+		{ID: "login", Label: "Login", Command: "login", Category: "Providers", Description: "Connect a provider with masked key input."},
+		{ID: "logout", Label: "Logout", Command: "logout", Category: "Providers", Description: "Remove a configured provider or local model."},
+		{ID: "setup", Label: "Setup", Command: "setup", Category: "Workspace", Description: "Discover and approve skills."},
+		{ID: "run", Label: "Run", Command: "run", Category: "Execution", Description: "Route a task and execute the response.", Flags: runFlags()},
+		{ID: "exec", Label: "Execute plan", Command: "exec", Category: "Execution", Description: "Execute a veto plan step by step.", Flags: execFlags()},
+		{ID: "route", Label: "Route", Command: "route", Category: "Routing", Description: "Choose the best available model without execution.", Flags: routeFlags()},
+		{ID: "benchmark", Label: "Benchmark", Command: "benchmark", Category: "Diagnostics", Description: "Replay an offline routing corpus and emit metrics.", Flags: []FlagSpec{{Name: "corpus", Value: "path", Default: "internal/eval/testdata/routing_corpus.json", Description: "Offline routing corpus JSON file."}}},
+		{ID: "verify-models", Label: "Verify models", Command: "verify-models", Category: "Diagnostics", Description: "Verify catalog IDs against a provider account.", Flags: []FlagSpec{{Name: "provider", Value: "string", Default: "openai", Description: "Provider to verify."}, {Name: "endpoint", Value: "url", Description: "Override the provider model-list URL."}, {Name: "artifacts-dir", Value: "path", Default: "artifacts/http", Description: "Directory for raw response artifacts."}, {Name: "timeout", Value: "duration", Default: "20s", Description: "HTTP request timeout."}, {Name: "json", Value: "bool", Description: "Emit one JSON result line."}}},
+		{ID: "doctor", Label: "Doctor", Command: "doctor", Category: "Diagnostics", Description: "Diagnose installation and ~/.veto integrity."},
+		{ID: "feedback", Label: "Feedback", Command: "feedback", Category: "Workspace", Description: "Prepare a redacted bug, feature, or optimization report.", Flags: feedbackFlags()},
+		{ID: "analytics", Label: "Analytics", Command: "analytics", Category: "Diagnostics", Description: "View local diagnostics and sharing preference.", Flags: []FlagSpec{{Name: "json", Value: "bool", Description: "Emit one machine-readable status object."}}},
+		{ID: "opencode", Label: "OpenCode", Command: "opencode", Category: "Integrations", Description: "Connect or install the OpenCode integration."},
+		{ID: "hermes", Label: "Hermes", Command: "hermes", Category: "Integrations", Description: "Install or diagnose the native Hermes integration."},
+		{ID: "models", Label: "Models", Command: "models", Category: "Providers", Description: "List models, runtimes, capabilities, and costs."},
+		{ID: "providers", Label: "Providers", Command: "providers", Category: "Providers", Description: "Show configured providers."},
+		{ID: "disable", Label: "Disable", Command: "disable", Category: "Workspace", Description: "Disable Veto for a project or workspace."},
+		{ID: "enable", Label: "Enable", Command: "enable", Category: "Workspace", Description: "Enable Veto for a project or workspace."},
+		{ID: "version", Label: "Version", Command: "version", Category: "Workspace", Description: "Print the Veto version."},
+		{ID: "install-git-hook", Label: "Install git hook", Command: "install-git-hook", Category: "Workspace", Description: "Add Veto to the git workflow.", Flags: []FlagSpec{{Name: "force", Value: "bool", Description: "Overwrite an existing prepare-commit-msg hook."}}},
+	}}
+}
+
+// Commands returns a copy so a view cannot mutate the shared catalog.
+func (c Catalog) Commands() []ActionSpec {
+	commands := make([]ActionSpec, len(c.actions))
+	copy(commands, c.actions)
+	return commands
+}
+
+// Find returns an action by its stable ID.
+func (c Catalog) Find(id string) (ActionSpec, bool) {
+	for _, action := range c.actions {
+		if action.ID == id {
+			return action, true
+		}
+	}
+	return ActionSpec{}, false
+}
+
+func routeFlags() []FlagSpec {
+	return []FlagSpec{
+		{Name: "task", Value: "string", Description: "Task objective (or positional argument)."},
+		{Name: "kind", Value: "string", Description: "Task kind; auto-detected when omitted."},
+		{Name: "risk", Value: "string", Default: "medium", Description: "Risk level: low, medium, or high."},
+		{Name: "max-cost", Value: "float", Description: "Estimated preflight ceiling in USD."},
+		{Name: "timeout", Value: "duration", Default: "30s", Description: "Per-model admission timeout."},
+		{Name: "quiet", Value: "bool", Description: "Suppress routing animation."},
+		{Name: "json", Value: "bool", Description: "Emit one machine-readable result line."},
+		{Name: "no-resume", Value: "bool", Description: "Ignore a saved checkpoint."},
+		{Name: "runtime", Value: "string", Description: "Route through one runtime adapter."},
+		{Name: "provider", Value: "string", Description: "Route through one configured provider."},
+		{Name: "dashboard", Value: "bool", Description: "Open a live routing view in a browser."},
+	}
+}
+
+func feedbackFlags() []FlagSpec {
+	return []FlagSpec{
+		{Name: "kind", Value: "string", Description: "bug, feature, optimization, or success."},
+		{Name: "summary", Value: "string", Description: "Concise report summary."},
+		{Name: "expected", Value: "string", Description: "Expected behavior."},
+		{Name: "actual", Value: "string", Description: "Actual behavior."},
+		{Name: "reproduction", Value: "string", Description: "Reproduction steps or current context."},
+		{Name: "scope", Value: "string", Description: "Affected scope and safe environment context."},
+		{Name: "acceptance-criteria", Value: "string", Description: "Acceptance criteria separated by newlines or semicolons."},
+		{Name: "baseline", Value: "string", Description: "Baseline performance or cost."},
+		{Name: "target", Value: "string", Description: "Target performance or cost."},
+		{Name: "regression", Value: "string", Description: "Regression assessment."},
+		{Name: "evidence", Value: "string", Description: "Safe benchmark or performance evidence."},
+		{Name: "risk", Value: "string", Description: "Risk level: low, medium, or high."},
+		{Name: "command", Value: "string", Description: "Relevant command name without arguments."},
+		{Name: "provider", Value: "string", Description: "Provider/model name, only with explicit consent."},
+		{Name: "stdin", Value: "bool", Description: "Read report fields as JSON from stdin."},
+		{Name: "json", Value: "bool", Description: "Emit one machine-readable result object."},
+		{Name: "include-provider", Value: "bool", Description: "Include provider/model name explicitly."},
+		{Name: "no-browser", Value: "bool", Description: "Prepare the issue URL without opening a browser."},
+	}
+}
+
+func runFlags() []FlagSpec {
+	return []FlagSpec{{Name: "task", Value: "string", Description: "Task objective (or positional argument)."}, {Name: "kind", Value: "string", Description: "Task kind; auto-detected when omitted."}, {Name: "risk", Value: "string", Default: "medium", Description: "Risk level: low, medium, or high."}, {Name: "max-cost", Value: "float", Description: "Estimated preflight ceiling in USD."}, {Name: "timeout", Value: "duration", Default: "2h0m0s", Description: "Total routing and execution timeout."}, {Name: "admission-timeout", Value: "duration", Default: "1m0s", Description: "Timeout for each model admission decision."}, {Name: "quiet", Value: "bool", Description: "Suppress routing pipeline."}, {Name: "criteria", Value: "string", Description: "Comma-separated acceptance criteria."}, {Name: "max-output-tokens", Value: "int", Description: "Maximum output tokens for task execution."}, {Name: "output", Value: "path", Description: "Write task output to a relative file path."}, {Name: "force", Value: "bool", Description: "Overwrite an existing output file."}, {Name: "no-feedback", Value: "bool", Description: "Disable the opt-in post-run feedback prompt."}}
+}
+
+func execFlags() []FlagSpec {
+	return []FlagSpec{{Name: "quiet", Value: "bool", Description: "Suppress routing pipeline."}, {Name: "dry-run", Value: "bool", Description: "Print steps without executing."}, {Name: "timeout", Value: "duration", Default: "60s", Description: "Per-step timeout."}, {Name: "max-output-tokens", Value: "int", Description: "Maximum output tokens per step."}, {Name: "on-failure", Value: "string", Description: "abort-ask, abort, or continue."}, {Name: "no-feedback", Value: "bool", Description: "Disable the opt-in post-run feedback prompt."}}
+}
