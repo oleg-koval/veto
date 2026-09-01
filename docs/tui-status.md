@@ -31,6 +31,8 @@ model/update tests, replay tests, and the integrated `scripts/tui-pty-smoke.py`
 PTY smoke. The onboarding variant exercises real Route, Run, and Execute-plan
 actions against a fake local provider, including live event/output assertions,
 resize, keyboard/mouse input, alternate-screen cleanup, and secret masking.
+The standalone PTY smoke also runs the shell under `xterm-256color`,
+`screen-256color`, and `vt100` TERM profiles.
 Human keyboard-only,
 screen-reader, resize, and multi-terminal trials are still required before a
 beta/release claim. Use the TUI trial protocol in

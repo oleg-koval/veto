@@ -13,7 +13,7 @@ import termios
 import time
 
 
-def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secret_probe: bool = False, home: str | None = None) -> None:
+def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secret_probe: bool = False, home: str | None = None, term: str | None = None) -> None:
     home_context = tempfile.TemporaryDirectory(prefix="veto-tui-pty-") if home is None else None
     selected_home = home if home is not None else home_context.name
     try:
@@ -21,6 +21,8 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
         if pid == 0:
             env = os.environ.copy()
             env.update({"HOME": selected_home, "NO_COLOR": "1"})
+            if term is not None:
+                env["TERM"] = term
             os.execve(binary, [binary, "tui", *args], env)
 
         try:
@@ -345,6 +347,8 @@ def main() -> int:
         return 2
     run(sys.argv[1], ["--reduce-motion", "--no-color", "--no-mouse"], 12, 40, False, True)
     run(sys.argv[1], ["--reduce-motion", "--no-color"], 24, 80, True)
+    for term in ("xterm-256color", "screen-256color", "vt100"):
+        run(sys.argv[1], ["--reduce-motion", "--no-color", "--no-mouse"], 24, 80, False, term=term)
     run_resize(sys.argv[1])
     if len(sys.argv) == 4:
         run_route(sys.argv[1], sys.argv[3])
