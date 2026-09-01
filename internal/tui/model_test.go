@@ -112,6 +112,22 @@ func TestModelCommandPaletteFiltersAndSelectsAction(t *testing.T) {
 	}
 }
 
+func TestModelCommandPaletteLaunchesFormCapableAction(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "/", Code: '/'}))
+	model = updated.(*Model)
+	for _, text := range []string{"f", "e", "e", "d"} {
+		updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: text, Code: rune(text[0])}))
+		model = updated.(*Model)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(*Model)
+	if !model.composerOpen || model.composerAction != "feedback" || model.paletteOpen {
+		t.Fatalf("palette launch = composer:%v action:%q palette:%v", model.composerOpen, model.composerAction, model.paletteOpen)
+	}
+}
+
 func TestModelNoColorStripsANSI(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{NoColor: true})
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
