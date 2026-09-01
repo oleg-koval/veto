@@ -84,6 +84,8 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
                 raise SystemExit(f"TUI exited unsuccessfully: status={status} output={bytes(output)!r}")
             if b"\x1b[?1049h" not in output or b"\x1b[?1049l" not in output:
                 raise SystemExit(f"TUI did not enter/leave alternate screen: output={bytes(output)!r}")
+            if b"VETO" not in output or not (b"COMMANDS" in output or b"COMPOSER" in output):
+                raise SystemExit(f"TUI did not render its command shell: output={bytes(output)!r}")
             if secret_probe and b"smoke-secret" in output:
                 raise SystemExit("TUI login form leaked the probe secret into terminal output")
         finally:
