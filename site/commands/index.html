@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Every veto command explained: connect providers, route tasks, execute plans, manage OpenCode and Hermes integrations, and diagnose your installation.">
+  <link rel="canonical" href="https://veto.olegkoval.com/commands/">
+  <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../styles.css">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Veto">
+  <meta property="og:title" content="Veto commands — reference">
+  <meta property="og:description" content="Every veto command explained: routing, execution, integrations, and diagnostics.">
+  <meta property="og:url" content="https://veto.olegkoval.com/commands/">
+  <meta property="og:image" content="https://veto.olegkoval.com/assets/social-card.png">
+  <title>Commands — Veto</title>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="shell nav">
+    <a class="brand" href="../" aria-label="Veto home"><img src="../assets/logo.svg" alt=""><span>veto</span></a>
+    <nav class="nav-links" aria-label="Primary navigation">
+      <a href="../#how">How it works</a>
+      <a href="./" aria-current="page">Commands</a>
+      <a href="../changelog/">Changelog</a>
+      <a href="https://github.com/oleg-koval/veto">GitHub ↗</a>
+    </nav>
+  </header>
+
+  <main id="main" class="shell page">
+    <div class="page-head">
+      <p class="eyebrow">CLI reference</p>
+      <h1>Commands</h1>
+      <p class="lede">Every veto command, what it does, and when to reach for it. Routing and execution are always separate contracts: selection never triggers work by itself.</p>
+    </div>
+
+    <section class="page-group" aria-labelledby="connect">
+      <h2 id="connect">Connect and configure</h2>
+      <p class="group-note">Set up providers and control which models participate in routing.</p>
+      <ul class="cmd-list">
+        <li class="cmd"><span class="cmd-name">veto login</span><span class="cmd-desc">Connect a provider interactively — browser-based OAuth where supported, masked key entry otherwise. Local OpenAI-compatible models register here too, with their real text-only boundaries.</span></li>
+        <li class="cmd"><span class="cmd-name">veto logout</span><span class="cmd-desc">Remove a configured provider or a local model from <code>~/.veto/</code>.</span></li>
+        <li class="cmd"><span class="cmd-name">veto disable &lt;model…&gt;</span><span class="cmd-desc">Exclude one or more models from all routing without deleting their configuration.</span></li>
+        <li class="cmd"><span class="cmd-name">veto enable &lt;model…&gt;</span><span class="cmd-desc">Re-include a previously disabled model.</span></li>
+        <li class="cmd"><span class="cmd-name">veto setup</span><span class="cmd-desc">Discover and approve skill files from your skill directories. Only approved sources ever contribute execution skills — this is the approval boundary.</span></li>
+      </ul>
+    </section>
+
+    <section class="page-group" aria-labelledby="route">
+      <h2 id="route">Route and execute</h2>
+      <p class="group-note">The core loop: <code>route</code> selects, <code>run</code> executes one task, <code>exec</code> executes a plan.</p>
+      <ul class="cmd-list">
+        <li class="cmd">
+          <span class="cmd-name">veto route "…"</span>
+          <span class="cmd-desc">Route only. Filters candidates, asks survivors for admission, and prints the selected model — never executes. Use <code>--json</code> for one machine-readable result line, <code>--max-cost</code> for a preflight cost ceiling, <code>--runtime</code> to restrict to one executable runtime.</span>
+          <span class="cmd-example"><span class="prompt">$</span> veto route --json "summarize this PR"</span>
+        </li>
+        <li class="cmd">
+          <span class="cmd-name">veto run "…"</span>
+          <span class="cmd-desc">Route a task and execute it with the winning model; the response prints to stdout. Key flags: <code>--kind</code>, <code>--risk</code>, <code>--max-cost</code>, <code>--timeout</code>, <code>--max-output-tokens</code>, <code>--output</code> (the only way run writes a file), and <code>--criteria</code> for a fail-closed post-execution review.</span>
+          <span class="cmd-example"><span class="prompt">$</span> veto run --quiet "extract all TODO comments" > todos.txt</span>
+        </li>
+        <li class="cmd">
+          <span class="cmd-name">veto exec &lt;plan.md&gt;</span>
+          <span class="cmd-desc">Execute a multi-step plan file, routing each step independently. Steps declare <code>kind</code>, <code>risk</code>, dependencies, and success criteria in frontmatter; <code>--dry-run</code> previews, <code>--on-failure</code> controls abort behavior. Malformed plans are offered an automatic conversion through the best available model.</span>
+          <span class="cmd-example"><span class="prompt">$</span> veto exec my-plan.md --dry-run</span>
+        </li>
+      </ul>
+    </section>
+
+    <section class="page-group" aria-labelledby="integrations">
+      <h2 id="integrations">Integrations</h2>
+      <p class="group-note">Native plugins route turns inside OpenCode and Hermes without copying credentials or changing provider settings.</p>
+      <ul class="cmd-list">
+        <li class="cmd"><span class="cmd-name">veto opencode &lt;connect|status|disconnect&gt;</span><span class="cmd-desc">Manage an OpenCode runtime connection. Veto talks to the local server; no credentials are copied.</span></li>
+        <li class="cmd"><span class="cmd-name">veto opencode plugin &lt;install|status|uninstall&gt;</span><span class="cmd-desc">Manage automatic routing, commands, and tools inside OpenCode.</span></li>
+        <li class="cmd"><span class="cmd-name">veto hermes plugin &lt;install|status|uninstall&gt;</span><span class="cmd-desc">Manage the explicit native Hermes plugin without changing Hermes provider settings.</span></li>
+        <li class="cmd"><span class="cmd-name">veto install-git-hook</span><span class="cmd-desc">Add veto to your git workflow so routine commit tasks route automatically.</span></li>
+      </ul>
+    </section>
+
+    <section class="page-group" aria-labelledby="inspect">
+      <h2 id="inspect">Inspect and maintain</h2>
+      <p class="group-note">Know exactly what is configured, what it costs, and whether your installation is healthy.</p>
+      <ul class="cmd-list">
+        <li class="cmd"><span class="cmd-name">veto providers</span><span class="cmd-desc">Show which providers are configured and how they authenticate.</span></li>
+        <li class="cmd"><span class="cmd-name">veto models [--json] [--offline]</span><span class="cmd-desc">List effective models, their runtimes, tool knowledge, and known/unknown prices — the three states stay distinct.</span></li>
+        <li class="cmd"><span class="cmd-name">veto verify-models</span><span class="cmd-desc">Verify catalog IDs against one provider account with a redacted raw capture workflow.</span></li>
+        <li class="cmd"><span class="cmd-name">veto benchmark</span><span class="cmd-desc">Replay the offline routing corpus and emit JSON metrics — no network, no provider spend.</span></li>
+        <li class="cmd"><span class="cmd-name">veto doctor</span><span class="cmd-desc">Diagnose installation and local-state integrity; <code>--fix</code> repairs only safe problems.</span></li>
+        <li class="cmd"><span class="cmd-name">veto feedback</span><span class="cmd-desc">Save a redacted diagnostic report and prepare a prefilled GitHub issue.</span></li>
+        <li class="cmd"><span class="cmd-name">veto analytics status · enable · disable</span><span class="cmd-desc">Show the local seven-day diagnostic ledger and set the explicit preference for any future remote analytics export. Nothing is sent today — no remote transport exists.</span></li>
+        <li class="cmd"><span class="cmd-name">veto version</span><span class="cmd-desc">Print the veto version.</span></li>
+      </ul>
+    </section>
+
+    <section class="page-group" aria-labelledby="kinds">
+      <h2 id="kinds">Task kinds</h2>
+      <p class="group-note">Kinds guide filtering and skill matching. Auto-detected when you omit <code>--kind</code>.</p>
+      <ul class="kind-list">
+        <li><b>extract</b> pull structured data</li>
+        <li><b>summarize</b> condense content</li>
+        <li><b>code-change</b> write or modify code</li>
+        <li><b>debug</b> diagnose and fix</li>
+        <li><b>plan</b> break down work</li>
+        <li><b>review</b> code review, analysis</li>
+        <li><b>refactor</b> restructure safely</li>
+      </ul>
+    </section>
+
+    <section class="page-group" aria-labelledby="more">
+      <h2 id="more">Full flag tables</h2>
+      <p class="group-note">Every flag, default, and safety boundary for <code>run</code>, <code>exec</code>, and <code>route</code> lives in the README — kept alongside the code it documents.</p>
+      <div class="actions"><a class="button" href="https://github.com/oleg-koval/veto#commands">Read the full reference on GitHub</a></div>
+    </section>
+  </main>
+
+  <footer class="shell">
+    <span>© <span data-year>2026</span> <a href="https://github.com/oleg-koval">Oleg Koval</a> · Apache-2.0</span>
+    <nav aria-label="Footer navigation"><a href="https://github.com/oleg-koval/veto">GitHub</a><a href="https://github.com/oleg-koval/veto/issues">Issues</a><a href="../changelog/">Changelog</a><a href="../brand/">Brand</a></nav>
+  </footer>
+  <script src="../app.js" defer></script>
+</body>
+</html>
