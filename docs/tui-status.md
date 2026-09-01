@@ -31,7 +31,8 @@ builds, Linux/macOS/Windows cross-builds (also enforced by the CI matrix),
 model/update tests, replay tests, and the integrated `scripts/tui-pty-smoke.py`
 PTY smoke. The onboarding variant exercises real Route, Run, and Execute-plan
 actions against a fake local provider, including live event/output assertions,
-resize, keyboard/mouse input, alternate-screen cleanup, and secret masking.
+resize, keyboard/mouse input, in-flight Runner cancellation, alternate-screen
+cleanup, and secret masking.
 The standalone PTY smoke also runs the shell under `xterm-256color`,
 `screen-256color`, `vt100`, and `dumb` TERM profiles.
 It verifies both explicit `veto tui` and bare interactive `veto` launch paths.
