@@ -541,6 +541,10 @@ func runTUIExec(ctx context.Context, request controlplane.ActionRequest, service
 	if planPath == "" {
 		return controlplane.ActionResult{ActionID: "exec"}, errors.New("plan is required")
 	}
+	planPath, err := resolveTUIPlanPath(planPath)
+	if err != nil {
+		return controlplane.ActionResult{ActionID: "exec"}, err
+	}
 	data, err := os.ReadFile(planPath)
 	if err != nil {
 		return controlplane.ActionResult{ActionID: "exec"}, err
@@ -642,4 +646,22 @@ func runTUIExec(ctx context.Context, request controlplane.ActionRequest, service
 		return controlplane.ActionResult{ActionID: "exec", Summary: summary, Output: output}, fmt.Errorf("plan failed on step(s) %v", failed)
 	}
 	return controlplane.ActionResult{ActionID: "exec", Summary: summary, Output: output}, nil
+}
+
+func resolveTUIPlanPath(planPath string) (string, error) {
+	if strings.HasPrefix(planPath, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		planPath = filepath.Join(home, strings.TrimPrefix(planPath, "~/"))
+	}
+	if filepath.IsAbs(planPath) || strings.ContainsRune(planPath, filepath.Separator) || strings.Contains(planPath, "/") {
+		return planPath, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".veto", "plans", planPath), nil
 }

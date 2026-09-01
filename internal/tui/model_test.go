@@ -169,6 +169,26 @@ func TestModelRendersOperationalScreens(t *testing.T) {
 	}
 }
 
+func TestModelPlanSelectionOpensExecuteComposer(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	model.snapshot = controlplane.Snapshot{
+		Plans: []controlplane.PlanSnapshot{{Name: "first.md"}, {Name: "second.md"}},
+	}
+	model.activeAction = "plans"
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+	model = updated.(*Model)
+	if model.plansCursor != 1 {
+		t.Fatalf("plan cursor = %d, want 1", model.plansCursor)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	model = updated.(*Model)
+	if !model.composerOpen || model.composerAction != "exec" || model.composerValues["plan"] != "second.md" {
+		t.Fatalf("plan composer = open:%v action:%q plan:%q", model.composerOpen, model.composerAction, model.composerValues["plan"])
+	}
+}
+
 func TestModelRendersMonitorCountersAndRuntimeState(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
 	model.snapshot = controlplane.Snapshot{

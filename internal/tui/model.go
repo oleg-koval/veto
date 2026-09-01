@@ -58,6 +58,7 @@ type Model struct {
 	height          int
 	selected        int
 	activeAction    string
+	plansCursor     int
 	composerOpen    bool
 	composerAction  string
 	composerInput   string
@@ -294,12 +295,24 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.activeAction = "plans"
 		m.status = "Ready · plans"
 	case "j", "down":
+		if m.activeAction == "plans" && len(m.snapshot.Plans) > 0 {
+			m.movePlanCursor(1)
+			return m, nil
+		}
 		m.moveSelection(1)
 	case "k", "up":
+		if m.activeAction == "plans" && len(m.snapshot.Plans) > 0 {
+			m.movePlanCursor(-1)
+			return m, nil
+		}
 		m.moveSelection(-1)
 	case "tab":
 		m.moveSelection(1)
 	case "enter":
+		if m.activeAction == "plans" && len(m.snapshot.Plans) > 0 {
+			m.openPlanComposer()
+			return m, nil
+		}
 		commands := m.catalog.Commands()
 		if len(commands) > 0 && m.actionSupportsForm(commands[m.selected]) {
 			m.openComposer(commands[m.selected])
@@ -399,6 +412,22 @@ func (m *Model) openComposer(action controlplane.ActionSpec) {
 		m.composerEditing = true
 		m.status = "Flags · " + m.composerFields[0].Name
 	}
+}
+
+func (m *Model) openPlanComposer() {
+	action, ok := m.catalog.Find("exec")
+	if !ok {
+		m.status = "Error · execute plan command unavailable"
+		return
+	}
+	m.openComposer(action)
+	if len(m.composerFields) == 0 {
+		return
+	}
+	m.composerValues["plan"] = m.snapshot.Plans[m.plansCursor%len(m.snapshot.Plans)].Name
+	m.composerField = 0
+	m.composerEditing = true
+	m.status = "Flags · plan=" + m.composerValues["plan"]
 }
 
 func defaultSubcommand(actionID, fallback string) string {
@@ -629,6 +658,14 @@ func (m *Model) movePaletteCursor(delta int) {
 		return
 	}
 	m.paletteCursor = (m.paletteCursor + delta + len(filtered)) % len(filtered)
+}
+
+func (m *Model) movePlanCursor(delta int) {
+	if len(m.snapshot.Plans) == 0 {
+		return
+	}
+	m.plansCursor = (m.plansCursor + delta + len(m.snapshot.Plans)) % len(m.snapshot.Plans)
+	m.status = "Ready · plan " + m.snapshot.Plans[m.plansCursor].Name
 }
 
 func (m *Model) filteredActions() []controlplane.ActionSpec {
@@ -945,12 +982,16 @@ func (m *Model) renderPlans(width int) string {
 	var b strings.Builder
 	b.WriteString(headerStyle.Render("PLANS"))
 	b.WriteString("\n")
-	for _, plan := range m.snapshot.Plans {
-		b.WriteString(truncate("▸ "+plan.Name, width-2))
+	for index, plan := range m.snapshot.Plans {
+		marker := "  "
+		if index == m.plansCursor%len(m.snapshot.Plans) {
+			marker = "▸ "
+		}
+		b.WriteString(truncate(marker+plan.Name, width-2))
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("Select a plan, then execution confirmation will appear here."))
+	b.WriteString(mutedStyle.Render("↑/↓ select · Enter open Execute plan · r edit the command"))
 	return b.String()
 }
 

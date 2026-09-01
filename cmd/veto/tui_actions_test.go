@@ -66,3 +66,18 @@ func TestRunTUIExecDryRunValidatesAndListsPlan(t *testing.T) {
 		t.Fatalf("dry-run result = %#v", result)
 	}
 }
+
+func TestResolveTUIPlanPathUsesVetoPlanDirectoryForNames(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveTUIPlanPath("release.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(home, ".veto", "plans", "release.md")
+	if got != want {
+		t.Fatalf("resolved plan path = %q, want %q", got, want)
+	}
+}
