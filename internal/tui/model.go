@@ -664,10 +664,18 @@ func (m *Model) renderModels(width int) string {
 				tools = "none"
 			}
 		}
+		policy := "normal"
+		if model.Excluded {
+			policy = "excluded"
+		} else if model.Pinned {
+			policy = "pinned"
+		} else if model.Favorite {
+			policy = "favorite"
+		}
 		line := fmt.Sprintf("%-22s %-10s %-10s %s", model.Name, model.Provider, model.Runtime, model.Tier)
 		b.WriteString(truncate(line, width-2))
 		b.WriteByte('\n')
-		details := fmt.Sprintf("  source=%s  status=%s  ctx=%s  tools=%s  cost=%s/%s", model.Source, model.Status, contextTokens, tools, modelCost(model.CostPer1kInputUSD, model.CostPer1kInputKnown), modelCost(model.CostPer1kOutputUSD, model.CostPer1kOutputKnown))
+		details := fmt.Sprintf("  source=%s  status=%s  policy=%s  ctx=%s  tools=%s  cost=%s/%s", model.Source, model.Status, policy, contextTokens, tools, modelCost(model.CostPer1kInputUSD, model.CostPer1kInputKnown), modelCost(model.CostPer1kOutputUSD, model.CostPer1kOutputKnown))
 		b.WriteString(mutedStyle.Render(truncate(details, width-2)))
 		b.WriteByte('\n')
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -90,12 +91,22 @@ func (s *ControlService) Snapshot(ctx context.Context) (controlplane.Snapshot, e
 	if source, ok := s.runner.Runtime.(interface {
 		Models() []router.ModelCapabilities
 	}); ok {
+		preferences := router.CandidatePreferences{}
+		if preferenceSource, ok := s.runner.Runtime.(interface {
+			Preferences() router.CandidatePreferences
+		}); ok {
+			preferences = preferenceSource.Preferences()
+		}
 		for _, model := range source.Models() {
+			pinned := slices.Contains(preferences.PinnedModels, model.Name) || slices.Contains(preferences.PinnedProviders, model.Provider)
+			favorite := slices.Contains(preferences.FavoriteModels, model.Name) || slices.Contains(preferences.FavoriteProviders, model.Provider)
+			excluded := slices.Contains(preferences.DisabledModels, model.Name) || slices.Contains(preferences.ExcludedModels, model.Name) || slices.Contains(preferences.ExcludedProviders, model.Provider)
 			snapshot.Models = append(snapshot.Models, controlplane.ModelSnapshot{
 				Name: model.Name, Source: model.Source, Provider: model.Provider, Runtime: model.Runtime, Tier: model.Tier,
 				ContextTokens: model.MaxContextTokens, Tools: append([]string(nil), model.SupportsTools...), ToolsKnown: model.SupportsTools != nil,
 				CostPer1kInputUSD: model.CostPer1kInputUSD, CostPer1kOutputUSD: model.CostPer1kOutputUSD,
 				CostPer1kInputKnown: !model.CostPer1kInputUnknown, CostPer1kOutputKnown: !model.CostPer1kOutputUnknown, Status: "available",
+				Pinned: pinned, Favorite: favorite, Excluded: excluded,
 			})
 		}
 		sort.Slice(snapshot.Models, func(i, j int) bool { return snapshot.Models[i].Name < snapshot.Models[j].Name })
@@ -224,6 +235,9 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 			}
 			s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: status})
 			if err == nil {
+				if result.Output != "" {
+					s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "output", Message: result.Output})
+				}
 				s.publish(controlplane.Event{ActionID: request.ActionID, Kind: request.ActionID + ".completed", Message: result.Summary})
 			}
 			return result, err

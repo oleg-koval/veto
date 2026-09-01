@@ -748,6 +748,11 @@ func (r *providerRegistry) Models() []router.ModelCapabilities {
 	return r.modelCaps()
 }
 
+// Preferences exposes the same local eligibility policy used by routing.
+func (r *providerRegistry) Preferences() router.CandidatePreferences {
+	return loadCandidatePreferences()
+}
+
 // modelCapsForRuntime returns effective capabilities, optionally restricted to
 // one execution runtime. Runtime integrations use this to avoid selecting a
 // model that their host cannot execute.

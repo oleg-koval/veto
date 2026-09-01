@@ -79,6 +79,9 @@ type ModelSnapshot struct {
 	CostPer1kInputKnown  bool
 	CostPer1kOutputKnown bool
 	Status               string
+	Pinned               bool
+	Favorite             bool
+	Excluded             bool
 }
 
 // HistorySnapshot is a redacted ledger entry suitable for local rendering.

@@ -86,7 +86,7 @@ func TestControlServiceSnapshotExposesOnlyModelMetadata(t *testing.T) {
 	t.Parallel()
 
 	routerPort := &serviceRouter{}
-	service := NewControlService(Runner{Runtime: modelSource{models: []router.ModelCapabilities{{Name: "safe", Source: "catalog", Provider: "test", Runtime: "cli", Tier: "small", MaxContextTokens: 1000, SupportsTools: []string{"read"}, CostPer1kInputUSD: 0.1}}}}, routerPort)
+	service := NewControlService(Runner{Runtime: modelSource{models: []router.ModelCapabilities{{Name: "safe", Source: "catalog", Provider: "test", Runtime: "cli", Tier: "small", MaxContextTokens: 1000, SupportsTools: []string{"read"}, CostPer1kInputUSD: 0.1}}, preferences: router.CandidatePreferences{PinnedModels: []string{"safe"}}}}, routerPort)
 	snapshot, err := service.Snapshot(context.Background())
 	if err != nil {
 		t.Fatalf("snapshot failed: %v", err)
@@ -96,6 +96,9 @@ func TestControlServiceSnapshotExposesOnlyModelMetadata(t *testing.T) {
 	}
 	if snapshot.Models[0].Source != "catalog" || !snapshot.Models[0].ToolsKnown || !snapshot.Models[0].CostPer1kInputKnown {
 		t.Fatalf("model metadata = %#v", snapshot.Models[0])
+	}
+	if !snapshot.Models[0].Pinned || snapshot.Models[0].Excluded {
+		t.Fatalf("model policy = %#v", snapshot.Models[0])
 	}
 	if len(snapshot.Providers) != 1 || !snapshot.Providers[0].Configured {
 		t.Fatalf("providers = %#v", snapshot.Providers)
@@ -188,11 +191,13 @@ type serviceResolver struct {
 }
 
 type modelSource struct {
-	models []router.ModelCapabilities
+	models      []router.ModelCapabilities
+	preferences router.CandidatePreferences
 }
 
 func (m modelSource) RuntimeFor(string) (execution.RuntimeAdapter, bool) { return nil, false }
 func (m modelSource) Models() []router.ModelCapabilities                 { return m.models }
+func (m modelSource) Preferences() router.CandidatePreferences           { return m.preferences }
 
 func (r serviceResolver) RuntimeFor(string) (execution.RuntimeAdapter, bool) {
 	return r.runtime, r.runtime != nil
