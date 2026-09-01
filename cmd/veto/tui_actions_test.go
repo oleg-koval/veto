@@ -94,6 +94,23 @@ func TestRunTUIExecDryRunValidatesAndListsPlan(t *testing.T) {
 	}
 }
 
+func TestRunTUIFeedbackStdinUsesFormPayload(t *testing.T) {
+	feedbackDir := t.TempDir()
+	previous := feedbackPathOverride
+	feedbackPathOverride = feedbackDir
+	t.Cleanup(func() { feedbackPathOverride = previous })
+	result, err := runTUIFeedback(context.Background(), controlplane.ActionRequest{ActionID: "feedback", Arguments: map[string]string{
+		"stdin": "true", "kind": "feature", "summary": "add a TUI report", "reproduction": "open feedback form", "expected": "report saves", "actual": "report needs form payload", "scope": "tui",
+		"acceptance-criteria": "saved report; redacted output",
+	}})
+	if err != nil {
+		t.Fatalf("feedback failed: %v", err)
+	}
+	if !strings.Contains(result.Output, "add a TUI report") {
+		t.Fatalf("feedback output = %q", result.Output)
+	}
+}
+
 func TestResolveTUIPlanPathUsesVetoPlanDirectoryForNames(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {

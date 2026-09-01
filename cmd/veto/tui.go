@@ -419,8 +419,20 @@ func installGitHookFile(force bool) (string, error) {
 
 func runTUIFeedback(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 	args := tuiFlagArguments(request)
+	input := strings.NewReader("")
+	if request.Arguments["stdin"] == "true" {
+		payload, err := json.Marshal(tUIFeedbackReport(request))
+		if err != nil {
+			return controlplane.ActionResult{ActionID: "feedback"}, err
+		}
+		args = []string{"--stdin"}
+		input = strings.NewReader(string(payload))
+		if request.Arguments["include-provider"] == "true" {
+			args = append(args, "--include-provider", "--provider="+request.Arguments["provider"])
+		}
+	}
 	args = append(args, "--json", "--no-browser")
-	result, err := runFeedback(args, strings.NewReader(""), &strings.Builder{}, &strings.Builder{}, nil)
+	result, err := runFeedback(args, input, &strings.Builder{}, &strings.Builder{}, nil)
 	if err != nil {
 		return controlplane.ActionResult{ActionID: "feedback"}, err
 	}
@@ -429,6 +441,27 @@ func runTUIFeedback(_ context.Context, request controlplane.ActionRequest) (cont
 		return controlplane.ActionResult{ActionID: "feedback"}, err
 	}
 	return controlplane.ActionResult{ActionID: "feedback", Summary: "redacted feedback saved", Output: string(data)}, nil
+}
+
+func tUIFeedbackReport(request controlplane.ActionRequest) FeedbackReport {
+	return FeedbackReport{
+		Kind:                request.Arguments["kind"],
+		Summary:             request.Arguments["summary"],
+		Reproduction:        request.Arguments["reproduction"],
+		ExpectedBehavior:    request.Arguments["expected"],
+		ActualBehavior:      request.Arguments["actual"],
+		Scope:               request.Arguments["scope"],
+		AcceptanceCriteria:  splitFeedbackCriteria(request.Arguments["acceptance-criteria"]),
+		BaselinePerformance: request.Arguments["baseline"],
+		TargetPerformance:   request.Arguments["target"],
+		RegressionStatus:    request.Arguments["regression"],
+		Evidence:            request.Arguments["evidence"],
+		Metadata: FeedbackMetadata{
+			Command:       request.Arguments["command"],
+			Risk:          request.Arguments["risk"],
+			ProviderModel: request.Arguments["provider"],
+		},
+	}
 }
 
 func runTUIVerifyModels(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
