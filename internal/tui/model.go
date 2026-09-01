@@ -1042,6 +1042,12 @@ func eventStage(kind string) string {
 		return "failure"
 	case "output":
 		return "execution output"
+	case "review.started":
+		return "review"
+	case "review.completed":
+		return "reviewed"
+	case "review.error":
+		return "review failure"
 	}
 	return kind
 }

@@ -48,6 +48,10 @@ func cmdTUI(args []string) error {
 				return nil, fmt.Errorf("prepare routing: %w", err)
 			}
 			service := application.NewControlServiceWithSnapshot(newApplicationRunner(reg, mgr), mgr, loadTUISnapshot)
+			service.SetReviewer(func(ctx context.Context, task router.TaskSpec, output, model string) (bool, error) {
+				result, err := reviewOutput(ctx, reg, mgr, task, output, model)
+				return result.Passed, err
+			})
 			service.RegisterHandler("doctor", func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error) {
 				report := runDoctor(doctorOptions{offline: true}, defaultDoctorDeps())
 				return controlplane.ActionResult{ActionID: "doctor", Summary: fmt.Sprintf("%d pass, %d warn, %d fail", report.Summary.Pass, report.Summary.Warn, report.Summary.Fail)}, nil

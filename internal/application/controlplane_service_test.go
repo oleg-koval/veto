@@ -124,6 +124,38 @@ func TestControlServiceRunsThroughRunnerAndStreamsOutput(t *testing.T) {
 	}
 }
 
+func TestControlServiceRunsAcceptanceReviewForComposerCriteria(t *testing.T) {
+	t.Parallel()
+
+	routerPort := &serviceRouter{model: router.ModelCapabilities{Name: "test-model", Provider: "test"}}
+	service := NewControlService(Runner{Router: routerPort, Runtime: serviceResolver{runtime: serviceRuntime{}}}, routerPort)
+	service.SetReviewer(func(_ context.Context, task router.TaskSpec, output, model string) (bool, error) {
+		if len(task.SuccessCriteria) != 2 || output != "done" || model != "test-model" {
+			t.Fatalf("review input = task:%#v output:%q model:%q", task, output, model)
+		}
+		return true, nil
+	})
+	updates := service.Subscribe(context.Background())
+	result, err := service.Execute(context.Background(), controlplane.ActionRequest{ActionID: "run", Arguments: map[string]string{"objective": "write", "criteria": "tests pass; no regression"}})
+	if err != nil || result.Summary != "task completed" {
+		t.Fatalf("run result = %#v err=%v", result, err)
+	}
+	foundReview := false
+	for {
+		select {
+		case event := <-updates:
+			if event.Kind == "review.completed" {
+				foundReview = true
+			}
+		default:
+			if !foundReview {
+				t.Fatal("review completion event was not published")
+			}
+			return
+		}
+	}
+}
+
 func TestControlServiceSnapshotExposesOnlyModelMetadata(t *testing.T) {
 	t.Parallel()
 

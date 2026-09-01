@@ -24,11 +24,19 @@ type ControlService struct {
 	router   Router
 	source   func(context.Context) (controlplane.Snapshot, error)
 	handlers map[string]func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error)
+	reviewer func(context.Context, router.TaskSpec, string, string) (bool, error)
 
 	mu       sync.RWMutex
 	snapshot controlplane.Snapshot
 	subs     map[chan controlplane.Event]struct{}
 	active   map[string]context.CancelFunc
+}
+
+// SetReviewer wires the existing acceptance-review use case into TUI runs.
+// The callback is optional; without one, runs remain compatible with runtimes
+// that do not expose review capabilities.
+func (s *ControlService) SetReviewer(reviewer func(context.Context, router.TaskSpec, string, string) (bool, error)) {
+	s.reviewer = reviewer
 }
 
 // NewControlService creates a service over an existing Runner and Router.
@@ -254,6 +262,24 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: status, Provider: response.Model.Provider, Model: response.Model.Name})
 		if err != nil {
 			return controlplane.ActionResult{ActionID: request.ActionID, Model: response.Model.Name, Output: response.Output}, err
+		}
+		if s.reviewer != nil {
+			criteria := task.SuccessCriteria
+			if len(criteria) > 0 {
+				s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "review.started", Message: fmt.Sprintf("checking %d acceptance criteria", len(criteria))})
+				passed, reviewErr := s.reviewer(requestCtx, task, response.Output, response.Model.Name)
+				if reviewErr != nil {
+					s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "error"})
+					s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "review.error", Message: strings.Join(strings.Fields(reviewErr.Error()), " ")})
+					return controlplane.ActionResult{ActionID: request.ActionID, Model: response.Model.Name, Output: response.Output}, reviewErr
+				}
+				if !passed {
+					s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "error"})
+					s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "review.completed", Message: "acceptance criteria not met"})
+					return controlplane.ActionResult{ActionID: request.ActionID, Model: response.Model.Name, Output: response.Output}, errors.New("acceptance criteria not met")
+				}
+				s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "review.completed", Message: "acceptance criteria passed"})
+			}
 		}
 		s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "run.completed", Message: "task completed"})
 		return controlplane.ActionResult{ActionID: request.ActionID, Summary: "task completed", Model: response.Model.Name, Output: response.Output}, nil
