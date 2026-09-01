@@ -71,6 +71,10 @@ func cmdTUI(args []string) error {
 				return controlplane.ActionResult{ActionID: "version", Summary: "veto " + resolvedVersion()}, nil
 			})
 			registerTUIActionHandlers(service)
+			service.RegisterHandler("setup", runTUISetup)
+			service.RegisterHandler("exec", func(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+				return runTUIExec(ctx, request, service, reg, mgr)
+			})
 			return service, nil
 		},
 	})
@@ -463,4 +467,123 @@ func runTUIModels(_ context.Context, request controlplane.ActionRequest) (contro
 	return runTUICommand("models", args, func(arguments []string, output, diagnostics *strings.Builder) int {
 		return runModelsCommand(arguments, output, diagnostics, buildProviderRegistryWithCatalog)
 	})
+}
+
+func runTUISetup(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return controlplane.ActionResult{ActionID: "setup"}, err
+	}
+	directory := strings.TrimSpace(request.Arguments["directory"])
+	if directory == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return controlplane.ActionResult{ActionID: "setup"}, err
+		}
+		directory = filepath.Join(home, ".claude", "skills")
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return controlplane.ActionResult{ActionID: "setup", Summary: "no external skills found", Output: directory}, nil
+		}
+		return controlplane.ActionResult{ActionID: "setup"}, err
+	}
+	files := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".md") {
+			files = append(files, filepath.Join(directory, entry.Name()))
+		}
+	}
+	sort.Strings(files)
+	if request.Arguments["auto-approve"] != "true" {
+		return controlplane.ActionResult{ActionID: "setup", Summary: fmt.Sprintf("discovered %d skill(s); no changes made", len(files)), Output: strings.Join(files, "\n")}, nil
+	}
+	cfg := loadSkillsConfig()
+	if !containsStr(cfg.ApprovedDirs, directory) {
+		cfg.ApprovedDirs = append(cfg.ApprovedDirs, directory)
+		sort.Strings(cfg.ApprovedDirs)
+	}
+	cfg.AutoApproveNew = true
+	if err := saveSkillsConfig(cfg); err != nil {
+		return controlplane.ActionResult{ActionID: "setup"}, err
+	}
+	return controlplane.ActionResult{ActionID: "setup", Summary: fmt.Sprintf("approved %d skill(s)", len(files)), Output: strings.Join(files, "\n")}, nil
+}
+
+func runTUIExec(ctx context.Context, request controlplane.ActionRequest, service *application.ControlService, reg *providerRegistry, mgr *router.Manager) (controlplane.ActionResult, error) {
+	planPath := strings.TrimSpace(request.Arguments["plan"])
+	if planPath == "" {
+		return controlplane.ActionResult{ActionID: "exec"}, errors.New("plan is required")
+	}
+	data, err := os.ReadFile(planPath)
+	if err != nil {
+		return controlplane.ActionResult{ActionID: "exec"}, err
+	}
+	plan, parseErr := ParsePlan(data)
+	if parseErr != nil {
+		return controlplane.ActionResult{ActionID: "exec"}, fmt.Errorf("plan validation failed: %w", parseErr)
+	}
+	if violations := ValidatePlan(plan); len(violations) > 0 {
+		return controlplane.ActionResult{ActionID: "exec"}, fmt.Errorf("plan validation failed: %s", strings.Join(violations, "; "))
+	}
+	if request.Arguments["dry-run"] == "true" {
+		lines := make([]string, 0, len(plan.Steps)+1)
+		lines = append(lines, fmt.Sprintf("Plan: %s (%d step(s))", plan.Title, len(plan.Steps)))
+		for index, step := range plan.Steps {
+			lines = append(lines, fmt.Sprintf("%2d  %-12s %-6s %s", index+1, step.Kind, step.Risk, strings.TrimSpace(step.Task)))
+		}
+		return controlplane.ActionResult{ActionID: "exec", Summary: "plan validated", Output: strings.Join(lines, "\n")}, nil
+	}
+	failureMode := request.Arguments["on-failure"]
+	if failureMode == "" {
+		failureMode = resolveOnFailure("")
+	}
+	if failureMode != "abort" && failureMode != "continue" && failureMode != "abort-ask" {
+		return controlplane.ActionResult{ActionID: "exec"}, fmt.Errorf("invalid on-failure mode %q", failureMode)
+	}
+	maxTokens := request.Arguments["max-output-tokens"]
+	outputs := make([]string, 0, len(plan.Steps))
+	failed := make([]int, 0)
+	for index, step := range plan.Steps {
+		if err := ctx.Err(); err != nil {
+			return controlplane.ActionResult{ActionID: "exec", Output: strings.Join(outputs, "\n\n---\n\n")}, err
+		}
+		arguments := map[string]string{"objective": step.Task, "kind": step.Kind, "risk": step.Risk}
+		if maxTokens != "" {
+			arguments["max-output-tokens"] = maxTokens
+		}
+		result, runErr := service.Execute(ctx, controlplane.ActionRequest{ActionID: "run", Arguments: arguments})
+		if runErr != nil {
+			failed = append(failed, index+1)
+			if failureMode != "continue" {
+				return controlplane.ActionResult{ActionID: "exec", Output: strings.Join(outputs, "\n\n---\n\n")}, fmt.Errorf("step %d failed: %w", index+1, runErr)
+			}
+			continue
+		}
+		outputs = append(outputs, result.Output)
+		criteria := splitCriteria(step.SuccessCriteria)
+		if len(criteria) == 0 {
+			continue
+		}
+		spec := router.TaskSpec{ID: taskHash(step.Task, step.Kind, step.Risk, 0), Kind: router.TaskKind(step.Kind), Complexity: router.InferComplexity(step.Task, router.TaskKind(step.Kind)), Objective: step.Task, Risk: router.Risk(step.Risk), SuccessCriteria: criteria}
+		review, reviewErr := reviewOutput(ctx, reg, mgr, spec, result.Output, result.Model)
+		if reviewErr != nil || !review.Passed {
+			failed = append(failed, index+1)
+			if failureMode != "continue" {
+				if reviewErr != nil {
+					return controlplane.ActionResult{ActionID: "exec", Output: strings.Join(outputs, "\n\n---\n\n")}, fmt.Errorf("step %d review failed: %w", index+1, reviewErr)
+				}
+				return controlplane.ActionResult{ActionID: "exec", Output: strings.Join(outputs, "\n\n---\n\n")}, fmt.Errorf("step %d review failed: acceptance criteria not met", index+1)
+			}
+		}
+	}
+	output := strings.Join(outputs, "\n\n---\n\n")
+	summary := fmt.Sprintf("%d step(s) completed", len(plan.Steps)-len(failed))
+	if len(failed) > 0 {
+		summary = fmt.Sprintf("%d step(s) completed, %d failed", len(plan.Steps)-len(failed), len(failed))
+	}
+	if len(failed) > 0 {
+		return controlplane.ActionResult{ActionID: "exec", Summary: summary, Output: output}, fmt.Errorf("plan failed on step(s) %v", failed)
+	}
+	return controlplane.ActionResult{ActionID: "exec", Summary: summary, Output: output}, nil
 }
