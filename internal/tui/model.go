@@ -1022,7 +1022,20 @@ func eventStage(kind string) string {
 	kind = strings.TrimPrefix(kind, "route.")
 	kind = strings.TrimPrefix(kind, "execution.")
 	kind = strings.TrimPrefix(kind, "runtime.")
-	if kind == "output" {
+	switch kind {
+	case "filter_pass", "filtering":
+		return "filtering"
+	case "filter_fail":
+		return "filtered"
+	case "ask_start":
+		return "admission"
+	case "ask_accept":
+		return "winner"
+	case "ask_reject":
+		return "rejected"
+	case "ask_error":
+		return "failure"
+	case "output":
 		return "execution output"
 	}
 	return kind

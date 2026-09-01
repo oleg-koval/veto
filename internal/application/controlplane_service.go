@@ -382,7 +382,14 @@ func (s *ControlService) recordRuntimeMonitor(event execution.RuntimeEvent) {
 }
 
 func (s *ControlService) publishRouteEvent(event router.ProgressEvent) {
-	s.publish(controlplane.Event{ActionID: "route", Kind: "route." + string(event.Kind), Message: event.Model})
+	message := event.Model
+	if len(event.Reasons) > 0 {
+		message += " · " + strings.Join(event.Reasons, ",")
+	}
+	if event.Detail != "" {
+		message += " · " + strings.Join(strings.Fields(event.Detail), " ")
+	}
+	s.publish(controlplane.Event{ActionID: "route", Kind: "route." + string(event.Kind), Message: message})
 }
 
 func (s *ControlService) publish(event controlplane.Event) {
