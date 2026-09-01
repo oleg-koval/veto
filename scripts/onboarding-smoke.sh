@@ -34,6 +34,8 @@ if [[ ! -x "${veto_binary}" ]]; then
     exit 1
 fi
 
+python3 scripts/tui-pty-smoke.py "${veto_binary}"
+
 smoke_home=${tmp_dir}/home
 mkdir -p "${smoke_home}"
 smoke_workdir=${tmp_dir}/work
