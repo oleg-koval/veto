@@ -68,6 +68,26 @@ func TestModelSupportsMouseSelectionInNarrowLayout(t *testing.T) {
 	}
 }
 
+func TestModelTogglesBooleanFormFlagsWithSpace(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	model.selected = 18 // install-git-hook
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	model = updated.(*Model)
+	if !model.composerEditing || model.composerFields[0].Value != "bool" {
+		t.Fatalf("boolean form = editing:%v fields:%#v", model.composerEditing, model.composerFields)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: " ", Code: ' '}))
+	model = updated.(*Model)
+	if model.composerValues["force"] != "true" {
+		t.Fatalf("force after space = %q, want true", model.composerValues["force"])
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: " ", Code: ' '}))
+	model = updated.(*Model)
+	if model.composerValues["force"] != "false" {
+		t.Fatalf("force after second space = %q, want false", model.composerValues["force"])
+	}
+}
+
 func TestModelCommandPaletteFiltersAndSelectsAction(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})

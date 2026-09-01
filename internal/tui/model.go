@@ -419,6 +419,15 @@ func (m *Model) updateComposerField(key tea.Key) (tea.Model, tea.Cmd) {
 		return m.startExecution()
 	}
 	field := m.composerFields[m.composerField]
+	if field.Value == "bool" && (key.String() == "space" || key.Text == " ") {
+		if m.composerValues[field.Name] == "true" {
+			m.composerValues[field.Name] = "false"
+		} else {
+			m.composerValues[field.Name] = "true"
+		}
+		m.status = "Flags · " + field.Name + "=" + m.composerValues[field.Name]
+		return m, nil
+	}
 	switch key.String() {
 	case "esc":
 		m.composerOpen = false
@@ -818,7 +827,11 @@ func (m *Model) renderComposer(width int) string {
 			b.WriteString(mutedStyle.Render(field.Description))
 			b.WriteString("\n")
 		}
-		b.WriteString(mutedStyle.Render("Enter next field/run · Tab move · Esc cancel"))
+		hint := "Enter next field/run · Tab move · Esc cancel"
+		if field.Value == "bool" {
+			hint = "Space toggle · Enter next field/run · Tab move · Esc cancel"
+		}
+		b.WriteString(mutedStyle.Render(hint))
 	} else if m.composerNeedsObjective() {
 		b.WriteString(mutedStyle.Render("Enter edit flags · Esc cancel"))
 	} else {
