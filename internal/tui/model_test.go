@@ -517,6 +517,39 @@ func TestModelShowsPlanExecutionOutputAndFailureOutput(t *testing.T) {
 	}
 }
 
+func TestModelRendersPopulatedOperationalScreens(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model.snapshot = controlplane.Snapshot{
+		Providers:    []controlplane.ProviderSnapshot{{Name: "Local", Configured: true, ModelCount: 1}},
+		Models:       []controlplane.ModelSnapshot{{Name: "smoke-model", Provider: "local", Runtime: "api", Tier: "small", Status: "available"}},
+		Plans:        []controlplane.PlanSnapshot{{Name: "smoke-plan.md"}},
+		History:      []controlplane.HistorySnapshot{{Type: "execution.completed", Model: "smoke-model", Status: "success"}},
+		Health:       []controlplane.HealthSnapshot{{ID: "state.permissions", Status: "PASS", Message: "safe"}},
+		Analytics:    controlplane.AnalyticsSnapshot{LocalCollection: true, LocalPath: "~/.veto/logs", RetentionDays: 7, RemoteSharing: "opt_out"},
+		Integrations: []controlplane.IntegrationSnapshot{{Name: "Hermes", Status: "current", Detail: "installed=1"}},
+	}
+	for _, test := range []struct {
+		action string
+		want   string
+	}{
+		{"providers", "Local"},
+		{"models", "smoke-model"},
+		{"plans", "smoke-plan.md"},
+		{"history", "execution.completed"},
+		{"doctor", "state.permissions"},
+		{"analytics", "~/.veto/logs"},
+		{"integrations", "Hermes"},
+	} {
+		t.Run(test.action, func(t *testing.T) {
+			model.activeAction = test.action
+			if view := model.View().Content; !strings.Contains(view, test.want) {
+				t.Fatalf("%s screen missing %q: %s", test.action, test.want, view)
+			}
+		})
+	}
+}
+
 func TestModelRejectsUnknownEventSchema(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	updated, _ := model.Update(eventMsg{event: controlplane.Event{Version: controlplane.SchemaVersion + 1, Kind: "route.completed"}, ok: true})
