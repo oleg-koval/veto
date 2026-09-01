@@ -166,6 +166,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  --kind      extract|summarize|code-change|debug|plan|review|refactor")
 	fmt.Fprintln(o, "              (auto-detected from the task text if omitted)")
 	fmt.Fprintln(o, "  --risk      low|medium|high  (default: medium)")
+	fmt.Fprintln(o, "  --required-tools  comma-separated capabilities required by the task")
+	fmt.Fprintln(o, "  --requires-executable-tools  require a runtime with executable tools")
 	fmt.Fprintln(o, "  --max-cost  estimated preflight ceiling in USD, e.g. 0.01  (default: none)")
 	fmt.Fprintln(o, "  --quiet     print only the selected model name — useful in scripts")
 	fmt.Fprintln(o, "  --json      print one JSON result line — implies --quiet and --no-resume")
