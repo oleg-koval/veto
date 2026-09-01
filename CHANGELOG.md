@@ -3,6 +3,13 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1](https://github.com/oleg-koval/veto/compare/v0.8.0...v0.8.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* address clean architecture review findings ([#83](https://github.com/oleg-koval/veto/issues/83)) ([ebae6b8](https://github.com/oleg-koval/veto/commit/ebae6b86b68874cc7cc0cdd0402e4cb3fd5ae625))
+
 ## [0.8.0](https://github.com/oleg-koval/veto/compare/v0.7.0...v0.8.0) (2026-08-31)
 
 

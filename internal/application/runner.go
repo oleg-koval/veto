@@ -139,14 +139,10 @@ func (r Runner) Execute(ctx context.Context, request Request) (Response, error) 
 			output = buffer.String()
 		}
 		streamed = request.Writer != nil
-	case isStreamer(runtime):
-		streamed = true
+	case request.Writer != nil && isStreamer(runtime):
 		var buffer strings.Builder
-		writer := io.Writer(&buffer)
-		if request.Writer != nil {
-			writer = io.MultiWriter(request.Writer, &buffer)
-			streamed = true
-		}
+		writer := io.MultiWriter(request.Writer, &buffer)
+		streamed = true
 		if err := runtime.(Streamer).Stream(ctx, prompt, writer); err != nil {
 			result.Error = err
 		}

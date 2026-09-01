@@ -15,22 +15,20 @@ veto supports multiple AI providers (Anthropic, OpenAI, OpenRouter, local OpenAI
 Define the `Executor` interface at the consumer (`pkg/router`), not the implementer (`pkg/executor`). Concrete implementations in `pkg/executor` satisfy this interface via duck typing — they don't import `pkg/router`.
 
 Keep the router-facing admission contract deliberately small: `Run(ctx,
-prompt)` is the fixed 512-token JSON probe. The executor package separately
-defines `TaskExecutor.Execute(ctx, prompt, ExecutionOptions)` for full task
-execution. `ExecutionOptions.MaxOutputTokens` is bounded (8192 by default),
-and `Result` carries provider usage and truncation metadata when available.
-This prevents a long task response from inheriting the admission limit while
-preserving the router's provider-neutral interface.
+prompt)` is the fixed 512-token JSON probe. `router.AdmissionResult` aliases
+the stable `pkg/execution.Result` contract so executors returning the prior
+`pkg/executor.Result` alias remain source-compatible. The router consumes only
+`Output` and `Error`. Full task execution separately uses
+`TaskExecutor.Execute(ctx, prompt, ExecutionOptions)` with a bounded output
+budget and provider telemetry.
 
 The wiring happens at the CLI layer (`cmd/veto/main.go`) via `providerRegistry`, a concrete `ExecutorFactory` that maps model names to executors. This is the only place that imports both packages.
 
-```
-pkg/router/admission.go     Executor interface (defined here)
-                                ↑ duck-typed by
-pkg/executor/               AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor,
-                            CLIExecutor, OpenAICompatibleExecutor
-                                ↑ wired by
-cmd/veto/main.go            providerRegistry (ExecutorFactory)
+```text
+cmd/veto/main.go ───────▶ pkg/router/admission.go ───────▶ pkg/execution/Result
+       │                  Executor + tool DTO               ▲
+       │                                                    │
+       └────────────────▶ pkg/executor/ transports ─────────┘
 ```
 
 The `ExecutorFactory` interface (also in `pkg/router`) lets the admission gate select the right executor per model name without knowing how providers are organized.
@@ -54,7 +52,8 @@ Rejected: couples routing logic to provider implementations. Adding a new provid
 
 ## Consequences
 
-- `pkg/router` owns only the admission-facing interface; it does not know provider transports or full-execution options
+- `pkg/router` owns the admission-facing interface and tool DTO; it depends only on the stable result contract, never provider transports or full-execution options
+- Existing external executors returning `pkg/executor.Result` remain compatible because that type and `router.AdmissionResult` alias the same stable result
 - New providers require a new file in `pkg/executor` and one entry in `buildProviderRegistry()` — no changes to the router package
 - Every production provider must implement both the admission `Run` path and the full-task `TaskExecutor` path; HTTP transports remain text-only until a real tool loop is added
 - `cmd/veto/main.go` is the only place with full knowledge of the wiring; it acts as a composition root

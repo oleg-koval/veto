@@ -135,11 +135,10 @@ func cmdRun(args []string) {
 			OnRuntimeEvent: logRuntimeEvent,
 		},
 	}
-	var outputBuffer strings.Builder
 	response, err := runner.Execute(ctx, application.Request{
 		Task: spec, Skills: skillBodies,
 		Options: execution.ExecutionOptions{MaxOutputTokens: *maxOutputTokens},
-		Writer:  io.MultiWriter(os.Stdout, &outputBuffer),
+		Writer:  os.Stdout,
 	})
 	_ = store.Save()
 
@@ -162,9 +161,6 @@ func cmdRun(args []string) {
 
 	model := response.Model
 	output := response.Output
-	if output == "" {
-		output = outputBuffer.String()
-	}
 	if response.OutputWritten {
 		fmt.Println()
 	} else {
