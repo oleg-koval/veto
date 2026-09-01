@@ -52,9 +52,8 @@ func cmdTUI(args []string) error {
 				result, err := reviewOutput(ctx, reg, mgr, task, output, model)
 				return result.Passed, err
 			})
-			service.RegisterHandler("doctor", func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error) {
-				report := runDoctor(doctorOptions{offline: true}, defaultDoctorDeps())
-				return controlplane.ActionResult{ActionID: "doctor", Summary: fmt.Sprintf("%d pass, %d warn, %d fail", report.Summary.Pass, report.Summary.Warn, report.Summary.Fail)}, nil
+			service.RegisterHandler("doctor", func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+				return runTUIDoctor(request)
 			})
 			service.RegisterHandler("benchmark", func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 				corpus := request.Arguments["corpus"]
@@ -154,6 +153,16 @@ func registerTUIActionHandlers(service *application.ControlService) {
 	service.RegisterHandler("feedback", runTUIFeedback)
 	service.RegisterHandler("verify-models", runTUIVerifyModels)
 	service.RegisterHandler("models", runTUIModels)
+}
+
+func runTUIDoctor(request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+	offline := request.Arguments["offline"] != "false"
+	report := runDoctor(doctorOptions{fix: request.Arguments["fix"] == "true", offline: offline}, defaultDoctorDeps())
+	result := controlplane.ActionResult{ActionID: "doctor", Summary: fmt.Sprintf("%d pass, %d warn, %d fail, %d fixed", report.Summary.Pass, report.Summary.Warn, report.Summary.Fail, report.Summary.Fixed)}
+	if !report.OK {
+		return result, fmt.Errorf("doctor found %d failing check(s)", report.Summary.Fail)
+	}
+	return result, nil
 }
 
 type tuiCommandRunner func([]string, *strings.Builder, *strings.Builder) int

@@ -325,6 +325,8 @@ func TestRequiresConfirmationOnlyForMutatingOperations(t *testing.T) {
 		{name: "hermes api", request: controlplane.ActionRequest{ActionID: "hermes", Arguments: map[string]string{"subcommand": "api"}}},
 		{name: "setup discovery", request: controlplane.ActionRequest{ActionID: "setup"}},
 		{name: "setup approval", request: controlplane.ActionRequest{ActionID: "setup", Arguments: map[string]string{"auto-approve": "true"}}, want: true},
+		{name: "doctor diagnostics", request: controlplane.ActionRequest{ActionID: "doctor", Arguments: map[string]string{"fix": "false"}}},
+		{name: "doctor repair", request: controlplane.ActionRequest{ActionID: "doctor", Arguments: map[string]string{"fix": "true"}}, want: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

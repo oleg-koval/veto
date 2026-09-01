@@ -327,7 +327,7 @@ func (m *Model) actionSupportsForm(action controlplane.ActionSpec) bool {
 	// These commands are also navigation surfaces. Enter opens their screen;
 	// r opens the typed flag/subcommand form when an operation is needed.
 	switch action.ID {
-	case "analytics", "hermes", "models", "opencode":
+	case "analytics", "doctor", "hermes", "models", "opencode":
 		return false
 	default:
 		return m.actionHasForm(action)
@@ -498,6 +498,8 @@ func requiresConfirmation(request controlplane.ActionRequest) bool {
 	switch request.ActionID {
 	case "login", "logout", "disable", "enable", "install-git-hook":
 		return true
+	case "doctor":
+		return request.Arguments["fix"] == "true"
 	case "setup":
 		return request.Arguments["auto-approve"] == "true"
 	case "opencode":
