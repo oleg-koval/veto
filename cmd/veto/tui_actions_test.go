@@ -52,6 +52,33 @@ func TestRunTUISetupAutoApprovesSelectedDirectory(t *testing.T) {
 	}
 }
 
+func TestRunTUISetupApprovesSelectedFiles(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	previousConfig := vetoCfgPathOverride
+	vetoCfgPathOverride = configPath
+	t.Cleanup(func() { vetoCfgPathOverride = previousConfig })
+	directory := t.TempDir()
+	first := filepath.Join(directory, "first.md")
+	second := filepath.Join(directory, "second.md")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("---\nname: skill\n---\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := runTUISetup(context.Background(), controlplane.ActionRequest{ActionID: "setup", Arguments: map[string]string{
+		"directory": directory, "approved-files": "first.md",
+	}})
+	if err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	if !strings.Contains(result.Summary, "approved 1") {
+		t.Fatalf("setup result = %#v", result)
+	}
+	if !containsStr(loadSkillsConfig().ApprovedFiles, first) || containsStr(loadSkillsConfig().ApprovedFiles, second) {
+		t.Fatalf("approved files = %#v", loadSkillsConfig().ApprovedFiles)
+	}
+}
+
 func TestRunTUIExecDryRunValidatesAndListsPlan(t *testing.T) {
 	planPath := filepath.Join(t.TempDir(), "plan.md")
 	data := []byte("---\ntitle: TUI plan\nversion: 1\nsteps:\n  - task: inspect the change\n    kind: review\n    risk: low\n---\n")

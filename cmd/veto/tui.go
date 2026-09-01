@@ -522,7 +522,11 @@ func runTUISetup(ctx context.Context, request controlplane.ActionRequest) (contr
 	}
 	sort.Strings(files)
 	if request.Arguments["auto-approve"] != "true" {
-		return controlplane.ActionResult{ActionID: "setup", Summary: fmt.Sprintf("discovered %d skill(s); no changes made", len(files)), Output: strings.Join(files, "\n")}, nil
+		approved := splitTaskList(request.Arguments["approved-files"])
+		if len(approved) == 0 {
+			return controlplane.ActionResult{ActionID: "setup", Summary: fmt.Sprintf("discovered %d skill(s); no changes made", len(files)), Output: strings.Join(files, "\n")}, nil
+		}
+		return approveTUISkillFiles(directory, files, approved)
 	}
 	cfg := loadSkillsConfig()
 	if !containsStr(cfg.ApprovedDirs, directory) {
@@ -534,6 +538,39 @@ func runTUISetup(ctx context.Context, request controlplane.ActionRequest) (contr
 		return controlplane.ActionResult{ActionID: "setup"}, err
 	}
 	return controlplane.ActionResult{ActionID: "setup", Summary: fmt.Sprintf("approved %d skill(s)", len(files)), Output: strings.Join(files, "\n")}, nil
+}
+
+func approveTUISkillFiles(directory string, discovered, requested []string) (controlplane.ActionResult, error) {
+	allowed := make(map[string]struct{}, len(discovered))
+	for _, path := range discovered {
+		allowed[path] = struct{}{}
+	}
+	cfg := loadSkillsConfig()
+	approved := make([]string, 0, len(requested))
+	for _, path := range requested {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(directory, path)
+		}
+		if _, ok := allowed[path]; !ok {
+			return controlplane.ActionResult{ActionID: "setup"}, fmt.Errorf("approved skill %q was not discovered in %s", path, directory)
+		}
+		if !containsStr(cfg.ApprovedFiles, path) {
+			cfg.ApprovedFiles = append(cfg.ApprovedFiles, path)
+		}
+		approved = append(approved, path)
+	}
+	if len(approved) == 0 {
+		return controlplane.ActionResult{ActionID: "setup", Summary: "no skill files selected"}, nil
+	}
+	sort.Strings(cfg.ApprovedFiles)
+	if err := saveSkillsConfig(cfg); err != nil {
+		return controlplane.ActionResult{ActionID: "setup"}, err
+	}
+	return controlplane.ActionResult{ActionID: "setup", Summary: fmt.Sprintf("approved %d selected skill(s)", len(approved)), Output: strings.Join(approved, "\n")}, nil
 }
 
 func runTUIExec(ctx context.Context, request controlplane.ActionRequest, service *application.ControlService, reg *providerRegistry, mgr *router.Manager) (controlplane.ActionResult, error) {
