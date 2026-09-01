@@ -146,6 +146,8 @@ if models_mode != 0o600:
     raise SystemExit(f"models.json mode is {models_mode:o}, want 600")
 PY
 
+python3 scripts/tui-pty-smoke.py "${veto_binary}" --execution-home "${smoke_home}"
+
 providers_output=$(veto providers)
 assert_contains "${providers_output}" 'smoke-local'
 assert_contains "${providers_output}" '2 model(s) available for routing'

@@ -886,17 +886,18 @@ func (m *Model) renderMain(width int) string {
 		b.WriteString(m.renderIntegrations(width))
 		return lipgloss.NewStyle().Width(width).Render(b.String())
 	}
-	b.WriteString(panelStyle.Render(truncate("⌘  Run a task   /  Find command   ?  Help", width-4)))
-	b.WriteString("\n\n")
-	b.WriteString(headerStyle.Render("NEXT"))
-	b.WriteString("\n")
-	b.WriteString("Start with a command or open the palette to inspect flags.\n")
-	b.WriteString(mutedStyle.Render("No provider calls are made until you confirm an action."))
 	if m.output.Len() > 0 {
-		b.WriteString("\n\n")
 		b.WriteString(headerStyle.Render("OUTPUT"))
 		b.WriteString("\n")
 		b.WriteString(panelStyle.Render(truncate(strings.TrimSpace(m.output.String()), width-4)))
+		b.WriteString("\n\n")
+	} else {
+		b.WriteString(panelStyle.Render(truncate("⌘  Run a task   /  Find command   ?  Help", width-4)))
+		b.WriteString("\n\n")
+		b.WriteString(headerStyle.Render("NEXT"))
+		b.WriteString("\n")
+		b.WriteString("Start with a command or open the palette to inspect flags.\n")
+		b.WriteString(mutedStyle.Render("No provider calls are made until you confirm an action."))
 	}
 	return lipgloss.NewStyle().Width(width).Render(b.String())
 }

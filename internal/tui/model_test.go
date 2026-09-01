@@ -493,6 +493,18 @@ func TestModelReplaysVersionedEventsDeterministically(t *testing.T) {
 	}
 }
 
+func TestModelPrioritizesCompletedOutputInMainView(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
+	model.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	model.activeAction = "run"
+	model.eventHistory = []controlplane.Event{{Version: controlplane.SchemaVersion, ActionID: "run", Kind: "route.ask_accept", Message: "local accepted"}}
+	model.output.WriteString("SMOKE EXECUTION OK")
+	view := model.View().Content
+	if !strings.Contains(view, "OUTPUT") || !strings.Contains(view, "SMOKE EXECUTION OK") {
+		t.Fatalf("completed output not prioritized in view: %s", view)
+	}
+}
+
 func TestModelRejectsUnknownEventSchema(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	updated, _ := model.Update(eventMsg{event: controlplane.Event{Version: controlplane.SchemaVersion + 1, Kind: "route.completed"}, ok: true})
