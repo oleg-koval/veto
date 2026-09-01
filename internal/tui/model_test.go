@@ -367,3 +367,15 @@ func TestModelRejectsUnknownEventSchema(t *testing.T) {
 		t.Fatalf("unknown event state = history:%#v status:%q", model.eventHistory, model.status)
 	}
 }
+
+func TestModelClosesActionContextAfterCompletion(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	cancelled := false
+	model.running = true
+	model.cancelRun = func() { cancelled = true }
+	updated, _ := model.Update(executionResultMsg{result: controlplane.ActionResult{ActionID: "route", Summary: "model selected"}})
+	model = updated.(*Model)
+	if !cancelled || model.cancelRun != nil || model.running {
+		t.Fatalf("completion lifecycle = cancelled:%v cancel:%v running:%v", cancelled, model.cancelRun != nil, model.running)
+	}
+}

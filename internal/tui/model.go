@@ -161,6 +161,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForEvent(m.events)
 	case executionResultMsg:
 		m.running = false
+		if m.cancelRun != nil {
+			m.cancelRun()
+		}
 		m.cancelRun = nil
 		if message.err != nil {
 			m.status = "Error · " + message.err.Error()
