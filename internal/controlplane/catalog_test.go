@@ -66,6 +66,24 @@ func TestDefaultCatalogPreservesRouteAndFeedbackFlags(t *testing.T) {
 	}
 }
 
+func TestCatalogReturnsDefensiveCopies(t *testing.T) {
+	t.Parallel()
+
+	catalog := DefaultCatalog()
+	commands := catalog.Commands()
+	commands[0].Flags = append(commands[0].Flags, FlagSpec{Name: "mutated"})
+	commands[0].Subcommands = append(commands[0].Subcommands, "mutated")
+	found, _ := catalog.Find(commands[0].ID)
+	if hasFlag(found, "mutated") {
+		t.Fatal("catalog flags were mutated through Commands result")
+	}
+	for _, subcommand := range found.Subcommands {
+		if subcommand == "mutated" {
+			t.Fatal("catalog subcommands were mutated through Commands result")
+		}
+	}
+}
+
 func hasFlag(action ActionSpec, name string) bool {
 	for _, flag := range action.Flags {
 		if flag.Name == name {

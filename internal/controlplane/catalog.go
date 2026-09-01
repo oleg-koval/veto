@@ -20,10 +20,10 @@ func DefaultCatalog() Catalog {
 		{ID: "verify-models", Label: "Verify models", Command: "verify-models", Category: "Diagnostics", Description: "Verify catalog IDs against a provider account.", Flags: []FlagSpec{{Name: "provider", Value: "string", Default: "openai", Description: "Provider to verify."}, {Name: "endpoint", Value: "url", Description: "Override the provider model-list URL."}, {Name: "artifacts-dir", Value: "path", Default: "artifacts/http", Description: "Directory for raw response artifacts."}, {Name: "timeout", Value: "duration", Default: "20s", Description: "HTTP request timeout."}, {Name: "json", Value: "bool", Description: "Emit one JSON result line."}}},
 		{ID: "doctor", Label: "Doctor", Command: "doctor", Category: "Diagnostics", Description: "Diagnose installation and ~/.veto integrity."},
 		{ID: "feedback", Label: "Feedback", Command: "feedback", Category: "Workspace", Description: "Prepare a redacted bug, feature, or optimization report.", Flags: feedbackFlags()},
-		{ID: "analytics", Label: "Analytics", Command: "analytics", Category: "Diagnostics", Description: "View local diagnostics and sharing preference.", Flags: []FlagSpec{{Name: "json", Value: "bool", Description: "Emit one machine-readable status object."}}},
-		{ID: "opencode", Label: "OpenCode", Command: "opencode", Category: "Integrations", Description: "Connect or install the OpenCode integration."},
-		{ID: "hermes", Label: "Hermes", Command: "hermes", Category: "Integrations", Description: "Install or diagnose the native Hermes integration."},
-		{ID: "models", Label: "Models", Command: "models", Category: "Providers", Description: "List models, runtimes, capabilities, and costs."},
+		{ID: "analytics", Label: "Analytics", Command: "analytics", Category: "Diagnostics", Description: "View local diagnostics and sharing preference.", Subcommands: []string{"status", "enable", "disable"}, Flags: []FlagSpec{{Name: "json", Value: "bool", Description: "Emit one machine-readable status object."}}},
+		{ID: "opencode", Label: "OpenCode", Command: "opencode", Category: "Integrations", Description: "Connect or install the OpenCode integration.", Subcommands: []string{"connect", "status", "disconnect", "plugin"}},
+		{ID: "hermes", Label: "Hermes", Command: "hermes", Category: "Integrations", Description: "Install or diagnose the native Hermes integration.", Subcommands: []string{"api", "plugin"}},
+		{ID: "models", Label: "Models", Command: "models", Category: "Providers", Description: "List models, runtimes, capabilities, and costs.", Flags: []FlagSpec{{Name: "json", Value: "bool", Description: "Emit a stable machine-readable model list."}, {Name: "offline", Value: "bool", Description: "Use built-in and cached metadata without catalog network access."}}},
 		{ID: "providers", Label: "Providers", Command: "providers", Category: "Providers", Description: "Show configured providers."},
 		{ID: "disable", Label: "Disable", Command: "disable", Category: "Workspace", Description: "Disable Veto for a project or workspace."},
 		{ID: "enable", Label: "Enable", Command: "enable", Category: "Workspace", Description: "Enable Veto for a project or workspace."},
@@ -35,7 +35,11 @@ func DefaultCatalog() Catalog {
 // Commands returns a copy so a view cannot mutate the shared catalog.
 func (c Catalog) Commands() []ActionSpec {
 	commands := make([]ActionSpec, len(c.actions))
-	copy(commands, c.actions)
+	for index, action := range c.actions {
+		commands[index] = action
+		commands[index].Flags = append([]FlagSpec(nil), action.Flags...)
+		commands[index].Subcommands = append([]string(nil), action.Subcommands...)
+	}
 	return commands
 }
 
@@ -43,6 +47,8 @@ func (c Catalog) Commands() []ActionSpec {
 func (c Catalog) Find(id string) (ActionSpec, bool) {
 	for _, action := range c.actions {
 		if action.ID == id {
+			action.Flags = append([]FlagSpec(nil), action.Flags...)
+			action.Subcommands = append([]string(nil), action.Subcommands...)
 			return action, true
 		}
 	}
