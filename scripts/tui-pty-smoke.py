@@ -24,6 +24,20 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool) -> N
         try:
             termios.tcsetwinsize(master, (rows, columns))
             output = bytearray()
+
+            def drain() -> None:
+                while True:
+                    ready, _, _ = select.select([master], [], [], 0)
+                    if not ready:
+                        return
+                    try:
+                        data = os.read(master, 8192)
+                    except OSError:
+                        return
+                    if not data:
+                        return
+                    output.extend(data)
+
             deadline = time.monotonic() + 12
             while time.monotonic() < deadline:
                 ready, _, _ = select.select([master], [], [], 0.2)
@@ -48,8 +62,10 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool) -> N
             end = time.monotonic() + 8
             status = None
             while time.monotonic() < end:
+                drain()
                 waited, status = os.waitpid(pid, os.WNOHANG)
                 if waited == pid:
+                    drain()
                     break
                 time.sleep(0.05)
             if status is None:
@@ -57,6 +73,8 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool) -> N
                 _, status = os.waitpid(pid, 0)
             if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
                 raise SystemExit(f"TUI exited unsuccessfully: status={status} output={bytes(output)!r}")
+            if b"\x1b[?1049h" not in output or b"\x1b[?1049l" not in output:
+                raise SystemExit(f"TUI did not enter/leave alternate screen: output={bytes(output)!r}")
         finally:
             os.close(master)
 
