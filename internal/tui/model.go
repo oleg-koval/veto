@@ -67,6 +67,7 @@ type Model struct {
 	pendingRequest  controlplane.ActionRequest
 	running         bool
 	lastEvent       string
+	eventHistory    []controlplane.Event
 	output          strings.Builder
 	events          <-chan controlplane.Event
 	cancelRun       context.CancelFunc
@@ -134,6 +135,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case eventMsg:
 		if !message.ok {
 			return m, nil
+		}
+		if message.event.Version == 0 || message.event.Version == controlplane.SchemaVersion {
+			m.eventHistory = append(m.eventHistory, message.event)
+			if len(m.eventHistory) > 64 {
+				m.eventHistory = m.eventHistory[len(m.eventHistory)-64:]
+			}
 		}
 		m.lastEvent = message.event.Kind + " · " + message.event.Message
 		if message.event.Kind == "output" {
@@ -422,6 +429,7 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 func (m *Model) beginExecution(request controlplane.ActionRequest) (tea.Model, tea.Cmd) {
 	m.running = true
 	m.output.Reset()
+	m.eventHistory = nil
 	m.lastEvent = "starting"
 	m.status = "Running · " + request.ActionID
 	if m.options.Service == nil {
@@ -687,6 +695,10 @@ func (m *Model) renderMain(width int) string {
 		b.WriteString(m.renderConfirmation(width))
 		return lipgloss.NewStyle().Width(width).Render(b.String())
 	}
+	if len(m.eventHistory) > 0 {
+		b.WriteString(m.renderLiveTimeline(width))
+		b.WriteString("\n\n")
+	}
 	if m.activeAction == "models" {
 		b.WriteString(m.renderModels(width))
 		return lipgloss.NewStyle().Width(width).Render(b.String())
@@ -917,13 +929,34 @@ func (m *Model) renderInspector(width int) string {
 	b.WriteString(headerStyle.Render("GUIDANCE"))
 	b.WriteString("\n")
 	b.WriteString(mutedStyle.Render("Tab moves focus\nEnter selects\nEsc closes overlays"))
-	if m.lastEvent != "" {
+	if len(m.eventHistory) > 0 {
 		b.WriteString("\n\n")
-		b.WriteString(headerStyle.Render("LIVE"))
-		b.WriteString("\n")
-		b.WriteString(truncate(m.lastEvent, width))
+		b.WriteString(m.renderLiveTimeline(width))
 	}
 	return lipgloss.NewStyle().Width(width).Render(b.String())
+}
+
+func (m *Model) renderLiveTimeline(width int) string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("LIVE ROUTING"))
+	b.WriteString("\n")
+	start := max(0, len(m.eventHistory)-6)
+	for _, event := range m.eventHistory[start:] {
+		line := fmt.Sprintf("• %-22s %s", eventStage(event.Kind), event.Message)
+		b.WriteString(truncate(line, width))
+		b.WriteString("\n")
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+func eventStage(kind string) string {
+	kind = strings.TrimPrefix(kind, "route.")
+	kind = strings.TrimPrefix(kind, "execution.")
+	kind = strings.TrimPrefix(kind, "runtime.")
+	if kind == "output" {
+		return "execution output"
+	}
+	return kind
 }
 
 func (m *Model) statusLine(width int) string {

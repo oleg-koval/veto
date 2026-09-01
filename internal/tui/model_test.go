@@ -310,4 +310,7 @@ func TestModelReplaysVersionedEventsDeterministically(t *testing.T) {
 	if first.lastEvent != second.lastEvent || first.output.String() != second.output.String() || first.View().Content != second.View().Content {
 		t.Fatalf("event replay diverged: first=%q/%q second=%q/%q", first.lastEvent, first.output.String(), second.lastEvent, second.output.String())
 	}
+	if !strings.Contains(first.View().Content, "filtering") || !strings.Contains(first.View().Content, "completed") {
+		t.Fatalf("replayed live timeline missing stages: %s", first.View().Content)
+	}
 }
