@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/oleg-koval/veto/internal/application"
@@ -15,6 +19,7 @@ import (
 	"github.com/oleg-koval/veto/internal/eval"
 	"github.com/oleg-koval/veto/internal/tui"
 	opencodert "github.com/oleg-koval/veto/pkg/opencode"
+	"github.com/oleg-koval/veto/pkg/router"
 )
 
 func cmdTUI(args []string) error {
@@ -65,7 +70,7 @@ func cmdTUI(args []string) error {
 			service.RegisterHandler("version", func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error) {
 				return controlplane.ActionResult{ActionID: "version", Summary: "veto " + resolvedVersion()}, nil
 			})
-			registerTUIReadOnlyHandlers(service)
+			registerTUIActionHandlers(service)
 			return service, nil
 		},
 	})
@@ -73,11 +78,16 @@ func cmdTUI(args []string) error {
 	return err
 }
 
-// registerTUIReadOnlyHandlers keeps command-specific parsing in the existing
+// registerTUIActionHandlers keeps command-specific parsing in the existing
 // CLI functions while giving the TUI a real, redacted execution path. Actions
-// that mutate credentials or integration files remain behind explicit CLI
-// flows until the confirmation overlay is implemented.
-func registerTUIReadOnlyHandlers(service *application.ControlService) {
+// that mutate credentials or integration files are invoked only after the
+// model's explicit confirmation overlay.
+func registerTUIActionHandlers(service *application.ControlService) {
+	service.RegisterHandler("login", runTUILogin)
+	service.RegisterHandler("logout", runTUILogout)
+	service.RegisterHandler("disable", runTUIDisable)
+	service.RegisterHandler("enable", runTUIEnable)
+	service.RegisterHandler("install-git-hook", runTUIInstallGitHook)
 	service.RegisterHandler("analytics", func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 		subcommand := request.Arguments["subcommand"]
 		if subcommand == "" {
@@ -96,10 +106,20 @@ func registerTUIReadOnlyHandlers(service *application.ControlService) {
 		if subcommand == "" {
 			subcommand = "status"
 		}
-		if subcommand != "status" {
-			return controlplane.ActionResult{ActionID: "opencode"}, fmt.Errorf("%s changes integration state; use the explicit CLI confirmation flow", subcommand)
+		args := []string{subcommand}
+		if subcommand == "plugin" {
+			operation := request.Arguments["operation"]
+			if operation == "" {
+				operation = "status"
+			}
+			args = append(args, operation)
+			args = append(args, tuiFlagArgumentsFor(request, "config-dir", "force")...)
+		} else if subcommand == "connect" {
+			args = append(args, tuiFlagArgumentsFor(request, "server", "managed", "cli")...)
+		} else if subcommand == "status" && request.Arguments["json"] == "true" {
+			args = append(args, "--json")
 		}
-		return runTUICommand("opencode", []string{subcommand}, func(arguments []string, output, diagnostics *strings.Builder) int {
+		return runTUICommand("opencode", args, func(arguments []string, output, diagnostics *strings.Builder) int {
 			return runOpenCodeCommand(arguments, output, diagnostics, opencodert.DefaultDependencies(), vetoCfgPath())
 		})
 	})
@@ -108,13 +128,24 @@ func registerTUIReadOnlyHandlers(service *application.ControlService) {
 		if subcommand == "" {
 			subcommand = "api"
 		}
-		if subcommand != "api" {
-			return controlplane.ActionResult{ActionID: "hermes"}, fmt.Errorf("%s changes integration state; use the explicit CLI confirmation flow", subcommand)
+		args := []string{subcommand}
+		if subcommand == "plugin" {
+			operation := request.Arguments["operation"]
+			if operation == "" {
+				operation = "status"
+			}
+			args = append(args, operation)
+			args = append(args, tuiFlagArgumentsFor(request, "home", "force")...)
+		} else if subcommand == "api" && request.Arguments["json"] == "true" {
+			args = append(args, "--json")
 		}
-		return runTUICommand("hermes", []string{subcommand}, func(arguments []string, output, diagnostics *strings.Builder) int {
+		return runTUICommand("hermes", args, func(arguments []string, output, diagnostics *strings.Builder) int {
 			return runHermesCommand(arguments, output, diagnostics)
 		})
 	})
+	service.RegisterHandler("feedback", runTUIFeedback)
+	service.RegisterHandler("verify-models", runTUIVerifyModels)
+	service.RegisterHandler("models", runTUIModels)
 }
 
 type tuiCommandRunner func([]string, *strings.Builder, *strings.Builder) int
@@ -132,9 +163,18 @@ func runTUICommand(actionID string, args []string, run tuiCommandRunner) (contro
 }
 
 func tuiFlagArguments(request controlplane.ActionRequest) []string {
+	return tuiFlagArgumentsFor(request)
+}
+
+func tuiFlagArgumentsFor(request controlplane.ActionRequest, allowed ...string) []string {
+	allowAll := len(allowed) == 0
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, key := range allowed {
+		allowedSet[key] = struct{}{}
+	}
 	keys := make([]string, 0, len(request.Arguments))
 	for key, value := range request.Arguments {
-		if key == "objective" || key == "task" || key == "subcommand" || value == "" {
+		if key == "objective" || key == "task" || key == "subcommand" || key == "operation" || value == "" || (!allowAll && !containsTUIFlag(allowedSet, key)) {
 			continue
 		}
 		keys = append(keys, key)
@@ -150,4 +190,277 @@ func tuiFlagArguments(request controlplane.ActionRequest) []string {
 		}
 	}
 	return args
+}
+
+func containsTUIFlag(allowed map[string]struct{}, key string) bool {
+	_, ok := allowed[key]
+	return ok
+}
+
+func runTUILogin(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+	provider := strings.ToLower(strings.TrimSpace(request.Arguments["provider"]))
+	mode := strings.ToLower(strings.TrimSpace(request.Arguments["mode"]))
+	if mode == "" {
+		mode = "api-key"
+	}
+	if provider == "opencode" {
+		args := []string{"connect"}
+		args = append(args, tuiFlagArgumentsFor(request, "server", "managed", "cli")...)
+		return runTUICommand("login", args, func(arguments []string, output, diagnostics *strings.Builder) int {
+			return runOpenCodeCommand(arguments, output, diagnostics, opencodert.DefaultDependencies(), vetoCfgPath())
+		})
+	}
+	if provider == "local" {
+		model := localModelFromTUIRequest(request)
+		builtins := make(map[string]bool)
+		for _, candidate := range router.NewRegistry().All() {
+			builtins[candidate.Name] = true
+		}
+		if err := validateLocalModel(model, builtins); err != nil {
+			return controlplane.ActionResult{ActionID: "login"}, err
+		}
+		if err := saveLocalModel(model); err != nil {
+			return controlplane.ActionResult{ActionID: "login"}, err
+		}
+		return controlplane.ActionResult{ActionID: "login", Summary: "local model connected"}, nil
+	}
+	var providerInfo providerInfo
+	for _, candidate := range knownProviders {
+		if candidate.provider == provider {
+			providerInfo = candidate
+			break
+		}
+	}
+	if providerInfo.provider == "" {
+		return controlplane.ActionResult{ActionID: "login"}, fmt.Errorf("unsupported provider %q", provider)
+	}
+	if provider == "anthropic" && mode == "subscription" {
+		if _, err := exec.LookPath("claude"); err != nil {
+			return controlplane.ActionResult{ActionID: "login"}, errors.New("claude CLI is not installed or not in PATH")
+		}
+		if err := saveCredential("CLAUDE_SUBSCRIPTION", "true"); err != nil {
+			return controlplane.ActionResult{ActionID: "login"}, err
+		}
+		return controlplane.ActionResult{ActionID: "login", Summary: "Claude subscription connected"}, nil
+	}
+	credential := tuiSecretArgument(request, "api-key")
+	if strings.TrimSpace(credential) == "" {
+		return controlplane.ActionResult{ActionID: "login"}, fmt.Errorf("api-key is required for %s", providerInfo.name)
+	}
+	if err := saveCredential(providerInfo.envKey, credential); err != nil {
+		return controlplane.ActionResult{ActionID: "login"}, err
+	}
+	return controlplane.ActionResult{ActionID: "login", Summary: providerInfo.name + " connected"}, nil
+}
+
+func tuiSecretArgument(request controlplane.ActionRequest, name string) string {
+	return request.Arguments[name]
+}
+
+func localModelFromTUIRequest(request controlplane.ActionRequest) LocalModel {
+	model := LocalModel{
+		Name:     strings.TrimSpace(request.Arguments["name"]),
+		Endpoint: strings.TrimSpace(request.Arguments["endpoint"]),
+		Model:    strings.TrimSpace(request.Arguments["model"]),
+	}
+	model.APIKey = tuiSecretArgument(request, "api-key")
+	return model
+}
+
+func runTUILogout(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+	target := strings.TrimSpace(request.Arguments["target"])
+	if target == "" {
+		return controlplane.ActionResult{ActionID: "logout"}, errors.New("target is required")
+	}
+	if strings.EqualFold(target, "subscription") {
+		if err := removeCredential("CLAUDE_SUBSCRIPTION"); err != nil {
+			return controlplane.ActionResult{ActionID: "logout"}, err
+		}
+		return controlplane.ActionResult{ActionID: "logout", Summary: "subscription disconnected"}, nil
+	}
+	if strings.EqualFold(target, "opencode") {
+		if err := removeOpenCodeConfig(vetoCfgPath()); err != nil {
+			return controlplane.ActionResult{ActionID: "logout"}, err
+		}
+		return controlplane.ActionResult{ActionID: "logout", Summary: "OpenCode disconnected"}, nil
+	}
+	for _, provider := range knownProviders {
+		if strings.EqualFold(target, provider.envKey) || strings.EqualFold(target, provider.provider) {
+			if err := removeCredential(provider.envKey); err != nil {
+				return controlplane.ActionResult{ActionID: "logout"}, err
+			}
+			return controlplane.ActionResult{ActionID: "logout", Summary: provider.name + " disconnected"}, nil
+		}
+	}
+	if err := removeTUILocalModel(target); err != nil {
+		return controlplane.ActionResult{ActionID: "logout"}, err
+	}
+	return controlplane.ActionResult{ActionID: "logout", Summary: "local model disconnected"}, nil
+}
+
+func removeTUILocalModel(name string) error {
+	models, err := loadLocalModels()
+	if err != nil {
+		return err
+	}
+	filtered := make([]LocalModel, 0, len(models))
+	found := false
+	for _, model := range models {
+		if model.Name == name {
+			found = true
+			continue
+		}
+		filtered = append(filtered, model)
+	}
+	if !found {
+		return fmt.Errorf("%q is not a configured provider or local model", name)
+	}
+	data, err := json.MarshalIndent(filtered, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(localModelsPath(), data, 0600)
+}
+
+func runTUIDisable(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+	return runTUIModelPolicy(request, true)
+}
+
+func runTUIEnable(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+	return runTUIModelPolicy(request, false)
+}
+
+func runTUIModelPolicy(request controlplane.ActionRequest, disable bool) (controlplane.ActionResult, error) {
+	name := strings.TrimSpace(request.Arguments["model"])
+	if name == "" {
+		return controlplane.ActionResult{ActionID: request.ActionID}, errors.New("model is required")
+	}
+	disabled := loadDisabledModels()
+	if disabled == nil {
+		disabled = make(map[string]bool)
+	}
+	if disable {
+		disabled[name] = true
+	} else {
+		delete(disabled, name)
+	}
+	names := make([]string, 0, len(disabled))
+	for model := range disabled {
+		names = append(names, model)
+	}
+	sort.Strings(names)
+	if err := saveDisabledModels(names); err != nil {
+		return controlplane.ActionResult{ActionID: request.ActionID}, err
+	}
+	action := "enabled"
+	if disable {
+		action = "disabled"
+	}
+	return controlplane.ActionResult{ActionID: request.ActionID, Summary: name + " " + action}, nil
+}
+
+func runTUIInstallGitHook(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+	force := request.Arguments["force"] == "true"
+	path, err := installGitHookFile(force)
+	if err != nil {
+		return controlplane.ActionResult{ActionID: "install-git-hook"}, err
+	}
+	return controlplane.ActionResult{ActionID: "install-git-hook", Summary: "git hook installed", Output: path}, nil
+}
+
+func installGitHookFile(force bool) (string, error) {
+	if _, err := os.Stat(".git"); errors.Is(err, os.ErrNotExist) {
+		return "", errors.New("not inside a git repository")
+	} else if err != nil {
+		return "", err
+	}
+	hookPath := filepath.Join(".git", "hooks", "prepare-commit-msg")
+	if existing, err := os.ReadFile(hookPath); err == nil && !force && !strings.Contains(string(existing), hookMarker) {
+		return "", fmt.Errorf("%s already exists and was not installed by veto; re-run with --force to overwrite it", hookPath)
+	}
+	script := "#!/bin/sh\n# " + hookMarker + "\n" +
+		"MODEL=$(veto route --quiet --task \"$(git diff --cached --stat)\" 2>/dev/null)\n" +
+		"if [ -n \"$MODEL\" ]; then\n  printf '\\n# veto suggested model: %s\\n' \"$MODEL\" >> \"$1\"\nfi\n"
+	if err := os.WriteFile(hookPath, []byte(script), 0755); err != nil {
+		return "", err
+	}
+	return hookPath, nil
+}
+
+func runTUIFeedback(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+	args := tuiFlagArguments(request)
+	args = append(args, "--json", "--no-browser")
+	result, err := runFeedback(args, strings.NewReader(""), &strings.Builder{}, &strings.Builder{}, nil)
+	if err != nil {
+		return controlplane.ActionResult{ActionID: "feedback"}, err
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return controlplane.ActionResult{ActionID: "feedback"}, err
+	}
+	return controlplane.ActionResult{ActionID: "feedback", Summary: "redacted feedback saved", Output: string(data)}, nil
+}
+
+func runTUIVerifyModels(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+	providerName := strings.ToLower(strings.TrimSpace(request.Arguments["provider"]))
+	if providerName == "" {
+		providerName = "openai"
+	}
+	provider, ok := modelListProviders[providerName]
+	if !ok {
+		return controlplane.ActionResult{ActionID: "verify-models"}, fmt.Errorf("unsupported provider %q", providerName)
+	}
+	creds, err := loadCredentials()
+	if err != nil {
+		return controlplane.ActionResult{ActionID: "verify-models"}, err
+	}
+	key := getKey(provider.envKey, creds)
+	if key == "" {
+		return controlplane.ActionResult{ActionID: "verify-models"}, fmt.Errorf("%s is not configured", provider.envKey)
+	}
+	endpoint := strings.TrimSpace(request.Arguments["endpoint"])
+	if endpoint == "" {
+		endpoint = provider.endpoint
+	}
+	artifactDir := request.Arguments["artifacts-dir"]
+	if artifactDir == "" {
+		artifactDir = "artifacts/http"
+	}
+	timeout := 20 * time.Second
+	if raw := request.Arguments["timeout"]; raw != "" {
+		parsed, parseErr := time.ParseDuration(raw)
+		if parseErr != nil {
+			return controlplane.ActionResult{ActionID: "verify-models"}, parseErr
+		}
+		timeout = parsed
+	}
+	result, err := verifyProviderModels(ctx, provider, key, endpoint, artifactDir, timeout)
+	if err != nil {
+		return controlplane.ActionResult{ActionID: "verify-models"}, err
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return controlplane.ActionResult{ActionID: "verify-models"}, err
+	}
+	if len(result.MissingModels) > 0 {
+		return controlplane.ActionResult{ActionID: "verify-models", Output: string(data)}, fmt.Errorf("%d catalog model(s) are unavailable", len(result.MissingModels))
+	}
+	return controlplane.ActionResult{ActionID: "verify-models", Summary: "models verified", Output: string(data)}, nil
+}
+
+func runTUIModels(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+	args := tuiFlagArguments(request)
+	hasOffline := false
+	for _, arg := range args {
+		if arg == "--offline" || strings.HasPrefix(arg, "--offline=") {
+			hasOffline = true
+			break
+		}
+	}
+	if !hasOffline {
+		args = append(args, "--offline")
+	}
+	return runTUICommand("models", args, func(arguments []string, output, diagnostics *strings.Builder) int {
+		return runModelsCommand(arguments, output, diagnostics, buildProviderRegistryWithCatalog)
+	})
 }

@@ -568,27 +568,9 @@ func cmdInstallGitHook(args []string) {
 	force := fs.Bool("force", false, "overwrite an existing prepare-commit-msg hook")
 	_ = fs.Parse(args)
 
-	hookPath := filepath.Join(".git", "hooks", "prepare-commit-msg")
-	if _, err := os.Stat(".git"); os.IsNotExist(err) {
-		fmt.Fprintln(os.Stderr, "error: not inside a git repository")
-		os.Exit(1)
-	}
-
-	// don't clobber a hook we didn't write — that could destroy the user's own hook
-	if existing, err := os.ReadFile(hookPath); err == nil && !*force {
-		if !strings.Contains(string(existing), hookMarker) {
-			fmt.Fprintf(os.Stderr, "error: %s already exists and was not installed by veto\n", hookPath)
-			fmt.Fprintln(os.Stderr, "re-run with --force to overwrite it")
-			os.Exit(1)
-		}
-	}
-
-	// objective comes from the staged stat; --kind is omitted so veto infers it
-	script := "#!/bin/sh\n# " + hookMarker + "\n" +
-		"MODEL=$(veto route --quiet --task \"$(git diff --cached --stat)\" 2>/dev/null)\n" +
-		"if [ -n \"$MODEL\" ]; then\n  printf '\\n# veto suggested model: %s\\n' \"$MODEL\" >> \"$1\"\nfi\n"
-	if err := os.WriteFile(hookPath, []byte(script), 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "error writing hook: %v\n", err)
+	hookPath, err := installGitHookFile(*force)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 	fmt.Printf("  Installed: %s\n", hookPath)

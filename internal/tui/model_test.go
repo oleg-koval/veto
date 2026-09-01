@@ -236,3 +236,34 @@ func TestModelKeepsOperationalScreensOnEnterAndUsesSafeSubcommandDefaults(t *tes
 		t.Fatalf("analytics form = open:%v subcommand:%q", model.composerOpen, model.composerValues["subcommand"])
 	}
 }
+
+func TestModelConfirmsStateChangingActionAndMasksSecretFields(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	model.selected = 0 // login
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	model = updated.(*Model)
+	if !model.composerOpen || model.composerAction != "login" {
+		t.Fatalf("login form = open:%v action:%q selected:%d", model.composerOpen, model.composerAction, model.selected)
+	}
+	// Advance provider and mode fields to the secret field.
+	for range 2 {
+		updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+		model = updated.(*Model)
+	}
+	model.composerValues["api-key"] = "sk-secret"
+	view := model.View().Content
+	if strings.Contains(view, "sk-secret") || !strings.Contains(view, "•••••••••") {
+		t.Fatalf("secret field was not masked: %q", view)
+	}
+}
+
+func TestModelConfirmationCanBeCancelled(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	model.confirmOpen = true
+	model.pendingRequest = controlplane.ActionRequest{ActionID: "logout"}
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "n", Code: 'n'}))
+	model = updated.(*Model)
+	if model.confirmOpen || model.pendingRequest.ActionID != "" || !strings.Contains(model.status, "cancelled") {
+		t.Fatalf("confirmation cancel state = open:%v request:%#v status:%q", model.confirmOpen, model.pendingRequest, model.status)
+	}
+}

@@ -10,8 +10,8 @@ type Catalog struct {
 // a second command router.
 func DefaultCatalog() Catalog {
 	return Catalog{actions: []ActionSpec{
-		{ID: "login", Label: "Login", Command: "login", Category: "Providers", Description: "Connect a provider with masked key input."},
-		{ID: "logout", Label: "Logout", Command: "logout", Category: "Providers", Description: "Remove a configured provider or local model."},
+		{ID: "login", Label: "Login", Command: "login", Category: "Providers", Description: "Connect a provider with masked key input.", Flags: loginFlags()},
+		{ID: "logout", Label: "Logout", Command: "logout", Category: "Providers", Description: "Remove a configured provider or local model.", Flags: []FlagSpec{{Name: "target", Value: "string", Required: true, Description: "Provider environment key, OpenCode, subscription, or local model name."}}},
 		{ID: "setup", Label: "Setup", Command: "setup", Category: "Workspace", Description: "Discover and approve skills."},
 		{ID: "run", Label: "Run", Command: "run", Category: "Execution", Description: "Route a task and execute the response.", Flags: runFlags()},
 		{ID: "exec", Label: "Execute plan", Command: "exec", Category: "Execution", Description: "Execute a veto plan step by step.", Flags: execFlags()},
@@ -21,15 +21,26 @@ func DefaultCatalog() Catalog {
 		{ID: "doctor", Label: "Doctor", Command: "doctor", Category: "Diagnostics", Description: "Diagnose installation and ~/.veto integrity."},
 		{ID: "feedback", Label: "Feedback", Command: "feedback", Category: "Workspace", Description: "Prepare a redacted bug, feature, or optimization report.", Flags: feedbackFlags()},
 		{ID: "analytics", Label: "Analytics", Command: "analytics", Category: "Diagnostics", Description: "View local diagnostics and sharing preference.", Subcommands: []string{"status", "enable", "disable"}, Flags: []FlagSpec{{Name: "json", Value: "bool", Description: "Emit one machine-readable status object."}}},
-		{ID: "opencode", Label: "OpenCode", Command: "opencode", Category: "Integrations", Description: "Connect or install the OpenCode integration.", Subcommands: []string{"connect", "status", "disconnect", "plugin"}},
-		{ID: "hermes", Label: "Hermes", Command: "hermes", Category: "Integrations", Description: "Install or diagnose the native Hermes integration.", Subcommands: []string{"api", "plugin"}},
+		{ID: "opencode", Label: "OpenCode", Command: "opencode", Category: "Integrations", Description: "Connect or install the OpenCode integration.", Subcommands: []string{"connect", "status", "disconnect", "plugin"}, Flags: []FlagSpec{{Name: "operation", Value: "string", Default: "status", Description: "Nested plugin operation: install, status, or uninstall."}, {Name: "server", Value: "url", Description: "Explicit loopback server URL."}, {Name: "managed", Value: "bool", Description: "Start a managed local server."}, {Name: "cli", Value: "bool", Description: "Use the OpenCode CLI fallback."}, {Name: "config-dir", Value: "path", Description: "OpenCode configuration directory."}, {Name: "force", Value: "bool", Description: "Replace conflicting integration files."}}},
+		{ID: "hermes", Label: "Hermes", Command: "hermes", Category: "Integrations", Description: "Install or diagnose the native Hermes integration.", Subcommands: []string{"api", "plugin"}, Flags: []FlagSpec{{Name: "operation", Value: "string", Default: "status", Description: "Nested plugin operation: install, status, or uninstall."}, {Name: "home", Value: "path", Description: "Hermes home directory."}, {Name: "force", Value: "bool", Description: "Replace conflicting plugin files."}, {Name: "json", Value: "bool", Description: "Emit the API handshake as JSON."}}},
 		{ID: "models", Label: "Models", Command: "models", Category: "Providers", Description: "List models, runtimes, capabilities, and costs.", Flags: []FlagSpec{{Name: "json", Value: "bool", Description: "Emit a stable machine-readable model list."}, {Name: "offline", Value: "bool", Description: "Use built-in and cached metadata without catalog network access."}}},
 		{ID: "providers", Label: "Providers", Command: "providers", Category: "Providers", Description: "Show configured providers."},
-		{ID: "disable", Label: "Disable", Command: "disable", Category: "Workspace", Description: "Disable Veto for a project or workspace."},
-		{ID: "enable", Label: "Enable", Command: "enable", Category: "Workspace", Description: "Enable Veto for a project or workspace."},
+		{ID: "disable", Label: "Disable", Command: "disable", Category: "Workspace", Description: "Disable Veto for a project or workspace.", Flags: []FlagSpec{{Name: "model", Value: "string", Required: true, Description: "Model name to exclude from routing."}}},
+		{ID: "enable", Label: "Enable", Command: "enable", Category: "Workspace", Description: "Enable Veto for a project or workspace.", Flags: []FlagSpec{{Name: "model", Value: "string", Required: true, Description: "Model name to re-enable."}}},
 		{ID: "version", Label: "Version", Command: "version", Category: "Workspace", Description: "Print the Veto version."},
 		{ID: "install-git-hook", Label: "Install git hook", Command: "install-git-hook", Category: "Workspace", Description: "Add Veto to the git workflow.", Flags: []FlagSpec{{Name: "force", Value: "bool", Description: "Overwrite an existing prepare-commit-msg hook."}}},
 	}}
+}
+
+func loginFlags() []FlagSpec {
+	return []FlagSpec{
+		{Name: "provider", Value: "string", Required: true, Description: "anthropic, openai, openrouter, xai, local, or opencode."},
+		{Name: "mode", Value: "string", Default: "api-key", Description: "api-key, subscription, or runtime."},
+		{Name: "api-key", Value: "string", Description: "Provider key; rendered and handled as secret.", Secret: true},
+		{Name: "name", Value: "string", Description: "Routing name for a local model."},
+		{Name: "endpoint", Value: "url", Description: "OpenAI-compatible local endpoint."},
+		{Name: "model", Value: "string", Description: "Model ID for a local runtime."},
+	}
 }
 
 // Commands returns a copy so a view cannot mutate the shared catalog.
@@ -73,7 +84,7 @@ func routeFlags() []FlagSpec {
 
 func feedbackFlags() []FlagSpec {
 	return []FlagSpec{
-		{Name: "kind", Value: "string", Description: "bug, feature, optimization, or success."},
+		{Name: "kind", Value: "string", Required: true, Description: "bug, feature, optimization, or success."},
 		{Name: "summary", Value: "string", Description: "Concise report summary."},
 		{Name: "expected", Value: "string", Description: "Expected behavior."},
 		{Name: "actual", Value: "string", Description: "Actual behavior."},

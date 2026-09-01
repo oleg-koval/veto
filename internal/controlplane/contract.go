@@ -13,6 +13,7 @@ type FlagSpec struct {
 	Default     string
 	Description string
 	Required    bool
+	Secret      bool
 }
 
 // ActionSpec is the stable command catalog entry rendered by the TUI.

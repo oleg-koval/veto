@@ -63,6 +63,8 @@ type Model struct {
 	composerValues  map[string]string
 	composerField   int
 	composerEditing bool
+	confirmOpen     bool
+	pendingRequest  controlplane.ActionRequest
 	running         bool
 	lastEvent       string
 	output          strings.Builder
@@ -168,6 +170,20 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cancelRun()
 		}
 		m.status = "Cancelling · " + m.composerAction
+		return m, nil
+	}
+	if m.confirmOpen {
+		switch key.String() {
+		case "esc", "n":
+			m.confirmOpen = false
+			m.pendingRequest = controlplane.ActionRequest{}
+			m.status = "Ready · action cancelled"
+		case "enter", "y":
+			request := m.pendingRequest
+			m.confirmOpen = false
+			m.pendingRequest = controlplane.ActionRequest{}
+			return m.beginExecution(request)
+		}
 		return m, nil
 	}
 	if m.helpOpen {
@@ -378,21 +394,14 @@ func (m *Model) updateComposerField(key tea.Key) (tea.Model, tea.Cmd) {
 
 func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 	objective := strings.TrimSpace(m.composerInput)
+	for _, field := range m.composerFields {
+		if field.Required && strings.TrimSpace(m.composerValues[field.Name]) == "" {
+			m.status = "Error · " + field.Name + " is required"
+			return m, nil
+		}
+	}
 	m.composerOpen = false
 	m.composerEditing = false
-	m.running = true
-	m.output.Reset()
-	m.lastEvent = "starting"
-	m.status = "Running · " + m.composerAction
-	if m.options.Service == nil {
-		m.activeAction = m.composerAction
-		m.running = false
-		m.status = "Ready · service unavailable in preview"
-		return m, nil
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	m.cancelRun = cancel
-	m.events = m.options.Service.Subscribe(ctx)
 	arguments := make(map[string]string, len(m.composerValues)+1)
 	arguments["objective"] = objective
 	for name, value := range m.composerValues {
@@ -401,7 +410,41 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 		}
 	}
 	request := controlplane.ActionRequest{ActionID: m.composerAction, Arguments: arguments}
+	if requiresConfirmation(request) {
+		m.pendingRequest = request
+		m.confirmOpen = true
+		m.status = "Confirm · " + request.ActionID
+		return m, nil
+	}
+	return m.beginExecution(request)
+}
+
+func (m *Model) beginExecution(request controlplane.ActionRequest) (tea.Model, tea.Cmd) {
+	m.running = true
+	m.output.Reset()
+	m.lastEvent = "starting"
+	m.status = "Running · " + request.ActionID
+	if m.options.Service == nil {
+		m.activeAction = request.ActionID
+		m.running = false
+		m.status = "Ready · service unavailable in preview"
+		return m, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancelRun = cancel
+	m.events = m.options.Service.Subscribe(ctx)
 	return m, tea.Batch(m.execute(request, ctx), waitForEvent(m.events))
+}
+
+func requiresConfirmation(request controlplane.ActionRequest) bool {
+	switch request.ActionID {
+	case "login", "logout", "setup", "opencode", "hermes", "disable", "enable", "install-git-hook":
+		return true
+	case "analytics":
+		return request.Arguments["subcommand"] == "enable" || request.Arguments["subcommand"] == "disable"
+	default:
+		return false
+	}
 }
 
 func (m *Model) startAction(actionID string) (tea.Model, tea.Cmd) {
@@ -629,6 +672,14 @@ func (m *Model) renderMain(width int) string {
 	b.WriteString("\n")
 	b.WriteString(mutedStyle.Render("Every CLI command is available through the palette."))
 	b.WriteString("\n\n")
+	if m.composerOpen {
+		b.WriteString(m.renderComposer(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
+	if m.confirmOpen {
+		b.WriteString(m.renderConfirmation(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
 	if m.activeAction == "models" {
 		b.WriteString(m.renderModels(width))
 		return lipgloss.NewStyle().Width(width).Render(b.String())
@@ -657,25 +708,6 @@ func (m *Model) renderMain(width int) string {
 		b.WriteString(m.renderIntegrations(width))
 		return lipgloss.NewStyle().Width(width).Render(b.String())
 	}
-	if m.composerOpen {
-		b.WriteString(headerStyle.Render("COMPOSER · " + m.composerAction))
-		b.WriteString("\n")
-		if m.composerNeedsObjective() {
-			b.WriteString(panelStyle.Render("objective: " + m.composerInput + "▌"))
-			b.WriteString("\n")
-		}
-		if m.composerEditing && len(m.composerFields) > 0 {
-			field := m.composerFields[m.composerField]
-			b.WriteString(panelStyle.Render(field.Name + ": " + m.composerValues[field.Name] + "▌"))
-			b.WriteString("\n")
-			b.WriteString(mutedStyle.Render("Enter next field/run · Tab move · Esc cancel"))
-		} else if m.composerNeedsObjective() {
-			b.WriteString(mutedStyle.Render("Enter edit flags · Esc cancel"))
-		} else {
-			b.WriteString(mutedStyle.Render("Enter run · Esc cancel"))
-		}
-		return lipgloss.NewStyle().Width(width).Render(b.String())
-	}
 	b.WriteString(panelStyle.Render(truncate("⌘  Run a task   /  Find command   ?  Help", width-4)))
 	b.WriteString("\n\n")
 	b.WriteString(headerStyle.Render("NEXT"))
@@ -688,6 +720,49 @@ func (m *Model) renderMain(width int) string {
 		b.WriteString("\n")
 		b.WriteString(panelStyle.Render(truncate(strings.TrimSpace(m.output.String()), width-4)))
 	}
+	return lipgloss.NewStyle().Width(width).Render(b.String())
+}
+
+func (m *Model) displayComposerValue(field controlplane.FlagSpec) string {
+	value := m.composerValues[field.Name]
+	if field.Secret && value != "" {
+		return strings.Repeat("•", len([]rune(value)))
+	}
+	return value
+}
+
+func (m *Model) renderComposer(width int) string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("COMPOSER · " + m.composerAction))
+	b.WriteString("\n")
+	if m.composerNeedsObjective() {
+		b.WriteString(panelStyle.Render("objective: " + m.composerInput + "▌"))
+		b.WriteString("\n")
+	}
+	if m.composerEditing && len(m.composerFields) > 0 {
+		field := m.composerFields[m.composerField]
+		b.WriteString(panelStyle.Render(field.Name + ": " + m.displayComposerValue(field) + "▌"))
+		b.WriteString("\n")
+		if field.Description != "" {
+			b.WriteString(mutedStyle.Render(field.Description))
+			b.WriteString("\n")
+		}
+		b.WriteString(mutedStyle.Render("Enter next field/run · Tab move · Esc cancel"))
+	} else if m.composerNeedsObjective() {
+		b.WriteString(mutedStyle.Render("Enter edit flags · Esc cancel"))
+	} else {
+		b.WriteString(mutedStyle.Render("Enter run · Esc cancel"))
+	}
+	return lipgloss.NewStyle().Width(width).Render(b.String())
+}
+
+func (m *Model) renderConfirmation(width int) string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("CONFIRM ACTION"))
+	b.WriteString("\n")
+	b.WriteString(panelStyle.Render("Run veto " + m.pendingRequest.ActionID + "?"))
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("Enter/y confirm · n/Esc cancel"))
 	return lipgloss.NewStyle().Width(width).Render(b.String())
 }
 
