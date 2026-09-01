@@ -760,9 +760,19 @@ func (m *Model) renderShell() string {
 	}
 	bodyLines := strings.Split(strings.TrimSuffix(body, "\n"), "\n")
 	statusHeight := lipgloss.Height(status)
-	if len(bodyLines) > height-statusHeight {
-		limit := max(1, height-statusHeight-1)
-		bodyLines = append(bodyLines[:limit], mutedStyle.Render("… more below; resize or use the palette"))
+	availableBody := max(0, height-statusHeight)
+	if len(bodyLines) > availableBody {
+		switch {
+		case availableBody == 0:
+			bodyLines = nil
+		case availableBody == 1:
+			bodyLines = []string{mutedStyle.Render("…")}
+		default:
+			bodyLines = append(bodyLines[:availableBody-1], mutedStyle.Render("… more below; resize or use the palette"))
+		}
+	}
+	if len(bodyLines) == 0 {
+		return status
 	}
 	return strings.Join(bodyLines, "\n") + "\n" + status
 }

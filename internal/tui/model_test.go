@@ -290,7 +290,7 @@ func TestModelFitsSupportedTerminalHeights(t *testing.T) {
 	for _, size := range []struct {
 		width  int
 		height int
-	}{{40, 12}, {80, 24}, {120, 40}} {
+	}{{40, 12}, {80, 24}, {120, 40}, {40, 2}, {40, 1}} {
 		model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
 		model.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
 		lines := strings.Split(model.View().Content, "\n")
