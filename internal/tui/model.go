@@ -23,6 +23,7 @@ type Options struct {
 	Motion         bool
 	NoColor        bool
 	Mouse          bool
+	ScreenReader   bool
 	Service        controlplane.Service
 	ServiceFactory func() (controlplane.Service, error)
 }
@@ -731,7 +732,7 @@ func (m *Model) View() tea.View {
 		content = ansi.Strip(content)
 	}
 	view := tea.NewView(content)
-	view.AltScreen = true
+	view.AltScreen = !m.options.ScreenReader
 	if m.options.Mouse {
 		view.MouseMode = tea.MouseModeCellMotion
 	}

@@ -40,9 +40,10 @@ func cmdTUI(args []string) error {
 	}
 
 	model := tui.NewModel(controlplane.DefaultCatalog(), tui.Options{
-		Motion:  !*reduceMotion && !*screenReader,
-		NoColor: *noColor || *screenReader || os.Getenv("NO_COLOR") != "",
-		Mouse:   !*noMouse && !*screenReader,
+		Motion:       !*reduceMotion && !*screenReader,
+		NoColor:      *noColor || *screenReader || os.Getenv("NO_COLOR") != "",
+		Mouse:        !*noMouse && !*screenReader,
+		ScreenReader: *screenReader,
 		ServiceFactory: func() (controlplane.Service, error) {
 			reg, mgr, _, err := prepareTUIRouting()
 			if err != nil {

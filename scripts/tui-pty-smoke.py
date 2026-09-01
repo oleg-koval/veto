@@ -87,7 +87,10 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
                 _, status = os.waitpid(pid, 0)
             if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
                 raise SystemExit(f"TUI exited unsuccessfully: status={status} output={bytes(output)!r}")
-            if b"\x1b[?1049h" not in output or b"\x1b[?1049l" not in output:
+            if "--screen-reader" in args:
+                if b"\x1b[?1049h" in output or b"\x1b[?1049l" in output:
+                    raise SystemExit("screen-reader mode unexpectedly switched to the alternate screen")
+            elif b"\x1b[?1049h" not in output or b"\x1b[?1049l" not in output:
                 raise SystemExit(f"TUI did not enter/leave alternate screen: output={bytes(output)!r}")
             if b"VETO" not in output or not (b"COMMANDS" in output or b"COMPOSER" in output):
                 raise SystemExit(f"TUI did not render its command shell: output={bytes(output)!r}")

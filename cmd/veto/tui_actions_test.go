@@ -16,8 +16,11 @@ import (
 )
 
 func TestTUIScreenReaderModeUsesStableTextPresentation(t *testing.T) {
-	model := tui.NewModel(controlplane.DefaultCatalog(), tui.Options{Motion: false, NoColor: true, Mouse: false})
+	model := tui.NewModel(controlplane.DefaultCatalog(), tui.Options{Motion: false, NoColor: true, Mouse: false, ScreenReader: true})
 	model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	if model.View().AltScreen {
+		t.Fatal("screen-reader presentation should preserve terminal scrollback")
+	}
 	view := model.View().Content
 	if strings.Contains(view, "\x1b[") {
 		t.Fatal("screen-reader presentation contains ANSI escape codes")
