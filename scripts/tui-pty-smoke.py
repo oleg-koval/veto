@@ -349,7 +349,7 @@ def main() -> int:
     run(sys.argv[1], ["--reduce-motion", "--no-color", "--no-mouse"], 12, 40, False, True)
     run(sys.argv[1], ["--reduce-motion", "--no-color"], 24, 80, True)
     run(sys.argv[1], [], 24, 80, False, command=[])
-    for term in ("xterm-256color", "screen-256color", "vt100"):
+    for term in ("xterm-256color", "screen-256color", "vt100", "dumb"):
         run(sys.argv[1], ["--reduce-motion", "--no-color", "--no-mouse"], 24, 80, False, term=term)
     run_resize(sys.argv[1])
     if len(sys.argv) == 4:

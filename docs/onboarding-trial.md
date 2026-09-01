@@ -53,5 +53,5 @@ The automated `scripts/onboarding-smoke.sh` test validates deterministic mechani
 only: it drives Route, Run, and Execute-plan through a PTY against a fake local
 provider and checks live events, output visibility, resize, and secret masking.
 The standalone shell pass also covers common `TERM` profiles (`xterm-256color`,
-`screen-256color`, and `vt100`).
+`screen-256color`, `vt100`, and `dumb`).
 It does not replace these human trials.
