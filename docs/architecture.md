@@ -178,7 +178,7 @@ runtime ports and result DTOs live in `pkg/execution/`. The admission
 compatibility. The composition root adapts concrete runtimes to the admission
 port without exposing provider transports to the router.
 
-```
+```text
 cmd/veto/main.go ───────▶ pkg/router/admission.go ───────▶ pkg/execution/
        │                  admission ports + tool DTO       stable result +
        │                                                   full-task ports

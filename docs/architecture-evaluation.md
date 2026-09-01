@@ -83,7 +83,7 @@ the delivery edge.
 
 | Principle | Score | Evidence |
 |---|---:|---|
-| Dependency rule | 10/10 | `pkg/router` has no internal-module imports. `pkg/router/import_boundary_test.go` rejects dependencies on executor, command, and integration packages. `pkg/execution` contains contracts only; transports depend on it. |
+| Dependency rule | 10/10 | `pkg/router` imports only the stable `pkg/execution` result contract within the module. `pkg/router/import_boundary_test.go` rejects dependencies on concrete executors, adapters, integrations, and delivery packages. `pkg/execution` contains contracts only; transports depend on it. |
 | Entities and use cases | 9/10 | Routing policy uses plain structs and pure functions. Route-and-execute and fail-closed acceptance review now use plain request/response contracts in `internal/application`. Some independent command policy remains in `cmd/veto`. |
 | Adapters and frameworks | 9/10 | Provider HTTP/CLI transports, OpenCode, catalog discovery, routing-history persistence, and host integrations are separate adapters. Compatibility aliases remain in `pkg/executor`, while ownership is in `pkg/execution`. |
 | Component principles | 8/10 | The component graph is acyclic and the new packages have single change reasons. `cmd/veto` remains an 8,000+ line component spanning onboarding, diagnostics, updates, integrations, and terminal UX. |

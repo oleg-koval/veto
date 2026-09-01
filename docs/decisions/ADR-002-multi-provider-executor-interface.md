@@ -24,7 +24,7 @@ budget and provider telemetry.
 
 The wiring happens at the CLI layer (`cmd/veto/main.go`) via `providerRegistry`, a concrete `ExecutorFactory` that maps model names to executors. This is the only place that imports both packages.
 
-```
+```text
 cmd/veto/main.go ───────▶ pkg/router/admission.go ───────▶ pkg/execution/Result
        │                  Executor + tool DTO               ▲
        │                                                    │
