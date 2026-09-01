@@ -264,6 +264,28 @@ func TestManager_Route_EmitsAskEvents(t *testing.T) {
 	assert.Equal(t, EventAskAccept, askEvents[3].Kind)
 }
 
+func TestManager_RouteEmitsShortlistAfterFiltering(t *testing.T) {
+	exec := &executorMock{RunFunc: func(_ context.Context, _ string) AdmissionResult {
+		return AdmissionResult{Output: acceptJSON()}
+	}}
+	mgr := NewManager(NewRegistry(), NewAdmissionGate(exec), NewMemoryStore())
+	var events []ProgressEvent
+	mgr.OnEvent = func(event ProgressEvent) { events = append(events, event) }
+	_, _, err := mgr.Route(context.Background(), TaskSpec{ID: "shortlist", Kind: KindCodeChange})
+	if err != nil {
+		t.Fatalf("route failed: %v", err)
+	}
+	for _, event := range events {
+		if event.Kind == EventShortlist {
+			if !strings.Contains(event.Detail, "candidate(s)") {
+				t.Fatalf("shortlist detail = %q", event.Detail)
+			}
+			return
+		}
+	}
+	t.Fatal("shortlist event was not emitted")
+}
+
 // TestManager_Route_RankOrderDeterministic verifies that when multiple candidates
 // would accept, the manager asks strictly in rank order and stops after the first
 // acceptance — and produces the same winner on every run (no randomness).

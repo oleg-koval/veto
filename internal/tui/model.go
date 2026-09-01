@@ -1153,6 +1153,8 @@ func eventStage(kind string) string {
 		return "filtering"
 	case "filter_fail":
 		return "filtered"
+	case "shortlist":
+		return "shortlist"
 	case "ask_start":
 		return "admission"
 	case "ask_accept":

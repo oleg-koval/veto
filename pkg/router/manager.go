@@ -104,6 +104,13 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 				Reasons: []string{reason}})
 		}
 	}
+	shortlisted := make([]string, 0, len(ranked))
+	for _, candidate := range ranked {
+		shortlisted = append(shortlisted, candidate.Name)
+	}
+	if len(shortlisted) > 0 {
+		m.emit(ProgressEvent{Kind: EventShortlist, Detail: fmt.Sprintf("%d candidate(s): %s", len(shortlisted), strings.Join(shortlisted, ", "))})
+	}
 
 	if len(ranked) == 0 {
 		return ModelCapabilities{}, AdmissionDecision{}, ErrNoCandidate
