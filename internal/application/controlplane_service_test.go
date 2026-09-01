@@ -86,13 +86,16 @@ func TestControlServiceSnapshotExposesOnlyModelMetadata(t *testing.T) {
 	t.Parallel()
 
 	routerPort := &serviceRouter{}
-	service := NewControlService(Runner{Runtime: modelSource{models: []router.ModelCapabilities{{Name: "safe", Provider: "test", Runtime: "cli", Tier: "small"}}}}, routerPort)
+	service := NewControlService(Runner{Runtime: modelSource{models: []router.ModelCapabilities{{Name: "safe", Source: "catalog", Provider: "test", Runtime: "cli", Tier: "small", MaxContextTokens: 1000, SupportsTools: []string{"read"}, CostPer1kInputUSD: 0.1}}}}, routerPort)
 	snapshot, err := service.Snapshot(context.Background())
 	if err != nil {
 		t.Fatalf("snapshot failed: %v", err)
 	}
 	if len(snapshot.Models) != 1 || snapshot.Models[0].Name != "safe" {
 		t.Fatalf("models = %#v", snapshot.Models)
+	}
+	if snapshot.Models[0].Source != "catalog" || !snapshot.Models[0].ToolsKnown || !snapshot.Models[0].CostPer1kInputKnown {
+		t.Fatalf("model metadata = %#v", snapshot.Models[0])
 	}
 	if len(snapshot.Providers) != 1 || !snapshot.Providers[0].Configured {
 		t.Fatalf("providers = %#v", snapshot.Providers)

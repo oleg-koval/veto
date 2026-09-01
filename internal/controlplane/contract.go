@@ -23,6 +23,7 @@ type ActionSpec struct {
 	Category    string
 	Description string
 	Flags       []FlagSpec
+	Subcommands []string
 }
 
 // ActionRequest is the normalized request passed from a client to the service.
@@ -65,10 +66,19 @@ type ProviderSnapshot struct {
 // ModelSnapshot contains safe catalog metadata only; credentials and prompt
 // content are deliberately absent.
 type ModelSnapshot struct {
-	Name     string
-	Provider string
-	Runtime  string
-	Tier     string
+	Name                 string
+	Source               string
+	Provider             string
+	Runtime              string
+	Tier                 string
+	ContextTokens        int
+	Tools                []string
+	ToolsKnown           bool
+	CostPer1kInputUSD    float64
+	CostPer1kOutputUSD   float64
+	CostPer1kInputKnown  bool
+	CostPer1kOutputKnown bool
+	Status               string
 }
 
 // HistorySnapshot is a redacted ledger entry suitable for local rendering.

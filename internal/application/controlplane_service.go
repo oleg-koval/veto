@@ -91,7 +91,12 @@ func (s *ControlService) Snapshot(ctx context.Context) (controlplane.Snapshot, e
 		Models() []router.ModelCapabilities
 	}); ok {
 		for _, model := range source.Models() {
-			snapshot.Models = append(snapshot.Models, controlplane.ModelSnapshot{Name: model.Name, Provider: model.Provider, Runtime: model.Runtime, Tier: model.Tier})
+			snapshot.Models = append(snapshot.Models, controlplane.ModelSnapshot{
+				Name: model.Name, Source: model.Source, Provider: model.Provider, Runtime: model.Runtime, Tier: model.Tier,
+				ContextTokens: model.MaxContextTokens, Tools: append([]string(nil), model.SupportsTools...), ToolsKnown: model.SupportsTools != nil,
+				CostPer1kInputUSD: model.CostPer1kInputUSD, CostPer1kOutputUSD: model.CostPer1kOutputUSD,
+				CostPer1kInputKnown: !model.CostPer1kInputUnknown, CostPer1kOutputKnown: !model.CostPer1kOutputUnknown, Status: "available",
+			})
 		}
 		sort.Slice(snapshot.Models, func(i, j int) bool { return snapshot.Models[i].Name < snapshot.Models[j].Name })
 		counts := make(map[string]int)

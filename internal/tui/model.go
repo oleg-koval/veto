@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -640,11 +641,32 @@ func (m *Model) renderModels(width int) string {
 	b.WriteString(headerStyle.Render("MODEL CATALOG"))
 	b.WriteString("\n")
 	for _, model := range m.snapshot.Models {
-		line := fmt.Sprintf("%-24s %-12s %-10s %s", model.Name, model.Provider, model.Runtime, model.Tier)
+		contextTokens := "unknown"
+		if model.ContextTokens > 0 {
+			contextTokens = strconv.Itoa(model.ContextTokens)
+		}
+		tools := "unknown"
+		if model.ToolsKnown {
+			tools = strings.Join(model.Tools, ",")
+			if tools == "" {
+				tools = "none"
+			}
+		}
+		line := fmt.Sprintf("%-22s %-10s %-10s %s", model.Name, model.Provider, model.Runtime, model.Tier)
 		b.WriteString(truncate(line, width-2))
+		b.WriteByte('\n')
+		details := fmt.Sprintf("  source=%s  status=%s  ctx=%s  tools=%s  cost=%s/%s", model.Source, model.Status, contextTokens, tools, modelCost(model.CostPer1kInputUSD, model.CostPer1kInputKnown), modelCost(model.CostPer1kOutputUSD, model.CostPer1kOutputKnown))
+		b.WriteString(mutedStyle.Render(truncate(details, width-2)))
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+func modelCost(value float64, known bool) string {
+	if !known {
+		return "unknown"
+	}
+	return fmt.Sprintf("$%.4f", value)
 }
 
 func (m *Model) renderProviders(width int) string {
