@@ -351,6 +351,7 @@ def main() -> int:
     run(sys.argv[1], [], 24, 80, False, command=[])
     for term in ("xterm-256color", "screen-256color", "vt100", "dumb"):
         run(sys.argv[1], ["--reduce-motion", "--no-color", "--no-mouse"], 24, 80, False, term=term)
+    run(sys.argv[1], ["--screen-reader"], 24, 80, False, term="dumb")
     run_resize(sys.argv[1])
     if len(sys.argv) == 4:
         run_route(sys.argv[1], sys.argv[3])

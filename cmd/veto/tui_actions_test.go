@@ -9,9 +9,23 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/oleg-koval/veto/internal/application"
 	"github.com/oleg-koval/veto/internal/controlplane"
+	"github.com/oleg-koval/veto/internal/tui"
 )
+
+func TestTUIScreenReaderModeUsesStableTextPresentation(t *testing.T) {
+	model := tui.NewModel(controlplane.DefaultCatalog(), tui.Options{Motion: false, NoColor: true, Mouse: false})
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	view := model.View().Content
+	if strings.Contains(view, "\x1b[") {
+		t.Fatal("screen-reader presentation contains ANSI escape codes")
+	}
+	if !strings.Contains(view, "STATUS") || !strings.Contains(view, "COMMANDS") {
+		t.Fatalf("screen-reader presentation lacks stable labels:\n%s", view)
+	}
+}
 
 func TestTUIModelPolicyRefreshesLiveRoutingPreferences(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")

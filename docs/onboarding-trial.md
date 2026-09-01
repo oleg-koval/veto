@@ -23,7 +23,7 @@ Use this protocol with at least three people who have not contributed to veto. D
 
 Run these after the CLI flow in each selected terminal:
 
-1. Launch `veto tui --no-color --reduce-motion` and confirm the shell, statusline, and command rail are readable.
+1. Launch `veto tui --no-color --reduce-motion` and confirm the shell, statusline, and command rail are readable. For assistive-technology review, use `veto tui --screen-reader` to force stable text-only output.
 2. Complete the same flow keyboard-only: open help, open the palette, launch the Run form, edit a boolean flag, and cancel without executing.
 3. With a configured or fake local provider, submit one Route and one Run task; confirm filtering, admissions, winner, output, and completion events appear in the live timeline.
 4. Open Models, Providers, Plans, History, Doctor, Analytics, and Integrations; confirm each screen has useful text when data is empty and populated.

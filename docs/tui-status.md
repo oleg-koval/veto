@@ -6,8 +6,8 @@ interactive terminal) over the existing Runner and Router.
 Implemented:
 
 - responsive Bubble Tea shell with statusline, palette, help, mouse/keyboard
-  navigation, no-color, reduced motion, loading, cancellation, and small
-  terminal clipping;
+  navigation, no-color, reduced motion, an explicit `--screen-reader`
+  text-only mode, loading, cancellation, and small terminal clipping;
 - typed forms for routing, execution, provider login/logout (including
   OpenRouter browser OAuth), setup (directory or individual skill approval), feedback,
   verification, analytics, integrations, model policy, and git-hook actions;

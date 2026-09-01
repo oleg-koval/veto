@@ -28,6 +28,7 @@ func cmdTUI(args []string) error {
 	reduceMotion := fs.Bool("reduce-motion", false, "disable non-essential animation")
 	noColor := fs.Bool("no-color", false, "disable styling and ANSI colors")
 	noMouse := fs.Bool("no-mouse", false, "disable mouse reporting")
+	screenReader := fs.Bool("screen-reader", false, "use a stable text-only layout for assistive technology")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -39,9 +40,9 @@ func cmdTUI(args []string) error {
 	}
 
 	model := tui.NewModel(controlplane.DefaultCatalog(), tui.Options{
-		Motion:  !*reduceMotion,
-		NoColor: *noColor || os.Getenv("NO_COLOR") != "",
-		Mouse:   !*noMouse,
+		Motion:  !*reduceMotion && !*screenReader,
+		NoColor: *noColor || *screenReader || os.Getenv("NO_COLOR") != "",
+		Mouse:   !*noMouse && !*screenReader,
 		ServiceFactory: func() (controlplane.Service, error) {
 			reg, mgr, _, err := prepareTUIRouting()
 			if err != nil {
