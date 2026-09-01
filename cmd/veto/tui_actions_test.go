@@ -79,6 +79,16 @@ func TestTUIModelPolicySupportsMultipleCLIModels(t *testing.T) {
 	}
 }
 
+func TestTUILoginRejectsUnsupportedProviderMode(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	result, err := runTUILogin(context.Background(), controlplane.ActionRequest{ActionID: "login", Arguments: map[string]string{
+		"provider": "openai", "mode": "subscription",
+	}})
+	if err == nil || !strings.Contains(err.Error(), "only supported for anthropic") {
+		t.Fatalf("unsupported mode result=%#v err=%v", result, err)
+	}
+}
+
 func TestTUIProvidersActionUsesInjectableCLIOutput(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())

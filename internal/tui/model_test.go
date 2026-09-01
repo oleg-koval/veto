@@ -157,6 +157,25 @@ func TestModelCyclesEnumFormFieldsWithSpace(t *testing.T) {
 	}
 }
 
+func TestModelLoginModeChoicesFollowProvider(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	login, ok := model.catalog.Find("login")
+	if !ok {
+		t.Fatal("login action missing from catalog")
+	}
+	model.openComposer(login)
+	model.composerValues["provider"] = "openai"
+	choices := model.fieldChoices(controlplane.FlagSpec{Name: "mode"})
+	if len(choices) != 1 || choices[0] != "api-key" {
+		t.Fatalf("openai mode choices = %#v", choices)
+	}
+	model.composerValues["provider"] = "openrouter"
+	choices = model.fieldChoices(controlplane.FlagSpec{Name: "mode"})
+	if len(choices) != 2 || choices[1] != "browser" {
+		t.Fatalf("openrouter mode choices = %#v", choices)
+	}
+}
+
 func TestModelCommandPaletteFiltersAndSelectsAction(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})

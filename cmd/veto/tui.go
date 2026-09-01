@@ -303,6 +303,19 @@ func runTUILogin(ctx context.Context, request controlplane.ActionRequest) (contr
 	if providerInfo.provider == "" {
 		return controlplane.ActionResult{ActionID: "login"}, fmt.Errorf("unsupported provider %q", provider)
 	}
+	switch mode {
+	case "api-key":
+	case "subscription":
+		if provider != "anthropic" {
+			return controlplane.ActionResult{ActionID: "login"}, fmt.Errorf("subscription mode is only supported for anthropic")
+		}
+	case "browser", "oauth":
+		if provider != "openrouter" {
+			return controlplane.ActionResult{ActionID: "login"}, fmt.Errorf("browser mode is only supported for openrouter")
+		}
+	default:
+		return controlplane.ActionResult{ActionID: "login"}, fmt.Errorf("unsupported login mode %q for %s", mode, provider)
+	}
 	if provider == "anthropic" && mode == "subscription" {
 		if _, err := exec.LookPath("claude"); err != nil {
 			return controlplane.ActionResult{ActionID: "login"}, errors.New("claude CLI is not installed or not in PATH")

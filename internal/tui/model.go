@@ -982,7 +982,16 @@ func (m *Model) fieldChoices(field controlplane.FlagSpec) []string {
 		}
 	case "mode":
 		if m.composerAction == "login" {
-			return []string{"api-key", "browser", "subscription", "runtime"}
+			switch strings.ToLower(m.composerValues["provider"]) {
+			case "anthropic":
+				return []string{"api-key", "subscription"}
+			case "openrouter":
+				return []string{"api-key", "browser"}
+			case "local", "opencode":
+				return []string{"runtime"}
+			default:
+				return []string{"api-key"}
+			}
 		}
 	case "kind":
 		if m.composerAction == "run" || m.composerAction == "route" {
