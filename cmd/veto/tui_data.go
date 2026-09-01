@@ -36,8 +36,28 @@ func loadTUISnapshot(_ context.Context) (controlplane.Snapshot, error) {
 	}
 	snapshot.History = readTUIHistory()
 	snapshot.Plans = readTUIPlans()
+	snapshot.Providers = readTUIProviders()
 	snapshot.Integrations = readTUIIntegrations()
 	return snapshot, nil
+}
+
+func readTUIProviders() []controlplane.ProviderSnapshot {
+	creds, _ := loadCredentials()
+	providers := make([]controlplane.ProviderSnapshot, 0, len(knownProviders)+2)
+	for _, provider := range knownProviders {
+		configured := os.Getenv(provider.envKey) != "" || creds[provider.envKey] != ""
+		if provider.provider == "anthropic" && (os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true") {
+			configured = true
+		}
+		providers = append(providers, controlplane.ProviderSnapshot{Name: provider.name, Configured: configured})
+	}
+	if auth := codexCLIAuthentication(); auth != codexAuthNone {
+		providers = append(providers, controlplane.ProviderSnapshot{Name: "Codex", Configured: true})
+	}
+	if _, configured, err := loadOpenCodeConfig(vetoCfgPath()); err == nil && configured {
+		providers = append(providers, controlplane.ProviderSnapshot{Name: "OpenCode", Configured: true})
+	}
+	return providers
 }
 
 func readTUIPlans() []controlplane.PlanSnapshot {
