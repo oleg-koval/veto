@@ -125,12 +125,16 @@ func TestControlServiceRunsRegisteredReadOnlyHandler(t *testing.T) {
 	t.Parallel()
 
 	service := NewControlService(Runner{}, &serviceRouter{})
+	updates := service.Subscribe(context.Background())
 	service.RegisterHandler("doctor", func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
-		return controlplane.ActionResult{ActionID: request.ActionID, Summary: "doctor complete"}, nil
+		return controlplane.ActionResult{ActionID: request.ActionID, Summary: "doctor complete", Output: "safe"}, nil
 	})
 	result, err := service.Execute(context.Background(), controlplane.ActionRequest{ActionID: "doctor"})
 	if err != nil || result.Summary != "doctor complete" {
 		t.Fatalf("handler result = %#v, err=%v", result, err)
+	}
+	if first := <-updates; first.Kind != "output" || first.Message != "safe" {
+		t.Fatalf("handler output event = %#v", first)
 	}
 }
 

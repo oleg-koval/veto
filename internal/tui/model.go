@@ -230,8 +230,8 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.openComposer(commands[m.selected])
 		} else {
 			m.activateSelected()
-			if len(commands) > 0 && commands[m.selected].ID == "doctor" && m.options.Service != nil {
-				return m.startAction("doctor")
+			if len(commands) > 0 && m.options.Service != nil && directActions[commands[m.selected].ID] {
+				return m.startAction(commands[m.selected].ID)
 			}
 		}
 	case "r":
@@ -241,6 +241,12 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+var directActions = map[string]bool{
+	"benchmark": true,
+	"doctor":    true,
+	"version":   true,
 }
 
 func (m *Model) updateComposer(key tea.Key) (tea.Model, tea.Cmd) {
@@ -630,6 +636,12 @@ func (m *Model) renderMain(width int) string {
 	b.WriteString("\n")
 	b.WriteString("Start with a command or open the palette to inspect flags.\n")
 	b.WriteString(mutedStyle.Render("No provider calls are made until you confirm an action."))
+	if m.output.Len() > 0 {
+		b.WriteString("\n\n")
+		b.WriteString(headerStyle.Render("OUTPUT"))
+		b.WriteString("\n")
+		b.WriteString(panelStyle.Render(truncate(strings.TrimSpace(m.output.String()), width-4)))
+	}
 	return lipgloss.NewStyle().Width(width).Render(b.String())
 }
 
