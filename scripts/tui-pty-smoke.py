@@ -13,7 +13,7 @@ import termios
 import time
 
 
-def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool) -> None:
+def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secret_probe: bool = False) -> None:
     with tempfile.TemporaryDirectory(prefix="veto-tui-pty-") as home:
         pid, master = pty.fork()
         if pid == 0:
@@ -51,11 +51,20 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool) -> N
                 if len(output) > 0:
                     break
 
-            os.write(master, b"?")
-            time.sleep(0.15)
-            os.write(master, b"?")
-            if mouse:
-                os.write(master, b"\x1b[<35;3;2M")
+            if secret_probe:
+                # Open the first command's form and type through the provider,
+                # mode, and masked API-key fields, then cancel before submit.
+                os.write(master, b"r")
+                time.sleep(0.15)
+                os.write(master, b"openai\r\rsmoke-secret")
+                time.sleep(0.2)
+                os.write(master, b"\x1b")
+            else:
+                os.write(master, b"?")
+                time.sleep(0.15)
+                os.write(master, b"?")
+                if mouse:
+                    os.write(master, b"\x1b[<35;3;2M")
             time.sleep(0.15)
             os.write(master, b"q")
 
@@ -75,6 +84,8 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool) -> N
                 raise SystemExit(f"TUI exited unsuccessfully: status={status} output={bytes(output)!r}")
             if b"\x1b[?1049h" not in output or b"\x1b[?1049l" not in output:
                 raise SystemExit(f"TUI did not enter/leave alternate screen: output={bytes(output)!r}")
+            if secret_probe and b"smoke-secret" in output:
+                raise SystemExit("TUI login form leaked the probe secret into terminal output")
         finally:
             os.close(master)
 
@@ -83,7 +94,7 @@ def main() -> int:
     if len(sys.argv) != 2:
         print(f"usage: {sys.argv[0]} VETO_BINARY", file=sys.stderr)
         return 2
-    run(sys.argv[1], ["--reduce-motion", "--no-color", "--no-mouse"], 12, 40, False)
+    run(sys.argv[1], ["--reduce-motion", "--no-color", "--no-mouse"], 12, 40, False, True)
     run(sys.argv[1], ["--reduce-motion", "--no-color"], 24, 80, True)
     print("TUI PTY smoke passed")
     return 0
