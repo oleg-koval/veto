@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // Manager orchestrates hard-filtering, scoring, and admission gating.
@@ -15,6 +16,15 @@ type Manager struct {
 	maxAdmissions int
 	preferences   CandidatePreferences
 	OnEvent       func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
+}
+
+// SetAdmissionTimeout updates the per-model admission deadline for subsequent
+// routes. It is used by the in-process control plane to honor CLI-compatible
+// request flags without exposing the gate implementation.
+func (m *Manager) SetAdmissionTimeout(timeout time.Duration) {
+	if timeout > 0 {
+		m.gate.SetTimeout(timeout)
+	}
 }
 
 // SetCandidatePreferences applies user-owned local filtering and ordering preferences.

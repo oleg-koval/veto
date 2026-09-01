@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/oleg-koval/veto/internal/controlplane"
 	"github.com/oleg-koval/veto/pkg/execution"
@@ -20,11 +21,12 @@ import (
 // control-plane contract. It is in-process by design; no daemon or HTTP hop is
 // introduced between the shell and the Runner.
 type ControlService struct {
-	runner   Runner
-	router   Router
-	source   func(context.Context) (controlplane.Snapshot, error)
-	handlers map[string]func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error)
-	reviewer func(context.Context, router.TaskSpec, string, string) (bool, error)
+	runner       Runner
+	router       Router
+	source       func(context.Context) (controlplane.Snapshot, error)
+	handlers     map[string]func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error)
+	reviewer     func(context.Context, router.TaskSpec, string, string) (bool, error)
+	outputWriter func(string, string, bool) error
 
 	mu       sync.RWMutex
 	snapshot controlplane.Snapshot
@@ -37,6 +39,12 @@ type ControlService struct {
 // that do not expose review capabilities.
 func (s *ControlService) SetReviewer(reviewer func(context.Context, router.TaskSpec, string, string) (bool, error)) {
 	s.reviewer = reviewer
+}
+
+// SetOutputWriter wires the CLI's safe relative-path writer into TUI runs.
+// The callback receives only the user-selected path, output, and force flag.
+func (s *ControlService) SetOutputWriter(writer func(string, string, bool) error) {
+	s.outputWriter = writer
 }
 
 // NewControlService creates a service over an existing Runner and Router.
@@ -223,7 +231,27 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 	if (request.ActionID == "route" || request.ActionID == "run") && objective == "" {
 		return controlplane.ActionResult{}, errors.New("control plane: objective is required")
 	}
-	requestCtx, cancel := context.WithCancel(ctx)
+	requestCtx := ctx
+	cancel := func() {}
+	if rawTimeout := strings.TrimSpace(request.Arguments["timeout"]); rawTimeout != "" {
+		timeout, err := time.ParseDuration(rawTimeout)
+		if err != nil || timeout <= 0 {
+			return controlplane.ActionResult{}, fmt.Errorf("control plane: invalid timeout %q", rawTimeout)
+		}
+		requestCtx, cancel = context.WithTimeout(ctx, timeout)
+	} else {
+		requestCtx, cancel = context.WithCancel(ctx)
+	}
+	if rawAdmissionTimeout := strings.TrimSpace(request.Arguments["admission-timeout"]); rawAdmissionTimeout != "" {
+		admissionTimeout, err := time.ParseDuration(rawAdmissionTimeout)
+		if err != nil || admissionTimeout <= 0 {
+			cancel()
+			return controlplane.ActionResult{}, fmt.Errorf("control plane: invalid admission-timeout %q", rawAdmissionTimeout)
+		}
+		if setter, ok := s.router.(interface{ SetAdmissionTimeout(time.Duration) }); ok {
+			setter.SetAdmissionTimeout(admissionTimeout)
+		}
+	}
 	s.mu.Lock()
 	s.active[request.ActionID] = cancel
 	s.mu.Unlock()
@@ -262,6 +290,15 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: status, Provider: response.Model.Provider, Model: response.Model.Name})
 		if err != nil {
 			return controlplane.ActionResult{ActionID: request.ActionID, Model: response.Model.Name, Output: response.Output}, err
+		}
+		if outputPath := strings.TrimSpace(request.Arguments["output"]); outputPath != "" {
+			if s.outputWriter == nil {
+				return controlplane.ActionResult{ActionID: request.ActionID, Model: response.Model.Name, Output: response.Output}, errors.New("control plane: output writing is unavailable")
+			}
+			if err := s.outputWriter(outputPath, response.Output, request.Arguments["force"] == "true"); err != nil {
+				return controlplane.ActionResult{ActionID: request.ActionID, Model: response.Model.Name, Output: response.Output}, fmt.Errorf("write output: %w", err)
+			}
+			s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "output.saved", Message: outputPath})
 		}
 		if s.reviewer != nil {
 			criteria := task.SuccessCriteria

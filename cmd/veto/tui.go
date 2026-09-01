@@ -48,6 +48,7 @@ func cmdTUI(args []string) error {
 				return nil, fmt.Errorf("prepare routing: %w", err)
 			}
 			service := application.NewControlServiceWithSnapshot(newApplicationRunner(reg, mgr), mgr, loadTUISnapshot)
+			service.SetOutputWriter(writeOutputFile)
 			service.SetReviewer(func(ctx context.Context, task router.TaskSpec, output, model string) (bool, error) {
 				result, err := reviewOutput(ctx, reg, mgr, task, output, model)
 				return result.Passed, err

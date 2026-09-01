@@ -156,6 +156,28 @@ func TestControlServiceRunsAcceptanceReviewForComposerCriteria(t *testing.T) {
 	}
 }
 
+func TestControlServiceHonorsTimeoutAndSafeOutputWriter(t *testing.T) {
+	t.Parallel()
+
+	routerPort := &serviceRouter{model: router.ModelCapabilities{Name: "test-model", Provider: "test"}}
+	service := NewControlService(Runner{Router: routerPort, Runtime: serviceResolver{runtime: serviceRuntime{}}}, routerPort)
+	var gotPath, gotOutput string
+	var gotForce bool
+	service.SetOutputWriter(func(path, output string, force bool) error {
+		gotPath, gotOutput, gotForce = path, output, force
+		return nil
+	})
+	result, err := service.Execute(context.Background(), controlplane.ActionRequest{ActionID: "run", Arguments: map[string]string{
+		"objective": "write", "timeout": "1s", "output": "answer.md", "force": "true",
+	}})
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if gotPath != "answer.md" || gotOutput != "done" || !gotForce || result.Output != "done" {
+		t.Fatalf("output writer = path:%q output:%q force:%v result:%#v", gotPath, gotOutput, gotForce, result)
+	}
+}
+
 func TestControlServiceSnapshotExposesOnlyModelMetadata(t *testing.T) {
 	t.Parallel()
 
