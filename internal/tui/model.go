@@ -57,6 +57,7 @@ type Model struct {
 	width           int
 	height          int
 	selected        int
+	hoveredCommand  int
 	activeAction    string
 	plansCursor     int
 	composerOpen    bool
@@ -89,7 +90,7 @@ func NewModel(catalog controlplane.Catalog, options Options) *Model {
 	if options.ServiceFactory != nil {
 		status = "Loading · control plane"
 	}
-	return &Model{catalog: catalog, options: options, status: status}
+	return &Model{catalog: catalog, options: options, status: status, hoveredCommand: -1}
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -137,6 +138,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadSnapshot()
 	case tea.MouseClickMsg:
 		m.updateMouse(message)
+		return m, nil
+	case tea.MouseMotionMsg:
+		m.updateMouseHover(message)
 		return m, nil
 	case tea.MouseWheelMsg:
 		if message.Button == tea.MouseWheelDown {
@@ -192,9 +196,35 @@ func (m *Model) updateMouse(message tea.MouseClickMsg) {
 	if message.Button != tea.MouseLeft || m.composerOpen || m.confirmOpen || m.paletteOpen || m.helpOpen {
 		return
 	}
-	commands := m.catalog.Commands()
-	if len(commands) == 0 {
+	index := m.commandIndexAt(message.X, message.Y)
+	if index < 0 {
 		return
+	}
+	commands := m.catalog.Commands()
+	m.selected = index
+	m.status = "Ready · " + commands[index].Command
+}
+
+func (m *Model) updateMouseHover(message tea.MouseMotionMsg) {
+	if m.composerOpen || m.confirmOpen || m.paletteOpen || m.helpOpen {
+		m.hoveredCommand = -1
+		return
+	}
+	index := m.commandIndexAt(message.X, message.Y)
+	if index == m.hoveredCommand {
+		return
+	}
+	m.hoveredCommand = index
+	if index >= 0 {
+		commands := m.catalog.Commands()
+		m.status = "Hint · " + commands[index].Description
+	}
+}
+
+func (m *Model) commandIndexAt(x, y int) int {
+	commands := m.catalog.Commands()
+	if len(commands) == 0 || x < 0 || y < 0 {
+		return -1
 	}
 	width := m.width
 	if width < 1 {
@@ -212,15 +242,14 @@ func (m *Model) updateMouse(message tea.MouseClickMsg) {
 			listWidth = 20
 		}
 	}
-	if message.X < 0 || message.X >= listWidth || message.Y < listOffset+1 {
-		return
+	if x >= listWidth || y < listOffset+1 {
+		return -1
 	}
-	index := message.Y - listOffset - 1 // COMMANDS header occupies the first row
+	index := y - listOffset - 1 // COMMANDS header occupies the first row
 	if index < 0 || index >= len(commands) {
-		return
+		return -1
 	}
-	m.selected = index
-	m.status = "Ready · " + commands[index].Command
+	return index
 }
 
 func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -773,6 +802,11 @@ func (m *Model) renderCommandList(commands []controlplane.ActionSpec, width int)
 		}
 		b.WriteString(line)
 		b.WriteByte('\n')
+		if index == m.hoveredCommand {
+			description := truncate("  "+action.Description, width-2)
+			b.WriteString(mutedStyle.Render(description))
+			b.WriteByte('\n')
+		}
 		if index >= 8 && width < 30 {
 			b.WriteString(mutedStyle.Render("  + more in palette"))
 			break
@@ -1133,6 +1167,8 @@ func (m *Model) statusLine(width int) string {
 	if width < 64 {
 		hints = "Ctrl+K palette · ? help · q quit "
 	}
+	available := max(1, width-lipgloss.Width(hints)-1)
+	status = truncate(status, available)
 	return statusStyle.Width(width).Render(status + strings.Repeat(" ", max(1, width-lipgloss.Width(status)-lipgloss.Width(hints))) + hints)
 }
 

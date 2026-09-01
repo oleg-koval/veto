@@ -57,6 +57,29 @@ func TestModelSupportsMouseSelectionAndWheelNavigation(t *testing.T) {
 	}
 }
 
+func TestModelShowsCommandTooltipOnMouseHover(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, Mouse: true, NoColor: true})
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	updated, _ := model.Update(tea.MouseMotionMsg{X: 3, Y: 1})
+	model = updated.(*Model)
+	if model.hoveredCommand != 0 {
+		t.Fatalf("hovered command = %d, want 0", model.hoveredCommand)
+	}
+	if !strings.Contains(model.View().Content, "Connect a provider with masked key input") {
+		t.Fatal("hover tooltip description missing")
+	}
+}
+
+func TestModelClipsLongTooltipStatusOnNarrowTerminal(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, Mouse: true, NoColor: true})
+	model.Update(tea.WindowSizeMsg{Width: 32, Height: 12})
+	updated, _ := model.Update(tea.MouseMotionMsg{X: 2, Y: lipgloss.Height(model.renderMain(32)) + 1})
+	model = updated.(*Model)
+	if lipgloss.Width(model.statusLine(32)) > 32 {
+		t.Fatalf("status line width = %d, want <= 32", lipgloss.Width(model.statusLine(32)))
+	}
+}
+
 func TestModelSupportsMouseSelectionInNarrowLayout(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, Mouse: true})
 	model.Update(tea.WindowSizeMsg{Width: 40, Height: 24})
