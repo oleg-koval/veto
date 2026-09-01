@@ -204,6 +204,10 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if request.Version != 0 && request.Version != controlplane.SchemaVersion {
+		return controlplane.ActionResult{}, fmt.Errorf("control plane: unsupported request schema version %d", request.Version)
+	}
+	request.Version = controlplane.SchemaVersion
 	objective := strings.TrimSpace(request.Arguments["objective"])
 	if (request.ActionID == "route" || request.ActionID == "run") && objective == "" {
 		return controlplane.ActionResult{}, errors.New("control plane: objective is required")
@@ -312,6 +316,9 @@ func (s *ControlService) publishRouteEvent(event router.ProgressEvent) {
 }
 
 func (s *ControlService) publish(event controlplane.Event) {
+	if event.Version == 0 {
+		event.Version = controlplane.SchemaVersion
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for updates := range s.subs {

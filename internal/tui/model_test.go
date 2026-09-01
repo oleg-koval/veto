@@ -290,3 +290,24 @@ func TestRequiresConfirmationOnlyForMutatingOperations(t *testing.T) {
 		})
 	}
 }
+
+func TestModelReplaysVersionedEventsDeterministically(t *testing.T) {
+	events := []controlplane.Event{
+		{Version: controlplane.SchemaVersion, ActionID: "route", Kind: "route.filtering", Message: "2 candidates"},
+		{Version: controlplane.SchemaVersion, ActionID: "route", Kind: "route.completed", Message: "safe accepted"},
+		{Version: controlplane.SchemaVersion, ActionID: "run", Kind: "output", Message: "done"},
+	}
+	newModel := func() *Model {
+		model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
+		model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+		for _, event := range events {
+			updated, _ := model.Update(eventMsg{event: event, ok: true})
+			model = updated.(*Model)
+		}
+		return model
+	}
+	first, second := newModel(), newModel()
+	if first.lastEvent != second.lastEvent || first.output.String() != second.output.String() || first.View().Content != second.View().Content {
+		t.Fatalf("event replay diverged: first=%q/%q second=%q/%q", first.lastEvent, first.output.String(), second.lastEvent, second.output.String())
+	}
+}

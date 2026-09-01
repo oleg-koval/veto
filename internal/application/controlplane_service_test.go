@@ -30,11 +30,20 @@ func TestControlServiceRoutesAndPublishesProgress(t *testing.T) {
 	}
 	select {
 	case event := <-updates:
-		if event.Kind != "route.completed" || event.ActionID != "route" {
+		if event.Kind != "route.completed" || event.ActionID != "route" || event.Version != controlplane.SchemaVersion {
 			t.Fatalf("event = %#v", event)
 		}
 	default:
 		t.Fatal("route completion event was not published")
+	}
+}
+
+func TestControlServiceRejectsUnsupportedRequestSchema(t *testing.T) {
+	t.Parallel()
+
+	service := NewControlService(Runner{}, &serviceRouter{})
+	if _, err := service.Execute(context.Background(), controlplane.ActionRequest{Version: controlplane.SchemaVersion + 1, ActionID: "doctor"}); err == nil {
+		t.Fatal("unsupported request schema unexpectedly succeeded")
 	}
 }
 

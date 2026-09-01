@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+const SchemaVersion = 1
+
 // FlagSpec describes a CLI-compatible argument exposed by an action.
 type FlagSpec struct {
 	Name        string
@@ -29,6 +31,7 @@ type ActionSpec struct {
 
 // ActionRequest is the normalized request passed from a client to the service.
 type ActionRequest struct {
+	Version   int
 	ActionID  string
 	Arguments map[string]string
 }
@@ -120,6 +123,7 @@ type IntegrationSnapshot struct {
 
 // Event is an ephemeral, non-sensitive update for an active operation.
 type Event struct {
+	Version  int
 	ActionID string
 	Kind     string
 	Message  string
