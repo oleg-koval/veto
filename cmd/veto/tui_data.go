@@ -35,8 +35,34 @@ func loadTUISnapshot(_ context.Context) (controlplane.Snapshot, error) {
 		snapshot.Health = append(snapshot.Health, controlplane.HealthSnapshot{ID: check.ID, Status: string(check.Status), Message: check.Message})
 	}
 	snapshot.History = readTUIHistory()
+	snapshot.Plans = readTUIPlans()
 	snapshot.Integrations = readTUIIntegrations()
 	return snapshot, nil
+}
+
+func readTUIPlans() []controlplane.PlanSnapshot {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	paths, err := filepath.Glob(filepath.Join(home, ".veto", "plans", "*.md"))
+	if err != nil {
+		return nil
+	}
+	sort.Strings(paths)
+	const maxPlans = 40
+	plans := make([]controlplane.PlanSnapshot, 0, minInt(len(paths), maxPlans))
+	for index := 0; index < len(paths) && index < maxPlans; index++ {
+		plans = append(plans, controlplane.PlanSnapshot{Name: filepath.Base(paths[index])})
+	}
+	return plans
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
 }
 
 func readTUIHistory() []controlplane.HistorySnapshot {

@@ -214,6 +214,9 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "i":
 		m.activeAction = "integrations"
 		m.status = "Ready · integrations"
+	case "p":
+		m.activeAction = "plans"
+		m.status = "Ready · plans"
 	case "j", "down":
 		m.moveSelection(1)
 	case "k", "up":
@@ -577,6 +580,10 @@ func (m *Model) renderMain(width int) string {
 		b.WriteString(m.renderHistory(width))
 		return lipgloss.NewStyle().Width(width).Render(b.String())
 	}
+	if m.activeAction == "exec" || m.activeAction == "plans" {
+		b.WriteString(m.renderPlans(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
 	if m.activeAction == "doctor" {
 		b.WriteString(m.renderHealth(width))
 		return lipgloss.NewStyle().Width(width).Render(b.String())
@@ -657,6 +664,22 @@ func (m *Model) renderHistory(width int) string {
 		b.WriteString(truncate(fmt.Sprintf("%s  %-24s %-18s %-10s %s", stamp, item.Type, item.Model, item.Status, item.Runtime), width-2))
 		b.WriteByte('\n')
 	}
+	return b.String()
+}
+
+func (m *Model) renderPlans(width int) string {
+	if len(m.snapshot.Plans) == 0 {
+		return mutedStyle.Render("No plans found. Create a plan under ~/.veto/plans to execute it here.")
+	}
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("PLANS"))
+	b.WriteString("\n")
+	for _, plan := range m.snapshot.Plans {
+		b.WriteString(truncate("▸ "+plan.Name, width-2))
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("Select a plan, then execution confirmation will appear here."))
 	return b.String()
 }
 
@@ -772,6 +795,7 @@ func (m *Model) renderHelp(background string) string {
 		"Tab         edit the command's CLI-compatible flags",
 		"h           open redacted history",
 		"i           inspect integrations",
+		"p           inspect plans",
 		"Enter       select the focused command",
 		"Esc         close an overlay",
 		"q / Ctrl+C  quit cleanly",

@@ -49,6 +49,7 @@ type Snapshot struct {
 	Providers    []ProviderSnapshot
 	Models       []ModelSnapshot
 	History      []HistorySnapshot
+	Plans        []PlanSnapshot
 	Health       []HealthSnapshot
 	Analytics    AnalyticsSnapshot
 	Integrations []IntegrationSnapshot
@@ -77,6 +78,10 @@ type HistorySnapshot struct {
 	Model     string
 	Runtime   string
 	Status    string
+}
+
+type PlanSnapshot struct {
+	Name string
 }
 
 type HealthSnapshot struct {

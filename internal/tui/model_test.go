@@ -93,11 +93,12 @@ func TestModelRendersOperationalScreens(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	model.snapshot = controlplane.Snapshot{
 		History:      []controlplane.HistorySnapshot{{Type: "execution.completed", Model: "gpt-test", Status: "success"}},
+		Plans:        []controlplane.PlanSnapshot{{Name: "release.md"}},
 		Health:       []controlplane.HealthSnapshot{{ID: "state.permissions", Status: "PASS", Message: "state is private"}},
 		Analytics:    controlplane.AnalyticsSnapshot{LocalCollection: true, LocalPath: "~/.veto/logs", RetentionDays: 7, RemoteSharing: "opted out"},
 		Integrations: []controlplane.IntegrationSnapshot{{Name: "OpenCode", Status: "configured", Detail: "attach"}},
 	}
-	for action, want := range map[string]string{"history": "RECENT ACTIVITY", "doctor": "state.permissions", "analytics": "ANALYTICS & DATA", "integrations": "OpenCode"} {
+	for action, want := range map[string]string{"history": "RECENT ACTIVITY", "exec": "release.md", "doctor": "state.permissions", "analytics": "ANALYTICS & DATA", "integrations": "OpenCode"} {
 		model.activeAction = action
 		if !strings.Contains(model.View().Content, want) {
 			t.Errorf("%s screen missing %q", action, want)

@@ -119,6 +119,9 @@ func mergeSnapshot(base, provided controlplane.Snapshot) controlplane.Snapshot {
 	if len(provided.History) > 0 {
 		base.History = provided.History
 	}
+	if len(provided.Plans) > 0 {
+		base.Plans = provided.Plans
+	}
 	if len(provided.Health) > 0 {
 		base.Health = provided.Health
 	}
@@ -283,6 +286,9 @@ func (s *ControlService) setSnapshot(snapshot controlplane.Snapshot) {
 	}
 	if len(snapshot.Models) == 0 {
 		snapshot.Models = s.snapshot.Models
+	}
+	if len(snapshot.Plans) == 0 {
+		snapshot.Plans = s.snapshot.Plans
 	}
 	s.snapshot = snapshot
 	s.mu.Unlock()
