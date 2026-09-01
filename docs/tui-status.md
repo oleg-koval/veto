@@ -8,14 +8,17 @@ Implemented:
 - responsive Bubble Tea shell with statusline, palette, help, mouse/keyboard
   navigation, no-color, reduced motion, loading, cancellation, and small
   terminal clipping;
-- typed forms for routing, execution, provider login/logout, setup, feedback,
+- typed forms for routing, execution, provider login/logout (including
+  OpenRouter browser OAuth), setup, feedback,
   verification, analytics, integrations, model policy, and git-hook actions;
 - masked secret fields and explicit confirmation for state-changing actions;
 - live versioned routing/runtime event timeline with bounded monitor counters;
 - provider/model explorer plus redacted history, plans, doctor health,
   analytics, and integration views;
-- plan validation, dry-run, step execution, failure policy, and criteria review
-  through the same control service used by route/run.
+- plan validation, dry-run, step execution, failure policy, per-step criteria
+  review, and a final cross-step regression review through the same control
+  service used by route/run;
+- animated running status with reduced-motion and no-color text fallbacks.
 
 Verification currently includes the race-enabled Go test suite, `go vet`, native
 builds, Linux/macOS/Windows cross-builds, model/update tests, replay tests, and
