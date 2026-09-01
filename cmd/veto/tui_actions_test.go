@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,22 @@ func TestRunTUISetupDiscoversWithoutChangingConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
 		t.Fatalf("discovery unexpectedly changed config: %v", err)
+	}
+}
+
+func TestRunTUIDoctorJSONReturnsDiagnosticReport(t *testing.T) {
+	result, err := runTUIDoctor(controlplane.ActionRequest{ActionID: "doctor", Arguments: map[string]string{
+		"offline": "true", "json": "true",
+	}})
+	if err != nil {
+		t.Fatalf("doctor failed: %v", err)
+	}
+	var report map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &report); err != nil {
+		t.Fatalf("doctor output is not JSON: %v", err)
+	}
+	if _, ok := report["checks"]; !ok {
+		t.Fatalf("doctor report missing checks: %#v", report)
 	}
 }
 

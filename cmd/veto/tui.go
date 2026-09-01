@@ -160,6 +160,13 @@ func runTUIDoctor(request controlplane.ActionRequest) (controlplane.ActionResult
 	offline := request.Arguments["offline"] != "false"
 	report := runDoctor(doctorOptions{fix: request.Arguments["fix"] == "true", offline: offline}, defaultDoctorDeps())
 	result := controlplane.ActionResult{ActionID: "doctor", Summary: fmt.Sprintf("%d pass, %d warn, %d fail, %d fixed", report.Summary.Pass, report.Summary.Warn, report.Summary.Fail, report.Summary.Fixed)}
+	if request.Arguments["json"] == "true" {
+		var output strings.Builder
+		if err := writeDoctorReport(&output, report, true); err != nil {
+			return result, err
+		}
+		result.Output = output.String()
+	}
 	if !report.OK {
 		return result, fmt.Errorf("doctor found %d failing check(s)", report.Summary.Fail)
 	}
