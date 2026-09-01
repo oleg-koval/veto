@@ -12,7 +12,8 @@ Implemented:
   OpenRouter browser OAuth), setup (directory or individual skill approval), feedback,
   verification, analytics, integrations, model policy, and git-hook actions;
 - masked secret fields and explicit confirmation for state-changing actions;
-- live versioned routing/runtime event timeline with bounded monitor counters;
+- live versioned routing/runtime event timeline with filtering, shortlist,
+  admission, winner, execution, review, and failure stages;
 - provider/model explorer plus redacted history, plans, doctor health,
   analytics, and integration views;
 - plan selection opens the Execute-plan form with safe `~/.veto/plans` name
