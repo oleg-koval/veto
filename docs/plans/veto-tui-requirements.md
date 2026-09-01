@@ -3,9 +3,13 @@
 ## Status
 
 Recovered from the approved [Veto Control Plane plan](veto-control-plane.md)
-and the existing CLI/event architecture on 2026-08-31. This is a requirements
-record, not an implementation. No full-screen TUI code was found in the
-current tree, historical branches, or retained worktrees.
+and the existing CLI/event architecture on 2026-08-31. The requirements are
+now implemented incrementally in `internal/tui`, `internal/controlplane`, and
+the application composition root. Cross-platform builds and automated PTY/model
+coverage are passing; human beta trials remain a release gate.
+
+The historical recovery statement below describes the state before this
+implementation branch and is intentionally retained for provenance.
 
 ## Product goal
 
