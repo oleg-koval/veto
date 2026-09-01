@@ -35,7 +35,7 @@ func DefaultCatalog() Catalog {
 func loginFlags() []FlagSpec {
 	return []FlagSpec{
 		{Name: "provider", Value: "string", Required: true, Description: "anthropic, openai, openrouter, xai, local, or opencode."},
-		{Name: "mode", Value: "string", Default: "api-key", Description: "api-key, subscription, or runtime."},
+		{Name: "mode", Value: "string", Default: "api-key", Description: "api-key, browser (OpenRouter OAuth), subscription, or runtime."},
 		{Name: "api-key", Value: "string", Description: "Provider key; rendered and handled as secret.", Secret: true},
 		{Name: "name", Value: "string", Description: "Routing name for a local model."},
 		{Name: "endpoint", Value: "url", Description: "OpenAI-compatible local endpoint."},

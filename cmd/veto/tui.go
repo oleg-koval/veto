@@ -261,6 +261,18 @@ func runTUILogin(ctx context.Context, request controlplane.ActionRequest) (contr
 		}
 		return controlplane.ActionResult{ActionID: "login", Summary: "Claude subscription connected"}, nil
 	}
+	if provider == "openrouter" && (mode == "browser" || mode == "oauth") {
+		oauthCtx, cancel := context.WithTimeout(ctx, openRouterOAuthWait+5*time.Second)
+		defer cancel()
+		credential, err := authorizeOpenRouter(oauthCtx, defaultOpenRouterOAuthDeps())
+		if err != nil {
+			return controlplane.ActionResult{ActionID: "login"}, err
+		}
+		if err := saveCredential(providerInfo.envKey, credential); err != nil {
+			return controlplane.ActionResult{ActionID: "login"}, err
+		}
+		return controlplane.ActionResult{ActionID: "login", Summary: "OpenRouter connected via browser"}, nil
+	}
 	credential := tuiSecretArgument(request, "api-key")
 	if strings.TrimSpace(credential) == "" {
 		return controlplane.ActionResult{ActionID: "login"}, fmt.Errorf("api-key is required for %s", providerInfo.name)
