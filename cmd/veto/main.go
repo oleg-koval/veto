@@ -153,6 +153,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  hermes             install or diagnose the native Hermes integration")
 	fmt.Fprintln(o, "  models             list effective models, runtimes, capabilities, and costs")
 	fmt.Fprintln(o, "  providers          show which providers are configured")
+	fmt.Fprintln(o, "  disable            exclude a model from routing")
+	fmt.Fprintln(o, "  enable             restore a model to routing eligibility")
 	fmt.Fprintln(o, "  version            print veto version")
 	fmt.Fprintln(o, "  install-git-hook   add veto to your git workflow")
 	fmt.Fprintln(o)
