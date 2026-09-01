@@ -65,6 +65,8 @@ type TaskSpec struct {
 	MaxTokens               int      // 0 = no limit
 	Source                  string   // "user" | "cron" | "webhook" | "system"
 	SkipModels              []string // resume: models already decided in a prior interrupted run
+	RuntimeFilter           string   // optional runtime adapter restriction
+	ProviderFilter          string   // optional provider restriction
 }
 
 // ModelCapabilities describes what a model can and cannot handle.
