@@ -233,7 +233,8 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 	}
 	requestCtx := ctx
 	cancel := func() {}
-	if rawTimeout := strings.TrimSpace(request.Arguments["timeout"]); rawTimeout != "" {
+	if (request.ActionID == "route" || request.ActionID == "run") && strings.TrimSpace(request.Arguments["timeout"]) != "" {
+		rawTimeout := strings.TrimSpace(request.Arguments["timeout"])
 		timeout, err := time.ParseDuration(rawTimeout)
 		if err != nil || timeout <= 0 {
 			return controlplane.ActionResult{}, fmt.Errorf("control plane: invalid timeout %q", rawTimeout)
@@ -242,7 +243,8 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 	} else {
 		requestCtx, cancel = context.WithCancel(ctx)
 	}
-	if rawAdmissionTimeout := strings.TrimSpace(request.Arguments["admission-timeout"]); rawAdmissionTimeout != "" {
+	if (request.ActionID == "route" || request.ActionID == "run") && strings.TrimSpace(request.Arguments["admission-timeout"]) != "" {
+		rawAdmissionTimeout := strings.TrimSpace(request.Arguments["admission-timeout"])
 		admissionTimeout, err := time.ParseDuration(rawAdmissionTimeout)
 		if err != nil || admissionTimeout <= 0 {
 			cancel()
