@@ -66,6 +66,22 @@ func TestDefaultCatalogPreservesRouteAndFeedbackFlags(t *testing.T) {
 	}
 }
 
+func TestDefaultCatalogUsesBoundedExecutionTokenDefaults(t *testing.T) {
+	t.Parallel()
+
+	for _, actionID := range []string{"run", "exec"} {
+		action, ok := DefaultCatalog().Find(actionID)
+		if !ok {
+			t.Fatalf("action %q missing", actionID)
+		}
+		for _, field := range action.Flags {
+			if field.Name == "max-output-tokens" && field.Default == "" {
+				t.Fatalf("%s max-output-tokens has no bounded default", actionID)
+			}
+		}
+	}
+}
+
 func TestDefaultCatalogPreservesIntegrationOutputFlags(t *testing.T) {
 	t.Parallel()
 
