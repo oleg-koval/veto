@@ -358,3 +358,12 @@ func TestModelReplaysVersionedEventsDeterministically(t *testing.T) {
 		t.Fatalf("replayed live timeline missing stages: %s", first.View().Content)
 	}
 }
+
+func TestModelRejectsUnknownEventSchema(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	updated, _ := model.Update(eventMsg{event: controlplane.Event{Version: controlplane.SchemaVersion + 1, Kind: "route.completed"}, ok: true})
+	model = updated.(*Model)
+	if len(model.eventHistory) != 0 || !strings.Contains(model.status, "unsupported event schema") {
+		t.Fatalf("unknown event state = history:%#v status:%q", model.eventHistory, model.status)
+	}
+}

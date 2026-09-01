@@ -146,11 +146,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !message.ok {
 			return m, nil
 		}
-		if message.event.Version == 0 || message.event.Version == controlplane.SchemaVersion {
-			m.eventHistory = append(m.eventHistory, message.event)
-			if len(m.eventHistory) > 64 {
-				m.eventHistory = m.eventHistory[len(m.eventHistory)-64:]
-			}
+		if message.event.Version != 0 && message.event.Version != controlplane.SchemaVersion {
+			m.status = fmt.Sprintf("Error · unsupported event schema %d", message.event.Version)
+			return m, nil
+		}
+		m.eventHistory = append(m.eventHistory, message.event)
+		if len(m.eventHistory) > 64 {
+			m.eventHistory = m.eventHistory[len(m.eventHistory)-64:]
 		}
 		m.lastEvent = message.event.Kind + " · " + message.event.Message
 		if message.event.Kind == "output" {
