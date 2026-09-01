@@ -74,6 +74,38 @@ func TestPrepareTUIRoutingAllowsFreshProviderOnboarding(t *testing.T) {
 	}
 }
 
+func TestRefreshTUIRoutingLoadsProviderAddedInSession(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY", "CLAUDE_SUBSCRIPTION"} {
+		t.Setenv(key, "")
+	}
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	previousConfig := vetoCfgPathOverride
+	vetoCfgPathOverride = configPath
+	t.Cleanup(func() { vetoCfgPathOverride = previousConfig })
+	previousModels := localModelsPathOverride
+	localModelsPathOverride = filepath.Join(t.TempDir(), "models.json")
+	t.Cleanup(func() { localModelsPathOverride = previousModels })
+
+	reg, mgr, _, err := prepareTUIRouting()
+	if err != nil {
+		t.Fatalf("fresh TUI routing failed: %v", err)
+	}
+	_, err = runTUILogin(context.Background(), controlplane.ActionRequest{ActionID: "login", Arguments: map[string]string{
+		"provider": "local", "name": "session-local", "endpoint": "http://127.0.0.1:11434/v1/chat/completions", "model": "qwen2.5-coder:7b",
+	}})
+	if err != nil {
+		t.Fatalf("local login failed: %v", err)
+	}
+	if err := refreshTUIRouting(reg, mgr); err != nil {
+		t.Fatalf("routing refresh failed: %v", err)
+	}
+	if _, ok := reg.caps["session-local"]; !ok {
+		t.Fatalf("refreshed registry missing session-local: %#v", reg.caps)
+	}
+}
+
 func TestRunTUISetupDiscoversWithoutChangingConfig(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	previousConfig := vetoCfgPathOverride
