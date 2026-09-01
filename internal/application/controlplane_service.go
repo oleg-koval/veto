@@ -198,6 +198,12 @@ func (s *ControlService) publish(event controlplane.Event) {
 
 func (s *ControlService) setSnapshot(snapshot controlplane.Snapshot) {
 	s.mu.Lock()
+	if len(snapshot.Providers) == 0 {
+		snapshot.Providers = s.snapshot.Providers
+	}
+	if len(snapshot.Models) == 0 {
+		snapshot.Models = s.snapshot.Models
+	}
 	s.snapshot = snapshot
 	s.mu.Unlock()
 }
