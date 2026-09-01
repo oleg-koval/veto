@@ -72,7 +72,8 @@ func cmdTUI(args []string) error {
 				return controlplane.ActionResult{ActionID: "benchmark", Summary: "benchmark complete", Output: output.String()}, nil
 			})
 			service.RegisterHandler("version", func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error) {
-				return controlplane.ActionResult{ActionID: "version", Summary: "veto " + resolvedVersion()}, nil
+				summary := "veto " + resolvedVersion()
+				return controlplane.ActionResult{ActionID: "version", Summary: summary, Output: summary}, nil
 			})
 			registerTUIActionHandlers(service, func() error {
 				return refreshTUIRouting(reg, mgr)
