@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -296,6 +297,16 @@ func TestModelFitsSupportedTerminalHeights(t *testing.T) {
 		if len(lines) > size.height {
 			t.Errorf("%dx%d view has %d lines", size.width, size.height, len(lines))
 		}
+	}
+}
+
+func TestTruncatePreservesUnicodeAndTerminalWidth(t *testing.T) {
+	got := truncate("模型😀 output", 7)
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncated output is invalid UTF-8: %q", got)
+	}
+	if lipgloss.Width(got) > 7 {
+		t.Fatalf("truncated width = %d, want <= 7: %q", lipgloss.Width(got), got)
 	}
 }
 

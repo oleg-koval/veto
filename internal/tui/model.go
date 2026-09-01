@@ -1227,10 +1227,7 @@ func truncate(value string, width int) string {
 	if width <= 0 || lipgloss.Width(value) <= width {
 		return value
 	}
-	if width <= 1 {
-		return value[:1]
-	}
-	return value[:width-1] + "…"
+	return ansi.Truncate(value, width, "…")
 }
 
 func min(left, right int) int {
