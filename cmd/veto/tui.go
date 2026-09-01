@@ -577,6 +577,7 @@ func runTUIExec(ctx context.Context, request controlplane.ActionRequest, service
 	}
 	maxTokens := request.Arguments["max-output-tokens"]
 	outputs := make([]string, 0, len(plan.Steps))
+	allCriteria := make([]string, 0)
 	failed := make([]int, 0)
 	for index, step := range plan.Steps {
 		if err := ctx.Err(); err != nil {
@@ -598,6 +599,7 @@ func runTUIExec(ctx context.Context, request controlplane.ActionRequest, service
 		}
 		outputs = append(outputs, result.Output)
 		criteria := splitCriteria(step.SuccessCriteria)
+		allCriteria = append(allCriteria, criteria...)
 		if len(criteria) == 0 {
 			continue
 		}
@@ -611,6 +613,24 @@ func runTUIExec(ctx context.Context, request controlplane.ActionRequest, service
 				}
 				return controlplane.ActionResult{ActionID: "exec", Output: strings.Join(outputs, "\n\n---\n\n")}, fmt.Errorf("step %d review failed: acceptance criteria not met", index+1)
 			}
+		}
+	}
+	if len(allCriteria) > 0 && len(outputs) > 0 && len(failed) == 0 {
+		allCriteria = append(allCriteria, "no step undid another step's work (no regression introduced)")
+		finalSpec := router.TaskSpec{
+			ID:              taskHash(fmt.Sprintf("%s|steps=%d", plan.Title, len(plan.Steps)), "review", "medium", 0),
+			Kind:            router.KindReview,
+			Objective:       fmt.Sprintf("Plan: %s\n\nAll %d step(s) completed.", plan.Title, len(plan.Steps)),
+			Risk:            router.RiskMedium,
+			SuccessCriteria: allCriteria,
+		}
+		combinedOutput := strings.Join(outputs, "\n\n---\n\n")
+		finalReview, reviewErr := reviewOutput(ctx, reg, mgr, finalSpec, combinedOutput, "")
+		if reviewErr != nil {
+			return controlplane.ActionResult{ActionID: "exec", Output: combinedOutput}, fmt.Errorf("final plan review failed: %w", reviewErr)
+		}
+		if !finalReview.Passed {
+			return controlplane.ActionResult{ActionID: "exec", Output: combinedOutput}, errors.New("final plan review failed: acceptance criteria not fully met")
 		}
 	}
 	output := strings.Join(outputs, "\n\n---\n\n")
