@@ -173,6 +173,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.cancelRun = nil
 		if message.err != nil {
+			if message.result.Output != "" {
+				m.output.WriteString(message.result.Output)
+			}
 			m.status = "Error · " + message.err.Error()
 			return m, nil
 		}
@@ -870,7 +873,7 @@ func (m *Model) renderMain(width int) string {
 		b.WriteString(m.renderHistory(width))
 		return lipgloss.NewStyle().Width(width).Render(b.String())
 	}
-	if m.activeAction == "exec" || m.activeAction == "plans" {
+	if m.activeAction == "plans" || (m.activeAction == "exec" && m.output.Len() == 0) {
 		b.WriteString(m.renderPlans(width))
 		return lipgloss.NewStyle().Width(width).Render(b.String())
 	}

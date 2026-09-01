@@ -49,4 +49,7 @@ Run these after the CLI flow in each selected terminal:
 - No credential disclosure, unexpected file write, or unexplained external network request occurs.
 - Every blocking failure has either a code fix or a documented recovery step before release.
 
-The automated `scripts/onboarding-smoke.sh` test validates deterministic mechanics only. It does not replace these human trials.
+The automated `scripts/onboarding-smoke.sh` test validates deterministic mechanics
+only: it drives Route, Run, and Execute-plan through a PTY against a fake local
+provider and checks live events, output visibility, resize, and secret masking.
+It does not replace these human trials.

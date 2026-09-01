@@ -125,6 +125,24 @@ with open(path, "w", encoding="utf-8") as models:
 os.chmod(path, 0o600)
 PY
 
+mkdir -p "${smoke_home}/.veto/plans"
+python3 - "${smoke_home}/.veto/plans/smoke-plan.md" <<'PY'
+import pathlib
+import sys
+
+pathlib.Path(sys.argv[1]).write_text(
+    "---\n"
+    "title: TUI smoke plan\n"
+    "version: 1\n"
+    "steps:\n"
+    "  - task: summarize this example\n"
+    "    kind: summarize\n"
+    "    risk: low\n"
+    "---\n",
+    encoding="utf-8",
+)
+PY
+
 chmod 0755 "${smoke_home}/.veto"
 chmod 0644 "${smoke_home}/.veto/models.json"
 if veto doctor --offline >"${tmp_dir}/doctor-damaged.log" 2>&1; then

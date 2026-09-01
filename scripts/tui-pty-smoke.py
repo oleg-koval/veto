@@ -8,9 +8,9 @@ import pty
 import select
 import signal
 import sys
-import time
 import tempfile
 import termios
+import time
 
 
 def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secret_probe: bool = False, home: str | None = None) -> None:
@@ -165,14 +165,191 @@ def run_execution(binary: str, home: str) -> None:
         os.close(master)
 
 
+def run_route(binary: str, home: str) -> None:
+    pid, master = pty.fork()
+    if pid == 0:
+        env = os.environ.copy()
+        env.update({"HOME": home, "NO_COLOR": "1"})
+        os.execve(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
+
+    output = bytearray()
+    status = None
+    try:
+        termios.tcsetwinsize(master, (24, 100))
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select([master], [], [], 0.2)
+            if ready:
+                try:
+                    chunk = os.read(master, 8192)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                output.extend(chunk)
+                if b"VETO" in output:
+                    break
+
+        # Select Route, submit an objective, and accept every default flag.
+        os.write(master, b"jjjjjr")
+        time.sleep(0.15)
+        os.write(master, b"route this example\r")
+        for _ in range(12):
+            time.sleep(0.03)
+            os.write(master, b"\r")
+
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select([master], [], [], 0.2)
+            if ready:
+                try:
+                    chunk = os.read(master, 8192)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                output.extend(chunk)
+                if b"LIVE ROUTING" in output and (b"winner" in output or b"completed" in output):
+                    break
+        if b"LIVE ROUTING" not in output or not (b"winner" in output or b"completed" in output):
+            raise SystemExit(f"TUI Route did not render completion evidence: output={bytes(output)!r}")
+        os.write(master, b"q")
+
+        end = time.monotonic() + 8
+        while time.monotonic() < end:
+            waited, status = os.waitpid(pid, os.WNOHANG)
+            if waited == pid:
+                break
+            time.sleep(0.05)
+        if status is None:
+            os.kill(pid, signal.SIGTERM)
+            _, status = os.waitpid(pid, 0)
+        if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
+            raise SystemExit(f"TUI Route exited unsuccessfully: status={status} output={bytes(output)!r}")
+    finally:
+        os.close(master)
+
+
+def run_resize(binary: str, home: str | None = None) -> None:
+    home_context = tempfile.TemporaryDirectory(prefix="veto-tui-resize-") if home is None else None
+    selected_home = home if home is not None else home_context.name
+    try:
+        pid, master = pty.fork()
+        if pid == 0:
+            env = os.environ.copy()
+            env.update({"HOME": selected_home, "NO_COLOR": "1"})
+            os.execve(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
+
+        output = bytearray()
+        status = None
+        try:
+            termios.tcsetwinsize(master, (24, 100))
+            deadline = time.monotonic() + 8
+            while time.monotonic() < deadline and b"VETO" not in output:
+                ready, _, _ = select.select([master], [], [], 0.2)
+                if ready:
+                    try:
+                        output.extend(os.read(master, 8192))
+                    except OSError:
+                        break
+            termios.tcsetwinsize(master, (12, 40))
+            time.sleep(0.3)
+            termios.tcsetwinsize(master, (24, 100))
+            time.sleep(0.5)
+            os.write(master, b"q")
+
+            end = time.monotonic() + 8
+            while time.monotonic() < end:
+                waited, status = os.waitpid(pid, os.WNOHANG)
+                if waited == pid:
+                    break
+                time.sleep(0.05)
+            if status is None:
+                os.kill(pid, signal.SIGTERM)
+                _, status = os.waitpid(pid, 0)
+            if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
+                raise SystemExit(f"TUI resize exited unsuccessfully: status={status}")
+        finally:
+            os.close(master)
+    finally:
+        if home_context is not None:
+            home_context.cleanup()
+
+
+def run_plan(binary: str, home: str) -> None:
+    pid, master = pty.fork()
+    if pid == 0:
+        env = os.environ.copy()
+        env.update({"HOME": home, "NO_COLOR": "1"})
+        os.execve(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
+
+    output = bytearray()
+    status = None
+    try:
+        termios.tcsetwinsize(master, (24, 100))
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select([master], [], [], 0.2)
+            if ready:
+                try:
+                    output.extend(os.read(master, 8192))
+                except OSError:
+                    break
+                if b"VETO" in output:
+                    break
+
+        # Open Execute plan through the palette, choose the safe plan name,
+        # accept default flags, and verify the step reaches the Runner.
+        os.write(master, b"jjjjr")
+        time.sleep(0.2)
+        os.write(master, b"smoke-plan.md\r")
+        for _ in range(6):
+            time.sleep(0.03)
+            os.write(master, b"\r")
+
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select([master], [], [], 0.2)
+            if ready:
+                try:
+                    chunk = os.read(master, 8192)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                output.extend(chunk)
+                if b"SMOKE EXECUTION OK" in output:
+                    break
+        if b"SMOKE EXECUTION OK" not in output or b"OUTPUT" not in output:
+            raise SystemExit(f"TUI Execute plan did not reach visible Runner output: output={bytes(output)!r}")
+        os.write(master, b"q")
+
+        end = time.monotonic() + 8
+        while time.monotonic() < end:
+            waited, status = os.waitpid(pid, os.WNOHANG)
+            if waited == pid:
+                break
+            time.sleep(0.05)
+        if status is None:
+            os.kill(pid, signal.SIGTERM)
+            _, status = os.waitpid(pid, 0)
+        if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
+            raise SystemExit(f"TUI Execute plan exited unsuccessfully: status={status} output={bytes(output)!r}")
+    finally:
+        os.close(master)
+
+
 def main() -> int:
     if len(sys.argv) not in (2, 4) or (len(sys.argv) == 4 and sys.argv[2] != "--execution-home"):
         print(f"usage: {sys.argv[0]} VETO_BINARY [--execution-home HOME]", file=sys.stderr)
         return 2
     run(sys.argv[1], ["--reduce-motion", "--no-color", "--no-mouse"], 12, 40, False, True)
     run(sys.argv[1], ["--reduce-motion", "--no-color"], 24, 80, True)
+    run_resize(sys.argv[1])
     if len(sys.argv) == 4:
+        run_route(sys.argv[1], sys.argv[3])
         run_execution(sys.argv[1], sys.argv[3])
+        run_plan(sys.argv[1], sys.argv[3])
     print("TUI PTY smoke passed")
     return 0
 

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -502,6 +503,17 @@ func TestModelPrioritizesCompletedOutputInMainView(t *testing.T) {
 	view := model.View().Content
 	if !strings.Contains(view, "OUTPUT") || !strings.Contains(view, "SMOKE EXECUTION OK") {
 		t.Fatalf("completed output not prioritized in view: %s", view)
+	}
+}
+
+func TestModelShowsPlanExecutionOutputAndFailureOutput(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
+	model.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	model.activeAction = "exec"
+	model.Update(executionResultMsg{result: controlplane.ActionResult{ActionID: "exec", Output: "step output"}, err: errors.New("step failed")})
+	view := model.View().Content
+	if !strings.Contains(view, "OUTPUT") || !strings.Contains(view, "step output") || !strings.Contains(view, "Error") {
+		t.Fatalf("plan failure output not visible: %s", view)
 	}
 }
 
