@@ -1,6 +1,6 @@
 # Veto launch playbook
 
-Status: v0.6.3 public beta. Release mechanics and offline routing behavior are
+Status: v0.9.0 public beta. Release mechanics and offline routing behavior are
 verified independently from provider access, calibration, and multi-user
 onboarding, which remain post-release beta validation in
 [release-readiness.md](release-readiness.md).
@@ -169,18 +169,19 @@ successful routes into one vanity metric.
 - API and local OpenAI-compatible transports are text-only through Veto. Claude
   and Codex CLI transports expose executable tools; OpenCode is limited by its
   existing permission policy.
-- v0.6.3 is a beta, not a production-readiness claim. Archive and binary
+- v0.9.0 is a beta, not a production-readiness claim. Archive and binary
   checksums detect corruption and release mismatch but are not signatures.
 - Launch preparation improves comprehension and distribution; it does not
   guarantee virality, adoption, savings, or routing quality.
 
 ## Next actions
 
-The `v0.6.3` beta was published with eight archives, `SHA256SUMS`,
+The `v0.9.0` beta was published with eight archives, `SHA256SUMS`,
 `BINARY_SHA256SUMS`, native official binaries, and tagged Go installation
-support. The release workflow, checksums, and Homebrew formula update were
-verified on 2026-08-31. Provider access, calibration, and fresh-user onboarding
-remain owner-gated beta validation.
+support. The release workflow, checksums, and existing Homebrew tap formula
+update were verified on 2026-09-01. Provider access, calibration, and fresh-user
+onboarding remain owner-gated beta validation. The Homebrew Core formula is a
+separate maintainer-reviewed distribution step.
 
 1. Complete provider-account verification and review current model IDs and
    pricing without committing raw account inventories.

@@ -29,11 +29,12 @@ formula from the archive checksum manifest.
 
 ## Current beta status
 
-The `v0.6.3` beta was published with eight archives, `SHA256SUMS`,
+The `v0.9.0` beta was published with eight archives, `SHA256SUMS`,
 `BINARY_SHA256SUMS`, native official binaries, and tagged Go installation
-support. The release workflow, checksums, and Homebrew formula update were
-verified on 2026-08-31. Provider access, calibration, and fresh-user
-onboarding remain owner-gated beta validation.
+support. The release workflow, checksums, and existing Homebrew tap formula
+update were verified on 2026-09-01. Provider access, calibration, and fresh-user
+onboarding remain owner-gated beta validation. The Homebrew Core formula is a
+separate maintainer-reviewed distribution step.
 
 ## Provider verification
 
