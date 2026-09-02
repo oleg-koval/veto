@@ -439,14 +439,62 @@ that OpenCode scans, such as `~/.agents/skills`. See OpenCode's
 [Agent Skills documentation](https://opencode.ai/docs/skills/) for its supported
 project and global locations.
 
+### Impeccable
+
+[Impeccable detects Veto as a supported harness](https://github.com/pbakaus/impeccable/pull/675)
+when an executable `veto` is available on `PATH` and `~/.veto` exists. The
+detection and provider registration live in Impeccable's
+[`cli/bin/commands/skills.mjs`](https://github.com/pbakaus/impeccable/blob/main/cli/bin/commands/skills.mjs);
+the Veto-side managed skill directory is implemented in
+[`cmd/veto/skills.go`](cmd/veto/skills.go).
+
+Install Impeccable's Veto skill bundle globally with:
+
+```bash
+npx impeccable install --providers=veto --scope=global
+```
+
+The bundle is installed under `~/.veto/skills/`, which Veto loads as its
+always-approved skill directory. Veto is a skills-only Impeccable harness: it
+does not provide or run Impeccable's native design-edit hooks or browser
+commands. Those remain with the coding-agent host that performs the edits.
+
 ### Hermes Agent
 
-Hermes loads the native integration from `~/.hermes/plugins/veto` after the
-operator enables it. Use `veto hermes plugin status` to compare installed files
-with the current Veto build, and `/veto` inside Hermes to verify plugin API
-compatibility. Explicit route/run tools use Veto's configured providers; they
-do not copy or inspect Hermes provider credentials. Automatic Hermes model
-rewriting is intentionally deferred to the next middleware task.
+Veto's native Hermes integration is implemented under
+[`integrations/hermes/`](integrations/hermes/) and installed into
+`~/.hermes/plugins/veto` by the Veto CLI. It exposes Veto route/run tools and
+Hermes commands while keeping credentials, provider clients, transport, tools,
+and permissions owned by Hermes.
+
+Install and validate the plugin explicitly:
+
+```bash
+veto hermes plugin install
+hermes plugins doctor veto --ci
+hermes plugins enable veto --no-allow-tool-override
+```
+
+The automatic turn-routing part is in progress in Hermes upstream
+[#98703](https://github.com/NousResearch/hermes-agent/pull/98703). Once that
+host middleware is available, Veto selects one host-realized route before an
+external turn and Hermes keeps it fixed for the whole turn. Internal calls and
+tool continuations bypass the middleware, and Veto or provider-resolution
+failures fall back to Hermes' configured route. The middleware does not mutate
+routes mid-turn or accept direct credential or transport hints. The separate
+call-level escape valve discussed in
+[the routing contract comment](https://github.com/NousResearch/hermes-agent/pull/98703#issuecomment-5490249205)
+is not part of this integration.
+
+Until #98703 lands, treat automatic Hermes routing as unavailable in released
+Hermes builds; explicit plugin commands and tools remain the Veto-side
+integration surface. Use `veto hermes plugin status` to compare installed files
+with the current Veto build, and disable the plugin before uninstalling it:
+
+```bash
+hermes plugins disable veto
+veto hermes plugin uninstall
+```
 
 The same skill is distributed as
 [`olko:veto-routing`](https://github.com/oleg-koval/agent-skills/tree/main/plugins/olko-skill-meta/skills/veto-routing)
