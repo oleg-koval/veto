@@ -55,6 +55,24 @@ func TestModelRunShortcutOpensTaskComposerFromHome(t *testing.T) {
 	}
 }
 
+func TestModelFillsTerminalHeightAndNamesComposerContext(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+	model = updated.(*Model)
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
+	model = updated.(*Model)
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	model = updated.(*Model)
+	view := model.View().Content
+	if got := lipgloss.Height(view); got != 40 {
+		t.Fatalf("rendered height = %d, want terminal height 40", got)
+	}
+	if !strings.Contains(view, "Setup") || !strings.Contains(view, "Set the fields below") {
+		t.Fatalf("composer context is unclear:\n%s", view)
+	}
+}
+
 func TestModelSupportsKeyboardNavigationAndHelp(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})

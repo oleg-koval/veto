@@ -829,6 +829,9 @@ func (m *Model) renderShell() string {
 			bodyLines = append(bodyLines[:availableBody-1], mutedStyle.Render("… more below; resize or use the palette"))
 		}
 	}
+	if len(bodyLines) < availableBody {
+		bodyLines = append(bodyLines, make([]string, availableBody-len(bodyLines))...)
+	}
 	if len(bodyLines) == 0 {
 		return status
 	}
@@ -895,6 +898,20 @@ func (m *Model) renderMain(width int) string {
 			active = action.Label
 		}
 	}
+	if m.composerOpen {
+		if action, ok := m.catalog.Find(m.composerAction); ok {
+			active = action.Label
+		} else if m.composerAction != "" {
+			active = m.composerAction
+		}
+	}
+	if m.confirmOpen && m.pendingRequest.ActionID != "" {
+		if action, ok := m.catalog.Find(m.pendingRequest.ActionID); ok {
+			active = action.Label
+		} else {
+			active = m.pendingRequest.ActionID
+		}
+	}
 	var b strings.Builder
 	home := m.activeAction == "" && !m.composerOpen && !m.confirmOpen && len(m.eventHistory) == 0 && m.output.Len() == 0
 	b.WriteString(brandStyle.Render("VETO"))
@@ -907,11 +924,15 @@ func (m *Model) renderMain(width int) string {
 		b.WriteString(titleStyle.Render(active))
 	}
 	b.WriteString("\n")
+	instruction := "Every CLI command is available through the palette."
 	if home {
-		b.WriteString(mutedStyle.Render("Start with a task. Veto routes it, runs it, and shows you what happened."))
-	} else {
-		b.WriteString(mutedStyle.Render("Every CLI command is available through the palette."))
+		instruction = "Start with a task. Veto routes it, runs it, and shows you what happened."
+	} else if m.composerOpen {
+		instruction = "Set the fields below. Enter advances; Esc cancels without running anything."
+	} else if m.confirmOpen {
+		instruction = "Review this action before Veto makes changes."
 	}
+	b.WriteString(mutedStyle.Render(instruction))
 	b.WriteString("\n\n")
 	if home {
 		b.WriteString(headerStyle.Render("START HERE"))
