@@ -198,7 +198,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  --reduce-motion  disable non-essential animation")
 	fmt.Fprintln(o, "  --no-color       disable styling and ANSI colors (also respects NO_COLOR)")
 	fmt.Fprintln(o, "  --no-mouse       disable mouse reporting")
-	fmt.Fprintln(o, "  --screen-reader  use a stable text-only layout and preserve terminal scrollback")
+	fmt.Fprintln(o, "  --screen-reader  use a stable text-only layout without stacked redraws")
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "SKILLS")
 	fmt.Fprintln(o, "  Skills are instruction snippets injected into the executor prompt.")
