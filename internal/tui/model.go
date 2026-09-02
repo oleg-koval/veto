@@ -267,6 +267,14 @@ func (m *Model) commandIndexAt(x, y int) int {
 
 func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := message.Key()
+	// Ctrl+C is the emergency escape hatch in every screen, including forms
+	// and overlays where ordinary character keys are intentionally captured.
+	if key.Mod == tea.ModCtrl && key.Code == 'c' {
+		if m.cancelRun != nil {
+			m.cancelRun()
+		}
+		return m, tea.Quit
+	}
 	if m.running && key.String() == "esc" {
 		if m.cancelRun != nil {
 			m.cancelRun()
@@ -303,12 +311,6 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.composerOpen {
 		return m.updateComposer(key)
-	}
-	if key.Mod == tea.ModCtrl && key.Code == 'c' {
-		if m.cancelRun != nil {
-			m.cancelRun()
-		}
-		return m, tea.Quit
 	}
 	if key.Mod == tea.ModCtrl && key.Code == 'k' {
 		m.paletteOpen = true
