@@ -833,7 +833,10 @@ func (m *Model) renderShell() string {
 			bodyLines = append(bodyLines[:availableBody-1], mutedStyle.Render("… more below; resize or use the palette"))
 		}
 	}
-	if len(bodyLines) < availableBody {
+	// Overlays are appended after the shell content. Do not pre-fill the
+	// background to terminal height first, or the palette/help panel lands
+	// below the viewport and captures keys while remaining invisible.
+	if !m.paletteOpen && !m.helpOpen && len(bodyLines) < availableBody {
 		bodyLines = append(bodyLines, make([]string, availableBody-len(bodyLines))...)
 	}
 	if len(bodyLines) == 0 {
@@ -1359,7 +1362,10 @@ func (m *Model) renderPalette(background string) string {
 		b.WriteString(mutedStyle.Render("No matching commands. Try a shorter search."))
 	}
 	overlay := overlayStyle.Width(max(30, min(m.width-6, 100))).Render(strings.TrimSuffix(b.String(), "\n"))
-	return background + "\n\n" + overlay
+	// Put the overlay first in the frame. Appending after a full-height shell
+	// places it below the terminal viewport, so `/` captures keys while the
+	// user sees no palette at all.
+	return overlay + "\n\n" + background
 }
 
 func (m *Model) renderHelp(background string) string {
@@ -1383,7 +1389,7 @@ func (m *Model) renderHelp(background string) string {
 		"Esc         close an overlay",
 		"q / Ctrl+C  quit cleanly",
 	}, "\n"))
-	return background + "\n\n" + help
+	return help + "\n\n" + background
 }
 
 func truncate(value string, width int) string {

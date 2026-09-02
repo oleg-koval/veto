@@ -51,10 +51,9 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
                         output.extend(os.read(master, 8192))
                     except OSError:
                         break
-                if time.monotonic() + 0.2 >= deadline:
+                if b"VETO" in output:
                     break
-                if len(output) > 0:
-                    break
+            time.sleep(0.2)
 
             if secret_probe:
                 # Open the first command's form and type through the provider,
@@ -65,6 +64,13 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
                 time.sleep(0.2)
                 os.write(master, b"\x1b")
             else:
+                os.write(master, b"/")
+                time.sleep(0.15)
+                drain()
+                if b"Command palette" not in output:
+                    raise SystemExit(f"command palette did not render after '/': output={bytes(output)!r}")
+                os.write(master, b"\x1b")
+                time.sleep(0.1)
                 os.write(master, b"?")
                 time.sleep(0.15)
                 os.write(master, b"?")

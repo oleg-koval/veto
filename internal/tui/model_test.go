@@ -271,6 +271,26 @@ func TestModelCommandPaletteFiltersAndSelectsAction(t *testing.T) {
 	}
 }
 
+func TestModelCommandPaletteIsVisibleInViewport(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "/", Code: '/'}))
+	model = updated.(*Model)
+	view := model.View().Content
+	palette := strings.Index(view, "Command palette")
+	if palette < 0 {
+		t.Fatalf("palette overlay is missing:\n%s", view)
+	}
+	if lines := strings.Count(view[:palette], "\n"); lines >= 24 {
+		t.Fatalf("palette overlay begins below viewport at line %d", lines)
+	}
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+	model = updated.(*Model)
+	if model.paletteOpen {
+		t.Fatal("escape did not close the visible command palette")
+	}
+}
+
 func TestModelCommandPaletteLaunchesFormCapableAction(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
