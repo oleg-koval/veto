@@ -18,12 +18,16 @@ import (
 func TestTUIScreenReaderModeUsesStableTextPresentation(t *testing.T) {
 	model := tui.NewModel(controlplane.DefaultCatalog(), tui.Options{Motion: false, NoColor: true, Mouse: false, ScreenReader: true})
 	model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
-	if model.View().AltScreen {
-		t.Fatal("screen-reader presentation should preserve terminal scrollback")
+	if !model.View().AltScreen {
+		t.Fatal("screen-reader presentation should use a stable alternate-screen frame")
 	}
-	view := model.View().Content
+	presentation := model.View()
+	view := presentation.Content
 	if strings.Contains(view, "\x1b[") {
 		t.Fatal("screen-reader presentation contains ANSI escape codes")
+	}
+	if !presentation.DisableBracketedPasteMode || presentation.ReportFocus {
+		t.Fatalf("screen-reader presentation enables terminal protocol controls: bracketed-paste-disabled=%v report-focus=%v", presentation.DisableBracketedPasteMode, presentation.ReportFocus)
 	}
 	if !strings.Contains(view, "STATUS") || !strings.Contains(view, "COMMANDS") {
 		t.Fatalf("screen-reader presentation lacks stable labels:\n%s", view)

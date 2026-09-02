@@ -24,6 +24,37 @@ func TestModelRendersAccessibleShellAndStatusline(t *testing.T) {
 	}
 }
 
+func TestModelStartsWithTaskFirstHome(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	view := model.View().Content
+	for _, want := range []string{
+		"What do you want to do?",
+		"START HERE",
+		"r  Run a task",
+		"t  Route only",
+		"p  Execute a plan",
+		"/  open the command palette",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("task-first home missing %q\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "Every CLI command is available through the palette.") {
+		t.Fatal("task-first home still renders the old generic instruction")
+	}
+}
+
+func TestModelRunShortcutOpensTaskComposerFromHome(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	model = updated.(*Model)
+	if !model.composerOpen || model.composerAction != "run" {
+		t.Fatalf("home run shortcut = open:%v action:%q", model.composerOpen, model.composerAction)
+	}
+}
+
 func TestModelSupportsKeyboardNavigationAndHelp(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})

@@ -88,7 +88,7 @@ type Model struct {
 
 // NewModel creates a shell with a deterministic initial state.
 func NewModel(catalog controlplane.Catalog, options Options) *Model {
-	status := "Ready · choose a command"
+	status := "Ready · press r to start a task"
 	if options.ServiceFactory != nil {
 		status = "Loading · control plane"
 	}
@@ -136,7 +136,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.options.Service = message.service
-		m.status = "Ready · choose a command"
+		m.status = "Ready · press r to start a task"
 		return m, m.loadSnapshot()
 	case tea.MouseClickMsg:
 		m.updateMouse(message)
@@ -369,10 +369,32 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "r":
+		if m.activeAction == "" && m.selected == 0 && m.width > 0 {
+			if action, ok := m.catalog.Find("run"); ok {
+				m.openComposer(action)
+			}
+			return m, nil
+		}
 		commands := m.catalog.Commands()
 		if len(commands) > 0 && m.actionHasForm(commands[m.selected]) {
 			m.openComposer(commands[m.selected])
 		}
+	case "t":
+		if m.activeAction == "" {
+			if action, ok := m.catalog.Find("route"); ok {
+				m.openComposer(action)
+			}
+		}
+	case "m":
+		m.activeAction = "models"
+		m.status = "Ready · models"
+	case "d":
+		m.activeAction = "doctor"
+		m.status = "Ready · doctor"
+	case "home", "0":
+		m.activeAction = ""
+		m.selected = 0
+		m.status = "Ready · press r to start a task"
 	}
 	return m, nil
 }
@@ -760,11 +782,15 @@ func (m *Model) View() tea.View {
 		content = ansi.Strip(content)
 	}
 	view := tea.NewView(content)
-	view.AltScreen = !m.options.ScreenReader
+	// Screen-reader mode still uses the alternate screen: inline rendering
+	// relies on cursor-addressing sequences that some assistive terminals do
+	// not honor, which otherwise leaves every frame stacked in scrollback.
+	view.AltScreen = true
+	view.DisableBracketedPasteMode = m.options.ScreenReader
+	view.ReportFocus = !m.options.ScreenReader
 	if m.options.Mouse {
 		view.MouseMode = tea.MouseModeCellMotion
 	}
-	view.ReportFocus = true
 	view.WindowTitle = "Veto"
 	return view
 }
@@ -870,14 +896,36 @@ func (m *Model) renderMain(width int) string {
 		}
 	}
 	var b strings.Builder
+	home := m.activeAction == "" && !m.composerOpen && !m.confirmOpen && len(m.eventHistory) == 0 && m.output.Len() == 0
 	b.WriteString(brandStyle.Render("VETO"))
 	b.WriteString("  ")
-	b.WriteString(mutedStyle.Render("control plane"))
+	b.WriteString(mutedStyle.Render("your local AI control plane"))
 	b.WriteString("\n\n")
-	b.WriteString(titleStyle.Render(active))
+	if home {
+		b.WriteString(titleStyle.Render("What do you want to do?"))
+	} else {
+		b.WriteString(titleStyle.Render(active))
+	}
 	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("Every CLI command is available through the palette."))
+	if home {
+		b.WriteString(mutedStyle.Render("Start with a task. Veto routes it, runs it, and shows you what happened."))
+	} else {
+		b.WriteString(mutedStyle.Render("Every CLI command is available through the palette."))
+	}
 	b.WriteString("\n\n")
+	if home {
+		b.WriteString(headerStyle.Render("START HERE"))
+		b.WriteString("\n")
+		b.WriteString(panelStyle.Render("r  Run a task       route + execute\nt  Route only       preview the winning model\np  Execute a plan   run steps with review"))
+		b.WriteString("\n\n")
+		b.WriteString(headerStyle.Render("EXPLORE"))
+		b.WriteString("\n")
+		b.WriteString("m  Models     h  History     i  Integrations     d  Doctor\n")
+		b.WriteString(mutedStyle.Render("/  open the command palette   ?  keyboard help"))
+		b.WriteString("\n\n")
+		b.WriteString(mutedStyle.Render("No provider calls are made until you confirm an action."))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
 	if m.composerOpen {
 		b.WriteString(m.renderComposer(width))
 		return lipgloss.NewStyle().Width(width).Render(b.String())
@@ -1254,9 +1302,9 @@ func (m *Model) statusLine(width int) string {
 		pulse = "•"
 	}
 	status := fmt.Sprintf(" %s  %s", pulse, m.status)
-	hints := "Ctrl+K palette  ·  Tab move  ·  ? help  ·  q quit "
+	hints := "r run  ·  / commands  ·  ? help  ·  q quit "
 	if width < 64 {
-		hints = "Ctrl+K palette · ? help · q quit "
+		hints = "r run · / commands · ? help · q quit "
 	}
 	available := max(1, width-lipgloss.Width(hints)-1)
 	status = truncate(status, available)
@@ -1297,7 +1345,11 @@ func (m *Model) renderHelp(background string) string {
 		"k / ↑       move selection backwards",
 		"Tab         move focus",
 		"Ctrl+K / /   open command palette",
-		"r           compose a route or run task",
+		"r           run a task (or edit the selected command)",
+		"t           route only",
+		"m           inspect models",
+		"d           run diagnostics",
+		"0 / Home    return to the start screen",
 		"Tab         edit the command's CLI-compatible flags",
 		"h           open redacted history",
 		"i           inspect integrations",
