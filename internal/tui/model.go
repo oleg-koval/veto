@@ -1339,21 +1339,42 @@ func (m *Model) statusLine(width int) string {
 	return statusStyle.Width(width).Render(status + strings.Repeat(" ", max(1, width-lipgloss.Width(status)-lipgloss.Width(hints))) + hints)
 }
 
-func (m *Model) renderPalette(background string) string {
+func (m *Model) renderPalette(_ string) string {
 	filtered := m.filteredActions()
+	width := m.width
+	if width < 1 {
+		width = 80
+	}
+	panelWidth := min(max(20, width-8), 84)
+	if panelWidth > max(1, width-6) {
+		panelWidth = max(1, width-6)
+	}
+	rowWidth := max(20, panelWidth-6)
+	if rowWidth > panelWidth {
+		rowWidth = panelWidth
+	}
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Command palette"))
 	b.WriteString("\n")
 	b.WriteString(mutedStyle.Render("Type to filter · Enter run · Esc close"))
 	b.WriteString("\n\n")
-	b.WriteString(panelStyle.Render("/ " + m.paletteQuery))
+	query := m.paletteQuery
+	if query == "" {
+		query = mutedStyle.Render("type a command or description")
+	}
+	b.WriteString(panelStyle.Width(rowWidth).Render("/ " + query))
 	b.WriteString("\n\n")
+	b.WriteString(headerStyle.Render(fmt.Sprintf("%d command%s", len(filtered), pluralSuffix(len(filtered)))))
+	b.WriteString("\n")
 	for index, action := range filtered {
-		marker := "  "
-		if index == m.paletteCursor {
-			marker = "▸ "
+		line := truncate("▸ "+action.Command+"  "+action.Description, rowWidth)
+		if index != m.paletteCursor {
+			line = "  " + strings.TrimPrefix(line, "▸ ")
 		}
-		b.WriteString(marker + action.Command + "  " + mutedStyle.Render(action.Description) + "\n")
+		if index == m.paletteCursor {
+			line = selectedStyle.Width(rowWidth).Render(line)
+		}
+		b.WriteString(line + "\n")
 		if index >= 8 {
 			break
 		}
@@ -1361,15 +1382,21 @@ func (m *Model) renderPalette(background string) string {
 	if len(filtered) == 0 {
 		b.WriteString(mutedStyle.Render("No matching commands. Try a shorter search."))
 	}
-	overlay := overlayStyle.Width(max(30, min(m.width-6, 100))).Render(strings.TrimSuffix(b.String(), "\n"))
-	// Put the overlay first in the frame. Appending after a full-height shell
-	// places it below the terminal viewport, so `/` captures keys while the
-	// user sees no palette at all.
-	return overlay + "\n\n" + background
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("↑/↓ move  ·  Enter run  ·  Esc close"))
+	overlay := overlayStyle.Width(panelWidth).Render(strings.TrimSuffix(b.String(), "\n"))
+	// A modal gets its own focused frame. Keeping the home screen underneath
+	// makes the palette look like a broken overlay and leaves too much visual
+	// competition for the command the user is choosing.
+	return renderModalFrame(overlay, m.statusLine(width), width, m.height)
 }
 
-func (m *Model) renderHelp(background string) string {
-	help := overlayStyle.Width(max(30, min(m.width-6, 72))).Render(strings.Join([]string{
+func (m *Model) renderHelp(_ string) string {
+	width := m.width
+	if width < 1 {
+		width = 80
+	}
+	help := overlayStyle.Width(max(30, min(width-6, 72))).Render(strings.Join([]string{
 		titleStyle.Render("Keyboard help"),
 		"",
 		"j / ↓       move selection",
@@ -1389,7 +1416,21 @@ func (m *Model) renderHelp(background string) string {
 		"Esc         close an overlay",
 		"q / Ctrl+C  quit cleanly",
 	}, "\n"))
-	return help + "\n\n" + background
+	return renderModalFrame(help, m.statusLine(width), width, m.height)
+}
+
+func renderModalFrame(panel, footer string, width, height int) string {
+	if height < 1 {
+		height = 24
+	}
+	return lipgloss.Place(width, max(1, height-1), lipgloss.Center, lipgloss.Center, panel) + "\n" + footer
+}
+
+func pluralSuffix(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func truncate(value string, width int) string {
@@ -1419,7 +1460,7 @@ var (
 	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#79C0FF"))
 	mutedStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#8B949E"))
 	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#30363D"))
-	panelStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#30363D")).Padding(0, 1)
+	panelStyle    = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#30363D")).Padding(0, 1)
 	statusStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#C9D1D9")).Background(lipgloss.Color("#161B22"))
-	overlayStyle  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#7EE787")).Background(lipgloss.Color("#0D1117")).Padding(1, 2)
+	overlayStyle  = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#4B5563")).Background(lipgloss.Color("#0D1117")).Padding(1, 2)
 )

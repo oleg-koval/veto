@@ -284,6 +284,12 @@ func TestModelCommandPaletteIsVisibleInViewport(t *testing.T) {
 	if lines := strings.Count(view[:palette], "\n"); lines >= 24 {
 		t.Fatalf("palette overlay begins below viewport at line %d", lines)
 	}
+	if strings.Contains(view, "What do you want to do?") {
+		t.Fatal("palette should take focus without rendering the home screen underneath")
+	}
+	if !strings.Contains(view, "↑/↓ move") || !strings.Contains(view, "Enter run") {
+		t.Fatalf("palette footer is missing clear controls:\n%s", view)
+	}
 	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
 	model = updated.(*Model)
 	if model.paletteOpen {

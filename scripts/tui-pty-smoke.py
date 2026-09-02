@@ -51,7 +51,7 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
                         output.extend(os.read(master, 8192))
                     except OSError:
                         break
-                if b"VETO" in output:
+                if b"VETO" in output and (b"Ready" in output or b"unavailable" in output or b"Error" in output):
                     break
             time.sleep(0.2)
 
