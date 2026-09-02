@@ -48,6 +48,7 @@ func TestModelStartsWithTaskFirstHome(t *testing.T) {
 func TestModelRunShortcutOpensTaskComposerFromHome(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	model.selected = 2 // a stale rail selection must not change the home shortcut
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
 	model = updated.(*Model)
 	if !model.composerOpen || model.composerAction != "run" {
@@ -157,7 +158,7 @@ func TestModelSupportsMouseSelectionInNarrowLayout(t *testing.T) {
 func TestModelTogglesBooleanFormFlagsWithSpace(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	model.selected = 18 // install-git-hook
-	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(*Model)
 	if !model.composerEditing || model.composerFields[0].Value != "bool" {
 		t.Fatalf("boolean form = editing:%v fields:%#v", model.composerEditing, model.composerFields)
@@ -530,14 +531,14 @@ func TestModelComposerCapturesObjectiveForRun(t *testing.T) {
 	}
 }
 
-func TestModelOpensFlagFormForNonRoutingActionWithR(t *testing.T) {
+func TestModelOpensFlagFormForNonRoutingActionWithEnter(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	for range 9 { // feedback
 		updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
 		model = updated.(*Model)
 	}
-	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(*Model)
 	if !model.composerOpen || !model.composerEditing || model.composerAction != "feedback" {
 		t.Fatalf("feedback form = open:%v editing:%v action:%q", model.composerOpen, model.composerEditing, model.composerAction)
@@ -568,7 +569,7 @@ func TestModelKeepsOperationalScreensOnEnterAndUsesSafeSubcommandDefaults(t *tes
 func TestModelConfirmsStateChangingActionAndMasksSecretFields(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	model.selected = 0 // login
-	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(*Model)
 	if !model.composerOpen || model.composerAction != "login" {
 		t.Fatalf("login form = open:%v action:%q selected:%d", model.composerOpen, model.composerAction, model.selected)

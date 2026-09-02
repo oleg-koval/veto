@@ -369,7 +369,7 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "r":
-		if m.activeAction == "" && m.selected == 0 && m.width > 0 {
+		if m.activeAction == "" {
 			if action, ok := m.catalog.Find("run"); ok {
 				m.openComposer(action)
 			}
@@ -787,7 +787,9 @@ func (m *Model) View() tea.View {
 	// not honor, which otherwise leaves every frame stacked in scrollback.
 	view.AltScreen = true
 	view.DisableBracketedPasteMode = m.options.ScreenReader
-	view.ReportFocus = !m.options.ScreenReader
+	// Veto does not use focus events; avoid emitting focus-reporting control
+	// sequences that can confuse terminal tabs when the window is backgrounded.
+	view.ReportFocus = false
 	if m.options.Mouse {
 		view.MouseMode = tea.MouseModeCellMotion
 	}
@@ -1366,7 +1368,7 @@ func (m *Model) renderHelp(background string) string {
 		"k / ↑       move selection backwards",
 		"Tab         move focus",
 		"Ctrl+K / /   open command palette",
-		"r           run a task (or edit the selected command)",
+		"r           run a task",
 		"t           route only",
 		"m           inspect models",
 		"d           run diagnostics",
@@ -1375,7 +1377,7 @@ func (m *Model) renderHelp(background string) string {
 		"h           open redacted history",
 		"i           inspect integrations",
 		"p           inspect plans",
-		"Enter       select the focused command",
+		"Enter       select the focused command or edit its flags",
 		"Esc         close an overlay",
 		"q / Ctrl+C  quit cleanly",
 	}, "\n"))
