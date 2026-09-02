@@ -52,7 +52,7 @@ $ veto route "refactor the auth middleware to use JWT" --kind refactor --risk me
 ```
 
 ```bash
-brew install veto
+brew install oleg-koval/tap/veto
 veto doctor
 veto login
 veto route --json "summarize this pull request"
@@ -90,10 +90,11 @@ file for the permissions, conditions, and disclaimer.
 
 ### Homebrew (macOS)
 
-On macOS, Homebrew installs the latest release from Homebrew Core:
+On macOS, install the latest release from the Veto Homebrew tap. Homebrew Core
+acceptance is still pending:
 
 ```bash
-brew install veto
+brew install oleg-koval/tap/veto
 veto version
 veto doctor
 ```
@@ -176,13 +177,13 @@ checksum-verified official release binaries.
 On every interactive launch, veto consults its update state and refreshes the
 latest complete GitHub release at most once every 24 hours. When a newer stable
 version exists, it asks before changing anything. Homebrew installs run
-`brew upgrade veto`; versioned Go installs use the exact
+`brew upgrade oleg-koval/tap/veto`; versioned Go installs use the exact
 `go install` version; official standalone binaries require both checksum
 manifests before an atomic replacement. The original command does not continue
 after an accepted update, so re-run it with the new binary. JSON, quiet,
 non-interactive, development, and offline-failed checks never prompt or block.
 
-To upgrade manually, run `brew upgrade veto` for Homebrew. For a
+To upgrade manually, run `brew upgrade oleg-koval/tap/veto` for Homebrew. For a
 release archive, download and verify the newer archive, then replace the binary
 in the same `PATH` directory. For corruption of an official release binary,
 `veto doctor --fix` can reinstall that exact version when the executable is a
