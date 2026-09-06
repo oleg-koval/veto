@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/oleg-koval/veto/internal/controlplane"
@@ -99,6 +100,27 @@ func TestControlServiceRejectsMissingObjectiveBeforeRouting(t *testing.T) {
 	}
 	if routerPort.called {
 		t.Fatal("router called for invalid request")
+	}
+}
+
+func TestControlServicePropagatesHistorySaveFailure(t *testing.T) {
+	t.Parallel()
+
+	historyErr := errors.New("history unavailable")
+	routerPort := &serviceRouter{model: router.ModelCapabilities{Name: "test-model", Provider: "test"}}
+	service := NewControlService(Runner{}, routerPort)
+	service.SetHistorySaver(func() error { return historyErr })
+
+	result, err := service.Execute(context.Background(), controlplane.ActionRequest{
+		ActionID:  "route",
+		Arguments: map[string]string{"objective": "summarize this"},
+	})
+
+	if !errors.Is(err, historyErr) {
+		t.Fatalf("Execute error = %v, want history error", err)
+	}
+	if result.Model != "test-model" {
+		t.Fatalf("result = %#v, want completed route result", result)
 	}
 }
 

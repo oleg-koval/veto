@@ -67,6 +67,9 @@ func loadTUISnapshot(ctx context.Context) (controlplane.Snapshot, error) {
 		return snapshot, err
 	}
 	snapshot.Integrations = readTUIIntegrations()
+	if err := ctx.Err(); err != nil {
+		return snapshot, err
+	}
 	return snapshot, nil
 }
 

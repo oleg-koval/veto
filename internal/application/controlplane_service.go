@@ -222,7 +222,7 @@ func (s *ControlService) Cancel(_ context.Context, actionID string) error {
 	return nil
 }
 
-func (s *ControlService) Execute(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+func (s *ControlService) Execute(ctx context.Context, request controlplane.ActionRequest) (_ controlplane.ActionResult, executeErr error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -272,7 +272,12 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		delete(s.active, request.ActionID)
 		s.mu.Unlock()
 		if s.historySaver != nil {
-			_ = s.historySaver()
+			if err := s.historySaver(); err != nil {
+				historyErr := fmt.Errorf("save routing history: %w", err)
+				s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "error"})
+				s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "history.error", Message: strings.Join(strings.Fields(historyErr.Error()), " ")})
+				executeErr = errors.Join(executeErr, historyErr)
+			}
 		}
 	}()
 	s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "running"})
