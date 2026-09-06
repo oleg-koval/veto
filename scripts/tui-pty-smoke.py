@@ -261,8 +261,9 @@ def run_route(binary: str, home: str) -> None:
                 if b"VETO" in output:
                     break
 
-        # Select Route, submit an objective, and accept every default flag.
-        os.write(master, b"jjjjjr")
+        # Select Route, open the selected action, submit an objective, and
+        # accept every default flag. The global r shortcut opens Run.
+        os.write(master, b"jjjjj\r")
         time.sleep(0.15)
         os.write(master, b"route this example\r")
         for _ in range(12):
@@ -371,7 +372,7 @@ def run_plan(binary: str, home: str) -> None:
 
         # Open Execute plan through the palette, choose the safe plan name,
         # accept default flags, and verify the step reaches the Runner.
-        os.write(master, b"jjjjr")
+        os.write(master, b"jjjj\r")
         time.sleep(0.2)
         os.write(master, b"smoke-plan.md\r")
         for _ in range(6):
