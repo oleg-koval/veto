@@ -21,12 +21,13 @@ import (
 // control-plane contract. It is in-process by design; no daemon or HTTP hop is
 // introduced between the shell and the Runner.
 type ControlService struct {
-	runner       Runner
-	router       Router
-	source       func(context.Context) (controlplane.Snapshot, error)
-	handlers     map[string]func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error)
-	reviewer     func(context.Context, router.TaskSpec, string, string) (bool, error)
-	outputWriter func(string, string, bool) error
+	runner         Runner
+	router         Router
+	source         func(context.Context) (controlplane.Snapshot, error)
+	handlers       map[string]func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error)
+	reviewer       func(context.Context, router.TaskSpec, string, string) (bool, error)
+	outputWriter   func(string, string, bool) error
+	routingRefresh func() error
 
 	mu       sync.RWMutex
 	snapshot controlplane.Snapshot
@@ -45,6 +46,13 @@ func (s *ControlService) SetReviewer(reviewer func(context.Context, router.TaskS
 // The callback receives only the user-selected path, output, and force flag.
 func (s *ControlService) SetOutputWriter(writer func(string, string, bool) error) {
 	s.outputWriter = writer
+}
+
+// SetRoutingRefresher updates runtime bindings immediately before a route or
+// run. It keeps a long-lived TUI aligned with provider changes made outside
+// the process, such as signing in to Codex or connecting OpenCode.
+func (s *ControlService) SetRoutingRefresher(refresh func() error) {
+	s.routingRefresh = refresh
 }
 
 // NewControlService creates a service over an existing Runner and Router.
@@ -121,11 +129,15 @@ func (s *ControlService) Snapshot(ctx context.Context) (controlplane.Snapshot, e
 			snapshot.Models = nil
 		}
 		for _, model := range runtimeModels {
+			kind := controlplane.ModelKindModel
+			if model.Runtime == "codex-cli" && (model.APIModel == "" || model.APIModel == "default") {
+				kind = controlplane.ModelKindHarness
+			}
 			pinned := slices.Contains(preferences.PinnedModels, model.Name) || slices.Contains(preferences.PinnedProviders, model.Provider)
 			favorite := slices.Contains(preferences.FavoriteModels, model.Name) || slices.Contains(preferences.FavoriteProviders, model.Provider)
 			excluded := slices.Contains(preferences.DisabledModels, model.Name) || slices.Contains(preferences.ExcludedModels, model.Name) || slices.Contains(preferences.ExcludedProviders, model.Provider)
 			snapshot.Models = append(snapshot.Models, controlplane.ModelSnapshot{
-				Name: model.Name, Source: model.Source, Provider: model.Provider, Runtime: model.Runtime, Tier: model.Tier,
+				Name: model.Name, ModelID: model.Identity().Model, Kind: kind, Source: model.Source, Provider: model.Provider, Runtime: model.Runtime, Tier: model.Tier,
 				ContextTokens: model.MaxContextTokens, Tools: append([]string(nil), model.SupportsTools...), ToolsKnown: model.SupportsTools != nil,
 				CostPer1kInputUSD: model.CostPer1kInputUSD, CostPer1kOutputUSD: model.CostPer1kOutputUSD,
 				CostPer1kInputKnown: !model.CostPer1kInputUnknown, CostPer1kOutputKnown: !model.CostPer1kOutputUnknown, Status: "available",
@@ -160,7 +172,7 @@ func mergeSnapshot(base, provided controlplane.Snapshot) controlplane.Snapshot {
 	if provided.Status != "" {
 		base.Status = provided.Status
 	}
-	if provided.Monitor != (controlplane.MonitorSnapshot{}) {
+	if monitorSnapshotPresent(provided.Monitor) {
 		base.Monitor = provided.Monitor
 	}
 	// The composition-root source is authoritative and returns a complete
@@ -174,6 +186,12 @@ func mergeSnapshot(base, provided controlplane.Snapshot) controlplane.Snapshot {
 	base.Analytics = provided.Analytics
 	base.Integrations = append([]controlplane.IntegrationSnapshot(nil), provided.Integrations...)
 	return base
+}
+
+func monitorSnapshotPresent(m controlplane.MonitorSnapshot) bool {
+	return m.ActiveSessions != 0 || m.ActiveTools != 0 || m.PendingApprovals != 0 || m.Artifacts != 0 ||
+		m.LastModel != "" || m.LastProvider != "" || m.LastRuntime != "" || m.LastConfidence != 0 || m.LastConfidenceKnown || len(m.LastReasons) > 0 ||
+		m.InputTokens != 0 || m.CachedInputTokens != 0 || m.CachedInputKnown || m.OutputTokens != 0 || m.TotalTokens != 0 || m.TokensKnown || m.CostUSD != 0 || m.CostKnown || m.LatencyMs != 0 || m.LatencyKnown
 }
 
 func (s *ControlService) Subscribe(ctx context.Context) <-chan controlplane.Event {
@@ -253,6 +271,12 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		s.mu.Unlock()
 	}()
 	s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "running"})
+	if (request.ActionID == "route" || request.ActionID == "run") && s.routingRefresh != nil {
+		if err := s.routingRefresh(); err != nil {
+			s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "error"})
+			return controlplane.ActionResult{ActionID: request.ActionID}, fmt.Errorf("refresh routing providers: %w", err)
+		}
+	}
 
 	switch request.ActionID {
 	case "route":
@@ -266,7 +290,8 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 			return controlplane.ActionResult{ActionID: request.ActionID}, err
 		}
 		s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "ready", Provider: model.Provider, Model: model.Name})
-		s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "route.completed", Message: fmt.Sprintf("%s accepted (%.0f%% confidence)", model.Name, decision.Confidence*100)})
+		reasons := routeDecisionReasons(decision)
+		s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "route.completed", Message: fmt.Sprintf("%s accepted (%.0f%% confidence)", model.Name, decision.Confidence*100), Model: model.Name, Confidence: decision.Confidence, ConfidenceKnown: true, Reasons: reasons})
 		return controlplane.ActionResult{ActionID: request.ActionID, Summary: "model selected", Model: model.Name}, nil
 	case "run":
 		if s.router == nil {
@@ -343,8 +368,10 @@ func taskFromRequest(request controlplane.ActionRequest, objective string) route
 		risk = router.RiskMedium
 	}
 	maxCost, _ := strconv.ParseFloat(request.Arguments["max-cost"], 64)
-	maxTokens, _ := strconv.Atoi(request.Arguments["max-output-tokens"])
-	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, MaxTokens: maxTokens, RequiredTools: splitRequestList(request.Arguments["required-tools"]), RequiresExecutableTools: request.Arguments["requires-executable-tools"] == "true", SuccessCriteria: splitRequestList(request.Arguments["criteria"]), RuntimeFilter: request.Arguments["runtime"], ProviderFilter: request.Arguments["provider"], Source: "tui"}
+	// max-output-tokens is an execution budget, not a routing context
+	// requirement. Feeding it into TaskSpec.MaxTokens makes unknown-context
+	// agent runtimes (Codex/OpenCode) fail hard filtering before admission.
+	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, RequiredTools: splitRequestList(request.Arguments["required-tools"]), RequiresExecutableTools: request.Arguments["requires-executable-tools"] == "true", SuccessCriteria: splitRequestList(request.Arguments["criteria"]), RuntimeFilter: request.Arguments["runtime"], ProviderFilter: request.Arguments["provider"], Source: "tui"}
 }
 
 func splitRequestList(value string) []string {
@@ -370,16 +397,54 @@ func (s *ControlService) wrapHooks(original Hooks) Hooks {
 				original.OnExecutionEvent(event)
 			}
 			s.recordExecutionMonitor(event)
-			s.publish(controlplane.Event{ActionID: "run", Kind: "execution." + string(event.Kind), Message: event.Detail})
+			s.publish(controlplane.Event{ActionID: "run", Kind: "execution." + string(event.Kind), Message: executionEventMessage(event), Model: event.Model.Name})
 		},
 		OnRuntimeEvent: func(taskID string, model router.ModelCapabilities, event execution.RuntimeEvent) {
 			if original.OnRuntimeEvent != nil {
 				original.OnRuntimeEvent(taskID, model, event)
 			}
 			s.recordRuntimeMonitor(event)
-			s.publish(controlplane.Event{ActionID: "run", Kind: "runtime." + string(event.Kind), Message: event.Status})
+			s.publish(controlplane.Event{ActionID: "run", Kind: "runtime." + string(event.Kind), Message: runtimeEventMessage(event)})
 		},
 	}
+}
+
+func executionEventMessage(event ExecutionEvent) string {
+	parts := make([]string, 0, 4)
+	if event.Model.Name != "" {
+		parts = append(parts, event.Model.Name)
+	}
+	if event.Metrics.Status != "" {
+		parts = append(parts, event.Metrics.Status)
+	}
+	if event.Metrics.UsageKnown {
+		usage := fmt.Sprintf("%d input + %d output", event.Metrics.InputTokens, event.Metrics.OutputTokens)
+		if event.Metrics.CachedInputKnown {
+			usage += fmt.Sprintf(" (%d reused)", event.Metrics.CachedInputTokens)
+		}
+		parts = append(parts, usage)
+	}
+	if event.Metrics.LatencyKnown {
+		parts = append(parts, (time.Duration(event.Metrics.LatencyMs) * time.Millisecond).Round(time.Millisecond).String())
+	}
+	if detail := strings.Join(strings.Fields(event.Detail), " "); detail != "" {
+		parts = append(parts, detail)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func runtimeEventMessage(event execution.RuntimeEvent) string {
+	parts := make([]string, 0, 3)
+	if event.Name != "" {
+		parts = append(parts, event.Name)
+	}
+	if event.Status != "" {
+		parts = append(parts, event.Status)
+	}
+	if event.Count > 1 {
+		parts = append(parts, fmt.Sprintf("%d items", event.Count))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (s *ControlService) recordExecutionMonitor(event ExecutionEvent) {
@@ -392,7 +457,16 @@ func (s *ControlService) recordExecutionMonitor(event ExecutionEvent) {
 		if monitor.ActiveSessions > 0 {
 			monitor.ActiveSessions--
 		}
+		if event.Model.Name != "" {
+			monitor.LastModel = event.Model.Name
+			monitor.LastProvider = event.Model.Provider
+			monitor.LastRuntime = event.Model.Runtime
+		}
 		if event.Metrics.UsageKnown {
+			monitor.InputTokens = event.Metrics.InputTokens
+			monitor.CachedInputTokens = event.Metrics.CachedInputTokens
+			monitor.CachedInputKnown = event.Metrics.CachedInputKnown
+			monitor.OutputTokens = event.Metrics.OutputTokens
 			monitor.TotalTokens = event.Metrics.TotalTokens
 			monitor.TokensKnown = true
 		}
@@ -437,14 +511,42 @@ func (s *ControlService) recordRuntimeMonitor(event execution.RuntimeEvent) {
 }
 
 func (s *ControlService) publishRouteEvent(event router.ProgressEvent) {
+	reasons := append([]string(nil), event.Reasons...)
+	if event.Kind == router.EventAskAccept && len(reasons) == 0 {
+		reasons = []string{"ranked highest among eligible candidates", "accepted by admission gate"}
+	}
 	message := event.Model
-	if len(event.Reasons) > 0 {
-		message += " · " + strings.Join(event.Reasons, ",")
+	if len(reasons) > 0 {
+		message += " · " + strings.Join(reasons, ",")
 	}
 	if event.Detail != "" {
 		message += " · " + strings.Join(strings.Fields(event.Detail), " ")
 	}
-	s.publish(controlplane.Event{ActionID: "route", Kind: "route." + string(event.Kind), Message: message})
+	s.publish(controlplane.Event{ActionID: "route", Kind: "route." + string(event.Kind), Message: message, Model: event.Model, Confidence: event.Confidence, ConfidenceKnown: event.Confidence > 0, Reasons: reasons})
+	if event.Kind == router.EventAskAccept && event.Model != "" {
+		s.mu.Lock()
+		s.snapshot.Model = event.Model
+		s.snapshot.Monitor.LastModel = event.Model
+		s.snapshot.Monitor.LastConfidence = event.Confidence
+		s.snapshot.Monitor.LastConfidenceKnown = event.Confidence > 0
+		s.snapshot.Monitor.LastReasons = append([]string(nil), reasons...)
+		for _, model := range s.snapshot.Models {
+			if model.Name == event.Model {
+				s.snapshot.Provider = model.Provider
+				s.snapshot.Monitor.LastProvider = model.Provider
+				s.snapshot.Monitor.LastRuntime = model.Runtime
+				break
+			}
+		}
+		s.mu.Unlock()
+	}
+}
+
+func routeDecisionReasons(decision router.AdmissionDecision) []string {
+	if len(decision.ReasonCodes) > 0 {
+		return append([]string(nil), decision.ReasonCodes...)
+	}
+	return []string{"ranked highest among eligible candidates", "accepted by admission gate"}
 }
 
 func (s *ControlService) publish(event controlplane.Event) {
@@ -464,6 +566,12 @@ func (s *ControlService) publish(event controlplane.Event) {
 func (s *ControlService) setSnapshot(snapshot controlplane.Snapshot) {
 	s.mu.Lock()
 	snapshot.Monitor = s.snapshot.Monitor
+	if snapshot.Model == "" {
+		snapshot.Model = s.snapshot.Model
+	}
+	if snapshot.Provider == "" {
+		snapshot.Provider = s.snapshot.Provider
+	}
 	if len(snapshot.Providers) == 0 {
 		snapshot.Providers = s.snapshot.Providers
 	}

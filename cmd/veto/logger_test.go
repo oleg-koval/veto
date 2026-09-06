@@ -89,7 +89,7 @@ func TestLogExecutionPreservesKnownUsage(t *testing.T) {
 	logExecution("task-1", ledger.EventExecutionCompleted, router.ModelCapabilities{
 		Name: "model", Runtime: "openai-api",
 	}, router.ExecutionMetrics{
-		Status: "success", InputTokens: 10, OutputTokens: 5, TotalTokens: 15,
+		Status: "success", InputTokens: 10, CachedInputTokens: 7, CachedInputKnown: true, OutputTokens: 5, TotalTokens: 15,
 		UsageKnown: true, CostUSD: 0.01, CostKnown: true, LatencyMs: 20, LatencyKnown: true,
 	}, "")
 
@@ -97,8 +97,24 @@ func TestLogExecutionPreservesKnownUsage(t *testing.T) {
 	require.NoError(t, json.Unmarshal(output.Bytes(), &event))
 	require.NotNil(t, event.Usage)
 	assert.Equal(t, 15, event.Usage.TotalTokens)
+	assert.Equal(t, 7, event.Usage.CachedInputTokens)
+	assert.True(t, event.Usage.CachedInputKnown)
 	require.NotNil(t, event.CostUSD)
 	assert.Equal(t, 0.01, *event.CostUSD)
+}
+
+func TestTUILoggerStartsFreshGroupedRunPerSubmission(t *testing.T) {
+	previousRunID := eventRunID
+	t.Cleanup(func() {
+		eventRunID = previousRunID
+	})
+	eventRunID = "run-process"
+	beginLoggedRun()
+	first := currentRunID("execution-task")
+	assert.Equal(t, first, currentRunID("review-task"))
+	beginLoggedRun()
+	assert.NotEqual(t, first, currentRunID("next-task"))
+	assert.Regexp(t, `^run-[0-9a-f]{32}$`, first)
 }
 
 func TestLogRuntimeEventUsesAllowlistedFields(t *testing.T) {

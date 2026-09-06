@@ -361,6 +361,10 @@ func cmdRoute(args []string) {
 		RuntimeFilter:           *runtimeFilter,
 		ProviderFilter:          *providerFilter,
 	}
+	_ = saveTUIMission(tuiMissionRecord{
+		RunID: currentRunID(hash), TaskID: hash, Kind: kind, Risk: *risk,
+		CreatedAt: time.Now(), Objective: objective,
+	})
 
 	model, decision, err := mgr.Route(ctx, spec)
 	// persist history regardless of outcome — os.Exit below skips defers
@@ -693,9 +697,10 @@ type admissionExecutorAdapter struct {
 }
 
 var (
-	_ router.Executor        = admissionExecutorAdapter{}
-	_ router.ToolProvider    = admissionExecutorAdapter{}
-	_ router.ExecutorFactory = (*providerRegistry)(nil)
+	_ router.Executor                = admissionExecutorAdapter{}
+	_ router.ToolProvider            = admissionExecutorAdapter{}
+	_ router.RuntimeIdentityProvider = admissionExecutorAdapter{}
+	_ router.ExecutorFactory         = (*providerRegistry)(nil)
 )
 
 func (a admissionExecutorAdapter) Run(ctx context.Context, prompt string) router.AdmissionResult {
@@ -715,6 +720,13 @@ func (a admissionExecutorAdapter) AdmissionTools() router.ToolCapabilities {
 		capabilities.Tools = nil
 	}
 	return capabilities
+}
+
+func (a admissionExecutorAdapter) AdmissionRuntimeID() string {
+	if a.runtime == nil {
+		return ""
+	}
+	return a.runtime.RuntimeID()
 }
 
 func (r *providerRegistry) For(name string) (router.Executor, bool) {

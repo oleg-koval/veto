@@ -2,6 +2,8 @@ package application
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/oleg-koval/veto/internal/controlplane"
@@ -38,6 +40,51 @@ func TestControlServiceRoutesAndPublishesProgress(t *testing.T) {
 	}
 }
 
+func TestControlServiceRefreshesRoutingBeforeRouteAndRun(t *testing.T) {
+	t.Parallel()
+
+	for _, actionID := range []string{"route", "run"} {
+		t.Run(actionID, func(t *testing.T) {
+			routerPort := &serviceRouter{model: router.ModelCapabilities{Name: "fresh-model", Provider: "test"}}
+			runner := Runner{Router: routerPort, Runtime: serviceResolver{runtime: serviceRuntime{}}}
+			service := NewControlService(runner, routerPort)
+			refreshes := 0
+			service.SetRoutingRefresher(func() error {
+				refreshes++
+				return nil
+			})
+
+			_, err := service.Execute(context.Background(), controlplane.ActionRequest{
+				ActionID:  actionID,
+				Arguments: map[string]string{"objective": "inspect the repository"},
+			})
+			if err != nil {
+				t.Fatalf("%s failed: %v", actionID, err)
+			}
+			if refreshes != 1 {
+				t.Fatalf("routing refreshes = %d, want 1", refreshes)
+			}
+		})
+	}
+}
+
+func TestControlServiceStopsRouteWhenRoutingRefreshFails(t *testing.T) {
+	t.Parallel()
+
+	routerPort := &serviceRouter{}
+	service := NewControlService(Runner{}, routerPort)
+	service.SetRoutingRefresher(func() error { return errors.New("Codex login changed") })
+	_, err := service.Execute(context.Background(), controlplane.ActionRequest{
+		ActionID: "route", Arguments: map[string]string{"objective": "inspect the repository"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "refresh routing providers") {
+		t.Fatalf("refresh error = %v", err)
+	}
+	if routerPort.called {
+		t.Fatal("router called after refresh failure")
+	}
+}
+
 func TestControlServiceRejectsUnsupportedRequestSchema(t *testing.T) {
 	t.Parallel()
 
@@ -47,17 +94,20 @@ func TestControlServiceRejectsUnsupportedRequestSchema(t *testing.T) {
 	}
 }
 
-func TestTaskFromRequestPreservesComposerCapabilitiesAndCriteria(t *testing.T) {
+func TestTaskFromRequestKeepsOutputBudgetOutOfRoutingCapabilities(t *testing.T) {
 	t.Parallel()
 
 	task := taskFromRequest(controlplane.ActionRequest{Arguments: map[string]string{
 		"kind": "review", "risk": "high", "required-tools": "read, browser-dom", "requires-executable-tools": "true", "criteria": "tests pass; no regression", "max-cost": "0.25", "max-output-tokens": "120",
 	}}, "inspect the change")
-	if task.Kind != router.KindReview || task.Risk != router.RiskHigh || !task.RequiresExecutableTools || task.MaxCostUSD != 0.25 || task.MaxTokens != 120 {
+	if task.Kind != router.KindReview || task.Risk != router.RiskHigh || !task.RequiresExecutableTools || task.MaxCostUSD != 0.25 || task.MaxTokens != 0 {
 		t.Fatalf("task = %#v", task)
 	}
 	if len(task.RequiredTools) != 2 || task.RequiredTools[1] != "browser-dom" || len(task.SuccessCriteria) != 2 {
 		t.Fatalf("task capabilities = %#v criteria = %#v", task.RequiredTools, task.SuccessCriteria)
+	}
+	if options := executionOptions(controlplane.ActionRequest{Arguments: map[string]string{"max-output-tokens": "120"}}); options.MaxOutputTokens != 120 {
+		t.Fatalf("execution options = %#v", options)
 	}
 }
 
@@ -78,14 +128,45 @@ func TestControlServiceTracksBoundedRuntimeMonitorCounters(t *testing.T) {
 	service.recordRuntimeMonitor(execution.RuntimeEvent{Kind: execution.RuntimeToolStarted})
 	service.recordRuntimeMonitor(execution.RuntimeEvent{Kind: execution.RuntimeApprovalRequested})
 	service.recordRuntimeMonitor(execution.RuntimeEvent{Kind: execution.RuntimeArtifactCreated, Count: 2})
-	service.recordExecutionMonitor(ExecutionEvent{Kind: ExecutionCompleted, Metrics: router.ExecutionMetrics{TotalTokens: 42, UsageKnown: true, CostUSD: 0.12, CostKnown: true, LatencyMs: 80, LatencyKnown: true}})
+	service.recordExecutionMonitor(ExecutionEvent{Kind: ExecutionCompleted, Model: router.ModelCapabilities{Name: "haiku", Provider: "anthropic", Runtime: "claude-cli"}, Metrics: router.ExecutionMetrics{InputTokens: 40, CachedInputTokens: 30, CachedInputKnown: true, OutputTokens: 2, TotalTokens: 42, UsageKnown: true, CostUSD: 0.12, CostKnown: true, LatencyMs: 80, LatencyKnown: true}})
 	snapshot, err := service.Snapshot(context.Background())
 	if err != nil {
 		t.Fatalf("snapshot failed: %v", err)
 	}
 	monitor := snapshot.Monitor
-	if monitor.ActiveSessions != 0 || monitor.ActiveTools != 1 || monitor.PendingApprovals != 1 || monitor.Artifacts != 2 || monitor.TotalTokens != 42 || !monitor.CostKnown || monitor.LatencyMs != 80 {
+	if monitor.ActiveSessions != 0 || monitor.ActiveTools != 1 || monitor.PendingApprovals != 1 || monitor.Artifacts != 2 || monitor.LastModel != "haiku" || monitor.LastProvider != "anthropic" || monitor.LastRuntime != "claude-cli" || monitor.InputTokens != 40 || monitor.CachedInputTokens != 30 || !monitor.CachedInputKnown || monitor.OutputTokens != 2 || monitor.TotalTokens != 42 || !monitor.CostKnown || monitor.LatencyMs != 80 {
 		t.Fatalf("monitor = %#v", monitor)
+	}
+}
+
+func TestControlServiceRetainsLastRouteWhenRefreshingAnotherScreen(t *testing.T) {
+	service := NewControlService(Runner{}, &serviceRouter{})
+	service.setSnapshot(controlplane.Snapshot{Model: "haiku", Provider: "anthropic", Status: "ready"})
+	service.setSnapshot(controlplane.Snapshot{ActiveAction: "doctor", Status: "running"})
+	snapshot, err := service.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot failed: %v", err)
+	}
+	if snapshot.Model != "haiku" || snapshot.Provider != "anthropic" {
+		t.Fatalf("last route was cleared by screen refresh: %#v", snapshot)
+	}
+}
+
+func TestControlServicePublishesUsefulSafeRuntimeDetails(t *testing.T) {
+	executionMessage := executionEventMessage(ExecutionEvent{
+		Model: router.ModelCapabilities{Name: "codex"},
+		Metrics: router.ExecutionMetrics{
+			Status: "success", InputTokens: 385562, CachedInputTokens: 300000, CachedInputKnown: true, OutputTokens: 3297, UsageKnown: true,
+			LatencyMs: 103540, LatencyKnown: true,
+		},
+	})
+	for _, want := range []string{"codex", "success", "385562 input + 3297 output (300000 reused)", "1m43.54s"} {
+		if !strings.Contains(executionMessage, want) {
+			t.Fatalf("execution message %q missing %q", executionMessage, want)
+		}
+	}
+	if got := runtimeEventMessage(execution.RuntimeEvent{Kind: execution.RuntimeToolError, Name: "shell", Status: "failed (exit 7)"}); got != "shell · failed (exit 7)" {
+		t.Fatalf("runtime message = %q", got)
 	}
 }
 
@@ -207,6 +288,34 @@ func TestControlServiceSnapshotExposesOnlyModelMetadata(t *testing.T) {
 	}
 	if len(snapshot.Providers) != 1 || !snapshot.Providers[0].Configured {
 		t.Fatalf("providers = %#v", snapshot.Providers)
+	}
+}
+
+func TestControlServiceSnapshotClassifiesHostSelectedCodexAsHarness(t *testing.T) {
+	t.Parallel()
+
+	service := NewControlService(Runner{Runtime: modelSource{models: []router.ModelCapabilities{
+		{Name: "codex", Provider: "codex", APIModel: "default", Runtime: "codex-cli"},
+		{Name: "luna", Provider: "openai", APIModel: "gpt-5.6-luna", Runtime: "openai-api"},
+	}}}, &serviceRouter{})
+	snapshot, err := service.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot failed: %v", err)
+	}
+	if len(snapshot.Models) != 2 {
+		t.Fatalf("models = %#v", snapshot.Models)
+	}
+	for _, model := range snapshot.Models {
+		switch model.Name {
+		case "codex":
+			if model.Kind != controlplane.ModelKindHarness || model.ModelID != "default" {
+				t.Fatalf("codex identity = %#v", model)
+			}
+		case "luna":
+			if model.Kind != controlplane.ModelKindModel || model.ModelID != "gpt-5.6-luna" {
+				t.Fatalf("luna identity = %#v", model)
+			}
+		}
 	}
 }
 

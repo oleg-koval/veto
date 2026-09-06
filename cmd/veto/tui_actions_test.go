@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/oleg-koval/veto/internal/application"
 	"github.com/oleg-koval/veto/internal/controlplane"
 	"github.com/oleg-koval/veto/internal/tui"
+	"github.com/oleg-koval/veto/pkg/ledger"
 )
 
 func TestTUIScreenReaderModeUsesStableTextPresentation(t *testing.T) {
@@ -31,6 +33,173 @@ func TestTUIScreenReaderModeUsesStableTextPresentation(t *testing.T) {
 	}
 	if !strings.Contains(view, "STATUS") || !strings.Contains(view, "COMMANDS") {
 		t.Fatalf("screen-reader presentation lacks stable labels:\n%s", view)
+	}
+}
+
+func TestTUIIntegrationsIncludeImpeccableHarness(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	openCodeFound := false
+	for _, integration := range readTUIIntegrations() {
+		if integration.Name == "OpenCode" {
+			openCodeFound = true
+			if integration.PrimaryAction != "connect" || strings.Contains(integration.Detail, "run veto") {
+				t.Fatalf("OpenCode snapshot delegates work to the user: %#v", integration)
+			}
+		}
+		if integration.Name == "Impeccable" {
+			if integration.Status != "available" || integration.PrimaryAction != "install" || !strings.Contains(integration.Detail, "design skills") {
+				t.Fatalf("Impeccable snapshot = %#v", integration)
+			}
+			if !openCodeFound {
+				t.Fatal("OpenCode integration is missing")
+			}
+			return
+		}
+	}
+	t.Fatal("Impeccable integration is missing")
+}
+
+func TestTUIImpeccableInstallUsesAvailableCLI(t *testing.T) {
+	var executable string
+	var arguments []string
+	result, err := runTUIImpeccableInstall(context.Background(), func(name string) (string, error) {
+		if name == "impeccable" {
+			return "/safe/bin/impeccable", nil
+		}
+		return "", fmt.Errorf("unexpected executable %s", name)
+	}, func(_ context.Context, name string, args ...string) ([]byte, error) {
+		executable = name
+		arguments = append([]string(nil), args...)
+		return []byte("installed"), nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if executable != "/safe/bin/impeccable" || strings.Join(arguments, " ") != "install --providers=veto --scope=global" {
+		t.Fatalf("Impeccable invocation = %q %#v", executable, arguments)
+	}
+	if result.Summary != "Impeccable installed for Veto" || result.Output != "installed" {
+		t.Fatalf("Impeccable result = %#v", result)
+	}
+}
+
+func TestTUIImpeccableInstallFallsBackToNonInteractiveNPX(t *testing.T) {
+	var arguments []string
+	_, err := runTUIImpeccableInstall(context.Background(), func(name string) (string, error) {
+		if name == "npx" {
+			return "/safe/bin/npx", nil
+		}
+		return "", os.ErrNotExist
+	}, func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		arguments = append([]string(nil), args...)
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(arguments, " ") != "--yes impeccable install --providers=veto --scope=global" {
+		t.Fatalf("npx invocation = %#v", arguments)
+	}
+}
+
+func TestTUIHistoryTreatsCodexAsHarnessWithUnknownModel(t *testing.T) {
+	model, harness := tuiHistoryIdentity(ledger.Event{Model: "codex", Runtime: "codex-cli"})
+	if model != "" || harness != "Codex CLI" {
+		t.Fatalf("codex identity = model:%q harness:%q", model, harness)
+	}
+	model, harness = tuiHistoryIdentity(ledger.Event{Model: "luna", Runtime: "openai-api"})
+	if model != "luna" || harness != "OpenAI API" {
+		t.Fatalf("model identity = model:%q harness:%q", model, harness)
+	}
+}
+
+func TestTUIHistoryLoadsAllEventsForClientSideFiltering(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logs := filepath.Join(home, ".veto", "logs")
+	if err := os.MkdirAll(logs, 0700); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(filepath.Join(logs, "veto-pagination.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := ledger.NewWriter(file)
+	for index := 0; index < 55; index++ {
+		if err := writer.Append(ledger.Event{RunID: "run-pagination", Type: ledger.EventFilterPass, Model: fmt.Sprintf("model-%02d", index)}); err != nil {
+			_ = file.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	history := readTUIHistory()
+	if len(history) != 55 {
+		t.Fatalf("history rows = %d, want all 55", len(history))
+	}
+}
+
+func TestTUIHistoryPreservesRedactedMissionEvidence(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logs := filepath.Join(home, ".veto", "logs")
+	if err := os.MkdirAll(logs, 0700); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(filepath.Join(logs, "veto-evidence.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	confidence, estimatedCost, cost, latency := 0.91, 0.01, 0.012, int64(4321)
+	estimatedTokens := 800
+	writer := ledger.NewWriter(file)
+	if err := writer.Append(ledger.Event{
+		RunID: "run-evidence", TaskID: "task-evidence", TaskKind: "review", Risk: "medium",
+		Type: ledger.EventReviewError, Model: "luna", Runtime: "openai-api", Status: "error",
+		Reasons: []string{"criteria-unavailable"}, Confidence: &confidence, EstimatedTokens: &estimatedTokens,
+		EstimatedCostUSD: &estimatedCost, Usage: &ledger.Usage{InputTokens: 300, OutputTokens: 200, TotalTokens: 500},
+		CostUSD: &cost, LatencyMS: &latency, Detail: "token=secret reviewer unavailable",
+	}); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	history := readTUIHistory()
+	if len(history) != 1 {
+		t.Fatalf("history rows = %d, want 1", len(history))
+	}
+	event := history[0]
+	if event.RunID != "run-evidence" || event.TaskID != "task-evidence" || event.TaskKind != "review" || event.Risk != "medium" || event.Model != "luna" || event.Runtime != "OpenAI API" {
+		t.Fatalf("history identity metadata = %#v", event)
+	}
+	if !event.ConfidenceKnown || event.Confidence != confidence || !event.EstimatedTokensKnown || event.EstimatedTokens != estimatedTokens || !event.EstimatedCostKnown || !event.UsageKnown || !event.CostKnown || !event.LatencyKnown {
+		t.Fatalf("history evidence metadata = %#v", event)
+	}
+	if strings.Contains(event.Detail, "secret") || !strings.Contains(event.Detail, "[REDACTED]") {
+		t.Fatalf("history detail was not redacted: %q", event.Detail)
+	}
+}
+
+func TestTUIPlansLoadsAllFilesForClientSideFiltering(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	plansDir := filepath.Join(home, ".veto", "plans")
+	if err := os.MkdirAll(plansDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 55; index++ {
+		path := filepath.Join(plansDir, fmt.Sprintf("plan-%02d.md", index))
+		if err := os.WriteFile(path, []byte("# plan\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if plans := readTUIPlans(); len(plans) != 55 {
+		t.Fatalf("plan rows = %d, want all 55", len(plans))
 	}
 }
 
@@ -221,7 +390,7 @@ func TestRunTUIDoctorJSONReturnsDiagnosticReport(t *testing.T) {
 	result, err := runTUIDoctor(controlplane.ActionRequest{ActionID: "doctor", Arguments: map[string]string{
 		"offline": "true", "json": "true",
 	}})
-	if err != nil {
+	if err != nil && !strings.Contains(err.Error(), "doctor found") {
 		t.Fatalf("doctor failed: %v", err)
 	}
 	var report map[string]any

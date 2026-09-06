@@ -31,10 +31,12 @@ func (o ExecutionOptions) EffectiveMaxOutputTokens() int {
 // Usage contains provider-reported token counts. Known distinguishes an
 // omitted usage object from a provider that explicitly reported zero values.
 type Usage struct {
-	InputTokens  int
-	OutputTokens int
-	TotalTokens  int
-	Known        bool
+	InputTokens       int
+	CachedInputTokens int
+	CachedInputKnown  bool
+	OutputTokens      int
+	TotalTokens       int
+	Known             bool
 }
 
 // Result holds the output of a single model invocation.

@@ -64,16 +64,26 @@ type Snapshot struct {
 // MonitorSnapshot contains bounded, non-sensitive operational counters for
 // active and recently completed work.
 type MonitorSnapshot struct {
-	ActiveSessions   int
-	ActiveTools      int
-	PendingApprovals int
-	Artifacts        int
-	TotalTokens      int
-	TokensKnown      bool
-	CostUSD          float64
-	CostKnown        bool
-	LatencyMs        int64
-	LatencyKnown     bool
+	ActiveSessions      int
+	ActiveTools         int
+	PendingApprovals    int
+	Artifacts           int
+	LastModel           string
+	LastProvider        string
+	LastRuntime         string
+	LastConfidence      float64
+	LastConfidenceKnown bool
+	LastReasons         []string
+	InputTokens         int
+	CachedInputTokens   int
+	CachedInputKnown    bool
+	OutputTokens        int
+	TotalTokens         int
+	TokensKnown         bool
+	CostUSD             float64
+	CostKnown           bool
+	LatencyMs           int64
+	LatencyKnown        bool
 }
 
 // ProviderSnapshot contains safe availability metadata only.
@@ -87,6 +97,8 @@ type ProviderSnapshot struct {
 // content are deliberately absent.
 type ModelSnapshot struct {
 	Name                 string
+	ModelID              string
+	Kind                 string
 	Source               string
 	Provider             string
 	Runtime              string
@@ -104,13 +116,43 @@ type ModelSnapshot struct {
 	Excluded             bool
 }
 
+const (
+	ModelKindModel   = "model"
+	ModelKindHarness = "harness"
+)
+
 // HistorySnapshot is a redacted ledger entry suitable for local rendering.
 type HistorySnapshot struct {
-	Timestamp time.Time
-	Type      string
-	Model     string
-	Runtime   string
-	Status    string
+	Timestamp            time.Time
+	EventID              string
+	RunID                string
+	TaskID               string
+	MissionTitle         string
+	Objective            string
+	TaskKind             string
+	Risk                 string
+	Type                 string
+	Model                string
+	Runtime              string
+	Status               string
+	Reasons              []string
+	Confidence           float64
+	ConfidenceKnown      bool
+	EstimatedTokens      int
+	EstimatedTokensKnown bool
+	EstimatedCostUSD     float64
+	EstimatedCostKnown   bool
+	InputTokens          int
+	CachedInputTokens    int
+	CachedInputKnown     bool
+	OutputTokens         int
+	TotalTokens          int
+	UsageKnown           bool
+	CostUSD              float64
+	CostKnown            bool
+	LatencyMS            int64
+	LatencyKnown         bool
+	Detail               string
 }
 
 type PlanSnapshot struct {
@@ -132,17 +174,22 @@ type AnalyticsSnapshot struct {
 }
 
 type IntegrationSnapshot struct {
-	Name   string
-	Status string
-	Detail string
+	Name          string
+	Status        string
+	Detail        string
+	PrimaryAction string
 }
 
 // Event is an ephemeral, non-sensitive update for an active operation.
 type Event struct {
-	Version  int
-	ActionID string
-	Kind     string
-	Message  string
+	Version         int
+	ActionID        string
+	Kind            string
+	Message         string
+	Model           string
+	Confidence      float64
+	ConfidenceKnown bool
+	Reasons         []string
 }
 
 // Service is the in-process control-plane boundary. Implementations must not

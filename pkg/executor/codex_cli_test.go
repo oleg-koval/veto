@@ -3,6 +3,7 @@ package executor
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -56,7 +57,8 @@ if [ -n "$schema" ]; then
   printf '%s\n' '{"accept":true,"confidence":0.9,"reason_codes":[],"estimated_tokens":100,"estimated_cost_usd":0,"suggested_alternative_model":"","required_task_changes":[]}' > "$output"
 else
   case "$all" in
-    *"--ignore-user-config"*|*"--ignore-rules"*|*"--sandbox read-only"*) exit 6 ;;
+    *"--ephemeral"*"--ignore-user-config"*) : ;;
+    *) exit 6 ;;
   esac
 	case "$all" in
 	  *"--json"*) ;;
@@ -84,11 +86,12 @@ fi
 	execution := exec.Execute(t.Context(), "execute", ExecutionOptions{})
 	require.NoError(t, execution.Error)
 	assert.Equal(t, "codex execution complete", execution.Output)
-	assert.Equal(t, Usage{InputTokens: 21, OutputTokens: 13, TotalTokens: 34, Known: true}, execution.Usage)
+	assert.Equal(t, Usage{InputTokens: 21, CachedInputTokens: 8, CachedInputKnown: true, OutputTokens: 13, TotalTokens: 34, Known: true}, execution.Usage)
 	assert.True(t, execution.CostKnown)
 	assert.Zero(t, execution.CostUSD)
 	assert.Equal(t, "codex-cli", exec.RuntimeID())
 	assert.Equal(t, []string{"bash", "read", "write", "edit"}, exec.EffectiveTools())
+	assert.Contains(t, exec.executionArgs("execute"), fmt.Sprintf("model_auto_compact_token_limit=%d", codexAutoCompactTokenLimit))
 
 	calls, err := os.ReadFile(logPath)
 	require.NoError(t, err)
@@ -125,6 +128,13 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens
 		{Kind: RuntimeToolStarted, Name: "shell", Status: "running"},
 		{Kind: RuntimeToolCompleted, Name: "shell", Status: "completed"},
 	}, events)
+}
+
+func TestCodexCLIReportsSafeToolFailureDetail(t *testing.T) {
+	state := codexExecutionState{emit: func(event RuntimeEvent) {
+		assert.Equal(t, RuntimeEvent{Kind: RuntimeToolError, Name: "shell", Status: "failed (exit 7)"}, event)
+	}}
+	require.NoError(t, state.process([]byte(`{"type":"item.completed","item":{"type":"command_execution","status":"failed","exit_code":7,"aggregated_output":"secret output"}}`)))
 }
 
 func TestCodexCLIRejectsMalformedOrEmptyEventOutput(t *testing.T) {

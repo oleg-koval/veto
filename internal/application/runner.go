@@ -295,7 +295,8 @@ func ExecutionStatus(ctx context.Context, fallback string) string {
 func ExecutionMetrics(model router.ModelCapabilities, result execution.Result, elapsed time.Duration, status string) router.ExecutionMetrics {
 	metrics := router.ExecutionMetrics{
 		Status: status, LatencyMs: elapsed.Milliseconds(), LatencyKnown: true,
-		InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens,
+		InputTokens: result.Usage.InputTokens, CachedInputTokens: result.Usage.CachedInputTokens,
+		CachedInputKnown: result.Usage.CachedInputKnown, OutputTokens: result.Usage.OutputTokens,
 		TotalTokens: result.Usage.TotalTokens, UsageKnown: result.Usage.Known,
 	}
 	if result.CostKnown {

@@ -51,10 +51,15 @@ const (
 
 // TaskSpec describes a unit of work to be routed and executed.
 type TaskSpec struct {
-	ID                      string
-	Kind                    TaskKind
-	Complexity              Complexity // "" = inferred by Manager from Objective+Kind
-	Objective               string
+	ID         string
+	Kind       TaskKind
+	Complexity Complexity // "" = inferred by Manager from Objective+Kind
+	Objective  string
+	// AdmissionObjective is an optional compact description used only while
+	// selecting a model. Execution always receives Objective. This prevents
+	// large generated payloads (for example review output) from being sent once
+	// for admission and again for execution.
+	AdmissionObjective      string
 	Context                 string
 	Constraints             []string
 	RequiredTools           []string
@@ -147,15 +152,17 @@ type RoutingSignal struct {
 // execution. Known flags distinguish an observed zero from an unavailable
 // measurement (for example, subscription CLIs usually do not expose usage).
 type ExecutionMetrics struct {
-	Status       string
-	Score        float64
-	ScoreKnown   bool
-	InputTokens  int
-	OutputTokens int
-	TotalTokens  int
-	UsageKnown   bool
-	CostUSD      float64
-	CostKnown    bool
-	LatencyMs    int64
-	LatencyKnown bool
+	Status            string
+	Score             float64
+	ScoreKnown        bool
+	InputTokens       int
+	CachedInputTokens int
+	CachedInputKnown  bool
+	OutputTokens      int
+	TotalTokens       int
+	UsageKnown        bool
+	CostUSD           float64
+	CostKnown         bool
+	LatencyMs         int64
+	LatencyKnown      bool
 }

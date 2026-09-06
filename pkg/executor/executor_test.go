@@ -62,6 +62,13 @@ func TestParseClaudeStructuredResultFallsBackToResult(t *testing.T) {
 	assert.JSONEq(t, `{"accept":false,"confidence":0.8,"reason_codes":["RISK_TOO_HIGH"]}`, output)
 }
 
+func TestClaudeStructuredErrorPreservesProviderFailure(t *testing.T) {
+	err := claudeStructuredError([]byte(`{"is_error":true,"result":"subscription access disabled"}`))
+	require.EqualError(t, err, "subscription access disabled")
+	assert.NoError(t, claudeStructuredError([]byte(`{"is_error":false,"result":"ok"}`)))
+	assert.NoError(t, claudeStructuredError([]byte(`not json`)))
+}
+
 // roundTripFunc lets tests inject a custom http.RoundTripper without a real server.
 type roundTripFunc func(*http.Request) (*http.Response, error)
 

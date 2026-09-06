@@ -121,6 +121,63 @@ func TestManager_Route_AdmissionCallsNeverExceedLimit(t *testing.T) {
 	assert.Equal(t, 3, calls)
 }
 
+func TestManager_RouteSkipsSiblingModelsAfterRuntimeFailure(t *testing.T) {
+	claudeCalls := 0
+	codexCalls := 0
+	claude := runtimeExecutor{
+		id: "claude-cli",
+		run: func(context.Context, string) AdmissionResult {
+			claudeCalls++
+			return AdmissionResult{Error: errors.New("subscription access disabled")}
+		},
+	}
+	codex := runtimeExecutor{
+		id: "codex-cli",
+		run: func(context.Context, string) AdmissionResult {
+			codexCalls++
+			return AdmissionResult{Output: acceptJSON()}
+		},
+	}
+	gate := NewAdmissionGateWithFactory(runtimeFactory{
+		"haiku":  claude,
+		"sonnet": claude,
+		"opus":   claude,
+		"codex":  codex,
+	})
+	models := []ModelCapabilities{
+		{Name: "haiku", Provider: "anthropic", Runtime: "claude-cli", Tier: tierSmall, CostPer1kInputUSD: 0.001},
+		{Name: "sonnet", Provider: "anthropic", Runtime: "claude-cli", Tier: tierMid, CostPer1kInputUSD: 0.002},
+		{Name: "opus", Provider: "anthropic", Runtime: "claude-cli", Tier: tierLarge, CostPer1kInputUSD: 0.003},
+		{Name: "codex", Provider: "openai", Runtime: "codex-cli", Tier: tierLarge, CostPer1kInputUSD: 0.004},
+	}
+	mgr := NewManager(NewRegistryFromModels(models), gate, NewMemoryStore())
+
+	model, decision, err := mgr.Route(t.Context(), TaskSpec{ID: "repair", Kind: KindCodeChange, RequiresExecutableTools: true})
+	require.NoError(t, err)
+	assert.True(t, decision.Accept)
+	assert.Equal(t, "codex", model.Name)
+	assert.Equal(t, 1, claudeCalls, "one failed runtime should not exhaust the admission budget through aliases")
+	assert.Equal(t, 1, codexCalls)
+}
+
+type runtimeFactory map[string]Executor
+
+func (f runtimeFactory) For(modelName string) (Executor, bool) {
+	exec, ok := f[modelName]
+	return exec, ok
+}
+
+type runtimeExecutor struct {
+	id  string
+	run func(context.Context, string) AdmissionResult
+}
+
+func (e runtimeExecutor) Run(ctx context.Context, prompt string) AdmissionResult {
+	return e.run(ctx, prompt)
+}
+
+func (e runtimeExecutor) AdmissionRuntimeID() string { return e.id }
+
 func TestManager_Route_LargeCatalogIsShortlistedLocally(t *testing.T) {
 	models := make([]ModelCapabilities, 500)
 	for i := range models {

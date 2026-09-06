@@ -317,10 +317,14 @@ network-free.
 **Codex subscription mode** (`CodexCLIExecutor`) is registered automatically
 when `codex login status` succeeds. Admission runs ephemerally in a temporary
 read-only workspace, ignores user config and exec-policy rules, and writes the
-schema-constrained decision to a dedicated output file. Full execution runs a
-normal ephemeral Codex agent in the caller's working directory so repository
-instructions, tools, hooks, and the user's approval policy remain effective.
-Authentication comes from the existing Codex CLI login. Veto distinguishes a
+schema-constrained decision to a dedicated output file. Full execution runs an
+ephemeral Codex agent in the caller's working directory with user config
+disabled. This prevents global plugins, hooks, and unrelated session history
+from being injected into every Veto task while preserving repository
+instructions and the CLI's normal execution controls. A 65,536-token automatic
+compaction ceiling bounds the active Codex working context; it does not cap the
+gross tokens processed across multiple internal turns. Authentication comes
+from the user's `CODEX_HOME`. Veto distinguishes a
 ChatGPT subscription login (known zero marginal provider cost) from API-key or
 unrecognized CLI authentication, whose cost remains unknown.
 
@@ -417,7 +421,10 @@ type streamer interface {
 The Claude subscription CLI implements the legacy path. Other executors use
 their buffered `Execute` method. Codex consumes its bounded JSONL event stream,
 prints completed agent messages, records only allowlisted tool lifecycle names,
-and reports CLI token usage with known zero marginal subscription cost. OpenCode exposes provider-reported usage and
+and reports CLI token usage with known zero marginal subscription cost. Gross
+input and cached/reused input are recorded separately when Codex provides both,
+so the UI can derive fresh input without presenting replayed context as wholly
+new. OpenCode exposes provider-reported usage and
 cost when present; unknown pricing is not recomputed as a known zero. Its API
 does not expose a portable per-prompt output-token field, so Veto still enforces
 the command timeout and bounded 8 MiB event/text safety limit, while reporting
@@ -490,8 +497,9 @@ Skills are **never auto-generated during a routing call**. `resolveSkills` only 
 When `--criteria "..."` is supplied to `veto run`, a second routing call runs after execution:
 
 1. `buildReviewPrompt` constructs a JSON-response prompt that includes the original objective, the acceptance criteria, and the model's output.
-2. `reviewOutput` routes this as a `review/low` task using `TaskSpec.SkipModels = [executorModel]` — the model that produced the output is excluded to prevent self-grading bias.
-3. The reviewer must respond with JSON only:
+2. Review admission receives a compact routing objective containing the task kind, criterion count, and approximate payload size. The full prompt is withheld until execution, preventing the generated output from being sent once for admission and again for review.
+3. `reviewOutput` routes this as a `review/low` task using `TaskSpec.SkipModels = [executorModel]` — the model that produced the output is excluded to prevent self-grading bias.
+4. The reviewer must respond with JSON only:
 
 ```json
 {
@@ -504,7 +512,7 @@ When `--criteria "..."` is supplied to `veto run`, a second routing call runs af
 }
 ```
 
-4. `render.PrintReview` displays the per-criterion table. If `passed` is false, `veto run` exits with code 1.
+5. `render.PrintReview` displays the per-criterion table. If `passed` is false, `veto run` exits with code 1.
 
 If criteria were requested and no review-capable model is available, routing
 fails, the reviewer returns malformed JSON, or the result is incomplete or
@@ -599,6 +607,9 @@ a versioned, allowlisted lifecycle envelope defined in
 [`docs/event-ledger.md`](event-ledger.md). Run and task IDs correlate routing,
 execution, artifact, and review events without persisting objectives, prompts,
 or responses. Sensitive error detail is redacted and bounded before writing.
+Each TUI submission receives a new run ID; its routing, execution, and nested
+review events retain that shared ID. This prevents unrelated missions from a
+single long-lived TUI process being grouped as one apparent token-heavy run.
 Files older than 7 days are pruned on each routing invocation. If the log file
 cannot be created, routing continues with the ledger discarded.
 

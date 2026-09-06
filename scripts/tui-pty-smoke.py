@@ -62,7 +62,10 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
                 time.sleep(0.15)
                 os.write(master, b"openai\r\rsmoke-secret")
                 time.sleep(0.2)
-                os.write(master, b"\x1b")
+                # The first escape leaves the focused field; the second
+                # cancels the form. Keep the final quit outside the modal so
+                # the smoke test exercises the normal cleanup path.
+                os.write(master, b"\x1b\x1b")
             else:
                 os.write(master, b"/")
                 time.sleep(0.15)
@@ -77,7 +80,9 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
                 if mouse:
                     os.write(master, b"\x1b[<35;3;2M")
             time.sleep(0.15)
-            os.write(master, b"q")
+            # Ctrl-C is the documented emergency escape hatch and remains
+            # valid even if the form cancellation above is still settling.
+            os.write(master, b"\x03")
 
             end = time.monotonic() + 8
             status = None
@@ -95,7 +100,7 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
                 raise SystemExit(f"TUI exited unsuccessfully: status={status} output={bytes(output)!r}")
             if b"\x1b[?1049h" not in output or b"\x1b[?1049l" not in output:
                 raise SystemExit(f"TUI did not enter/leave alternate screen: output={bytes(output)!r}")
-            if b"VETO" not in output or not (b"COMMANDS" in output or b"COMPOSER" in output):
+            if not (b"VETO" in output or b"LOCAL AI CONTROL PLANE" in output) or not (b"COMMANDS" in output or b"COMMAND CENTER" in output or b"COMPOSER" in output):
                 raise SystemExit(f"TUI did not render its command shell: output={bytes(output)!r}")
             if secret_probe and b"smoke-secret" in output:
                 raise SystemExit("TUI login form leaked the probe secret into terminal output")
@@ -157,7 +162,7 @@ def run_execution(binary: str, home: str) -> None:
             raise SystemExit(f"TUI Run did not reach fake-provider output: output={bytes(output)!r}")
         if not (b"LIVE ROUTING" in output or b"route." in output or b"winner" in output):
             raise SystemExit(f"TUI Run did not render live routing evidence: output={bytes(output)!r}")
-        os.write(master, b"q")
+        os.write(master, b"\x03")
 
         end = time.monotonic() + 8
         while time.monotonic() < end:
@@ -219,7 +224,7 @@ def run_cancellation(binary: str, home: str) -> None:
                     break
         if b"action cancelled" not in output:
             raise SystemExit(f"TUI Run cancellation was not rendered: output={bytes(output)!r}")
-        os.write(master, b"q")
+        os.write(master, b"\x03")
 
         end = time.monotonic() + 8
         while time.monotonic() < end:
@@ -284,7 +289,7 @@ def run_route(binary: str, home: str) -> None:
                     break
         if b"LIVE ROUTING" not in output or not (b"winner" in output or b"completed" in output):
             raise SystemExit(f"TUI Route did not render completion evidence: output={bytes(output)!r}")
-        os.write(master, b"q")
+        os.write(master, b"\x03")
 
         end = time.monotonic() + 8
         while time.monotonic() < end:
@@ -327,7 +332,7 @@ def run_resize(binary: str, home: str | None = None) -> None:
             time.sleep(0.3)
             termios.tcsetwinsize(master, (24, 100))
             time.sleep(0.5)
-            os.write(master, b"q")
+            os.write(master, b"\x03")
 
             end = time.monotonic() + 8
             while time.monotonic() < end:
@@ -393,7 +398,7 @@ def run_plan(binary: str, home: str) -> None:
                     break
         if b"SMOKE EXECUTION OK" not in output or b"OUTPUT" not in output:
             raise SystemExit(f"TUI Execute plan did not reach visible Runner output: output={bytes(output)!r}")
-        os.write(master, b"q")
+        os.write(master, b"\x03")
 
         end = time.monotonic() + 8
         while time.monotonic() < end:

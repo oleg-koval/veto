@@ -61,6 +61,9 @@ func (e *CLIExecutor) Run(ctx context.Context, prompt string) Result {
 		if ctx.Err() != nil {
 			return Result{Error: fmt.Errorf("claude cli admission: timed out")}
 		}
+		if structuredErr := claudeStructuredError(stdout.Bytes()); structuredErr != nil {
+			return Result{Error: fmt.Errorf("claude cli: %w", structuredErr)}
+		}
 		detail := strings.TrimSpace(stderr.String())
 		if detail == "" {
 			detail = err.Error()
@@ -78,6 +81,21 @@ type claudeStructuredResult struct {
 	IsError          bool            `json:"is_error"`
 	Result           string          `json:"result"`
 	StructuredOutput json.RawMessage `json:"structured_output"`
+}
+
+// claudeStructuredError preserves the actionable error returned by Claude Code
+// even when the process exits non-zero. Older and managed CLI installations
+// can report authentication/policy failures as JSON on stdout with no stderr.
+func claudeStructuredError(data []byte) error {
+	var result claudeStructuredResult
+	if err := json.Unmarshal(data, &result); err != nil || !result.IsError {
+		return nil
+	}
+	message := strings.TrimSpace(result.Result)
+	if message == "" {
+		return fmt.Errorf("structured admission failed")
+	}
+	return fmt.Errorf("%s", message)
 }
 
 func parseClaudeStructuredResult(data []byte) (string, error) {

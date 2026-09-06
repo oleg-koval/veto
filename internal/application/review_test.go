@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/oleg-koval/veto/pkg/execution"
@@ -24,7 +25,21 @@ func TestReviewRoutesReviewerAndSkipsExecutor(t *testing.T) {
 	assert.True(t, result.Passed)
 	assert.Equal(t, "review-task", routerPort.routedTask.ID)
 	assert.Equal(t, []string{"executor"}, routerPort.routedTask.SkipModels)
+	assert.Contains(t, routerPort.routedTask.AdmissionObjective, "approximately")
+	assert.NotContains(t, routerPort.routedTask.AdmissionObjective, "all tests pass")
 	assert.Contains(t, runtime.prompt, "tests pass")
+	assert.Contains(t, runtime.prompt, "all tests pass")
+}
+
+func TestReviewAdmissionObjectiveStaysBoundedForLargeOutput(t *testing.T) {
+	output := strings.Repeat("large generated output ", 100_000)
+	objective := buildReviewAdmissionObjective(router.TaskSpec{
+		Kind: router.KindReview, SuccessCriteria: []string{"correct", "complete"},
+	}, output)
+
+	assert.Less(t, len(objective), 256)
+	assert.Contains(t, objective, "2 acceptance criteria")
+	assert.NotContains(t, objective, "large generated output")
 }
 
 func TestReviewFailsClosedForMalformedOutput(t *testing.T) {

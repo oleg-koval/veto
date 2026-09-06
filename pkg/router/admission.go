@@ -41,6 +41,13 @@ type ToolProvider interface {
 	AdmissionTools() ToolCapabilities
 }
 
+// RuntimeIdentityProvider identifies the concrete runtime serving admission.
+// Several catalog models can share one subscription CLI, so a transport
+// failure for that runtime should not consume the admission budget repeatedly.
+type RuntimeIdentityProvider interface {
+	AdmissionRuntimeID() string
+}
+
 // ExecutorFactory returns the right admission executor for a given model name.
 // Concrete runtime adapters satisfy this contract at the composition edge.
 type ExecutorFactory interface {
@@ -71,6 +78,22 @@ func (g *AdmissionGate) SetTimeout(timeout time.Duration) {
 	if timeout > 0 {
 		g.timeout = timeout
 	}
+}
+
+// RuntimeIdentity returns a stable key for the runtime that will perform an
+// admission probe. Unknown adapters intentionally fall back to the model name
+// so existing single-model executors keep their current retry behavior.
+func (g *AdmissionGate) RuntimeIdentity(model ModelCapabilities) string {
+	exec, ok := g.factory.For(model.Name)
+	if !ok || exec == nil {
+		return "model:" + model.Name
+	}
+	if provider, ok := exec.(RuntimeIdentityProvider); ok {
+		if id := strings.TrimSpace(provider.AdmissionRuntimeID()); id != "" {
+			return "runtime:" + id
+		}
+	}
+	return "model:" + model.Name
 }
 
 type singleFactory struct{ exec Executor }
@@ -136,6 +159,10 @@ func buildAdmissionPrompt(task TaskSpec, model ModelCapabilities, effectiveTools
 }
 
 func buildAdmissionPromptWithToolStatus(task TaskSpec, model ModelCapabilities, effectiveTools []string, toolsKnown bool) string {
+	objective := strings.TrimSpace(task.AdmissionObjective)
+	if objective == "" {
+		objective = task.Objective
+	}
 	constraints := strings.Join(task.Constraints, ", ")
 	if constraints == "" {
 		constraints = "none"
@@ -201,7 +228,7 @@ If rejecting: set "accept": false, populate "reason_codes" with at least one cod
 
 Respond with JSON only. Nothing before or after the JSON object.`,
 		model.Name, model.Tier,
-		task.Kind, task.Objective, constraints, required, task.Risk,
+		task.Kind, objective, constraints, required, task.Risk,
 		contextLine,
 		toolsLine,
 	)

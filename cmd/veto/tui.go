@@ -38,18 +38,28 @@ func cmdTUI(args []string) error {
 	if fs.NArg() > 0 {
 		return fmt.Errorf("tui does not accept positional arguments")
 	}
+	// The TUI runs the same router and executor as the CLI, so it must also
+	// initialize the local ledger. Without this, a failed interactive mission
+	// leaves no attributable routing or execution evidence to diagnose.
+	setupLogger()
+	runningExecutable, _ := os.Executable()
 
 	model := tui.NewModel(controlplane.DefaultCatalog(), tui.Options{
 		Motion:       !*reduceMotion && !*screenReader,
 		NoColor:      *noColor || *screenReader || os.Getenv("NO_COLOR") != "",
 		Mouse:        !*noMouse && !*screenReader,
 		ScreenReader: *screenReader,
+		Version:      resolvedVersion(),
+		Executable:   runningExecutable,
 		ServiceFactory: func() (controlplane.Service, error) {
 			reg, mgr, _, err := prepareTUIRouting()
 			if err != nil {
 				return nil, fmt.Errorf("prepare routing: %w", err)
 			}
 			service := application.NewControlServiceWithSnapshot(newApplicationRunner(reg, mgr), mgr, loadTUISnapshot)
+			service.SetRoutingRefresher(func() error {
+				return refreshTUIRouting(reg, mgr)
+			})
 			service.SetOutputWriter(writeOutputFile)
 			service.SetReviewer(func(ctx context.Context, task router.TaskSpec, output, model string) (bool, error) {
 				result, err := reviewOutput(ctx, reg, mgr, task, output, model)
@@ -84,11 +94,26 @@ func cmdTUI(args []string) error {
 			service.RegisterHandler("exec", func(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 				return runTUIExec(ctx, request, service, reg, mgr)
 			})
-			return service, nil
+			return tuiRunLoggingService{Service: service}, nil
 		},
 	})
 	_, err := tea.NewProgram(model).Run()
 	return err
+}
+
+type tuiRunLoggingService struct {
+	controlplane.Service
+}
+
+func (s tuiRunLoggingService) Execute(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+	if request.ActionID == "run" || request.ActionID == "route" {
+		runID := beginLoggedRun()
+		_ = saveTUIMission(tuiMissionRecord{
+			RunID: runID, TaskID: request.Arguments["task-id"], Kind: request.Arguments["kind"],
+			Risk: request.Arguments["risk"], CreatedAt: time.Now(), Objective: request.Arguments["objective"],
+		})
+	}
+	return s.Service.Execute(ctx, request)
 }
 
 // registerTUIActionHandlers keeps command-specific parsing in the existing
@@ -188,6 +213,9 @@ func registerTUIActionHandlers(service *application.ControlService, refreshPrefe
 			return runHermesCommand(arguments, output, diagnostics)
 		})
 	})
+	service.RegisterHandler("impeccable", func(ctx context.Context, _ controlplane.ActionRequest) (controlplane.ActionResult, error) {
+		return runTUIImpeccableInstall(ctx, exec.LookPath, runTUIExternalCommand)
+	})
 	service.RegisterHandler("feedback", runTUIFeedback)
 	service.RegisterHandler("verify-models", runTUIVerifyModels)
 	service.RegisterHandler("models", runTUIModels)
@@ -198,6 +226,33 @@ func registerTUIActionHandlers(service *application.ControlService, refreshPrefe
 		}
 		return controlplane.ActionResult{ActionID: "providers", Summary: "providers inspected", Output: output.String()}, nil
 	})
+}
+
+type tuiExternalCommand func(context.Context, string, ...string) ([]byte, error)
+
+func runTUIExternalCommand(ctx context.Context, executable string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, executable, args...).CombinedOutput()
+}
+
+func runTUIImpeccableInstall(ctx context.Context, lookPath func(string) (string, error), run tuiExternalCommand) (controlplane.ActionResult, error) {
+	executable, err := lookPath("impeccable")
+	args := []string{"install", "--providers=veto", "--scope=global"}
+	if err != nil {
+		executable, err = lookPath("npx")
+		if err != nil {
+			return controlplane.ActionResult{ActionID: "impeccable"}, errors.New("Impeccable installation requires the impeccable CLI or npx")
+		}
+		args = append([]string{"--yes", "impeccable"}, args...)
+	}
+	installCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	output, runErr := run(installCtx, executable, args...)
+	result := controlplane.ActionResult{ActionID: "impeccable", Output: strings.TrimSpace(string(output))}
+	if runErr != nil {
+		return result, fmt.Errorf("install Impeccable integration: %w", runErr)
+	}
+	result.Summary = "Impeccable installed for Veto"
+	return result, nil
 }
 
 func runTUIDoctor(request controlplane.ActionRequest) (controlplane.ActionResult, error) {

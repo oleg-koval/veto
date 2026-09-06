@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oleg-koval/veto/pkg/execution"
@@ -16,15 +17,18 @@ import (
 var (
 	eventLedger *ledger.Writer
 	eventRunID  string
+	eventRunMu  sync.Mutex
 )
 
 // setupLogger opens today's log file, rotates old ones, and sets eventLedger.
 // Logs are written to ~/.veto/logs/veto-YYYY-MM-DD.log as JSON lines.
 func setupLogger() {
+	eventRunMu.Lock()
 	eventRunID, _ = ledger.NewRunID()
 	if eventRunID == "" {
 		eventRunID = fmt.Sprintf("run-%d-%d", os.Getpid(), time.Now().UnixNano())
 	}
+	eventRunMu.Unlock()
 	home, _ := os.UserHomeDir()
 	logDir := filepath.Join(home, ".veto", "logs")
 	_ = os.MkdirAll(logDir, 0700)
@@ -51,6 +55,18 @@ func setupLogger() {
 		return
 	}
 	eventLedger = ledger.NewWriter(f)
+}
+
+// beginLoggedRun gives each submission in a long-lived TUI process a fresh
+// correlation while keeping its routing, execution, and review events grouped.
+func beginLoggedRun() string {
+	eventRunMu.Lock()
+	defer eventRunMu.Unlock()
+	eventRunID, _ = ledger.NewRunID()
+	if eventRunID == "" {
+		eventRunID = fmt.Sprintf("run-%d-%d", os.Getpid(), time.Now().UnixNano())
+	}
+	return eventRunID
 }
 
 // logEvent writes a routing pipeline event as a structured JSON log line.
@@ -95,7 +111,9 @@ func logExecution(taskID string, eventType ledger.EventType, model router.ModelC
 	}
 	if metrics.UsageKnown {
 		event.Usage = &ledger.Usage{
-			InputTokens: metrics.InputTokens, OutputTokens: metrics.OutputTokens, TotalTokens: metrics.TotalTokens,
+			InputTokens: metrics.InputTokens, CachedInputTokens: metrics.CachedInputTokens,
+			CachedInputKnown: metrics.CachedInputKnown, OutputTokens: metrics.OutputTokens,
+			TotalTokens: metrics.TotalTokens,
 		}
 	}
 	if metrics.CostKnown {
@@ -163,6 +181,8 @@ func runtimeLedgerType(kind execution.RuntimeEventKind) (ledger.EventType, bool)
 }
 
 func currentRunID(taskID string) string {
+	eventRunMu.Lock()
+	defer eventRunMu.Unlock()
 	if eventRunID != "" {
 		return eventRunID
 	}

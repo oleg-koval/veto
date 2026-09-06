@@ -123,10 +123,17 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 	}
 
 	// Every admission call consumes the per-run budget, including transport
-	// failures. Resume can continue with untried candidates in a later run.
+	// failures. A failed runtime is skipped for its sibling model aliases so a
+	// broken subscription CLI cannot consume the entire budget before another
+	// configured runtime gets a chance.
 	attempts := 0
+	failedRuntimes := make(map[string]struct{})
 	for _, model := range ranked {
 		if skipSet[model.Name] {
+			continue
+		}
+		runtimeID := m.gate.RuntimeIdentity(model)
+		if _, failed := failedRuntimes[runtimeID]; failed {
 			continue
 		}
 		if attempts >= m.maxAdmissions {
@@ -140,6 +147,7 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 
 		decision, err := m.gate.Ask(ctx, task, model)
 		if err != nil {
+			failedRuntimes[runtimeID] = struct{}{}
 			if ctx.Err() != nil {
 				return ModelCapabilities{}, AdmissionDecision{}, fmt.Errorf("routing: %w", ctx.Err())
 			}
