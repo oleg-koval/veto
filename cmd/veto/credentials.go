@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -33,14 +34,14 @@ func saveCredential(envKey, value string) error {
 	}
 	c, err := loadCredentials()
 	if err != nil {
-		c = credentials{}
+		return fmt.Errorf("read credentials: %w", err)
 	}
 	c[envKey] = value
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0600)
+	return writeCredentialsAtomic(path, data)
 }
 
 func removeCredential(envKey string) error {
@@ -57,7 +58,32 @@ func removeCredential(envKey string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0600)
+	return writeCredentialsAtomic(path, data)
+}
+
+func writeCredentialsAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".credentials-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 // getKey returns the API key for envKey — env var wins, then credentials file.

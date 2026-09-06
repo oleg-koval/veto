@@ -86,7 +86,7 @@ func TestRunnerExecuteRoutesAndRecordsTelemetry(t *testing.T) {
 	assert.Contains(t, runtime.prompt, "Output the requested content directly")
 	require.Len(t, routerPort.recorded, 1)
 	assert.True(t, routerPort.recorded[0].CostKnown)
-	assert.Equal(t, "success", routerPort.recorded[0].Status)
+	assert.Equal(t, "completed", routerPort.recorded[0].Status)
 	assert.Equal(t, []ExecutionEventKind{ExecutionStarted, ExecutionCompleted}, eventKinds(events))
 }
 

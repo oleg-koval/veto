@@ -166,7 +166,9 @@ func (r Runner) Execute(ctx context.Context, request Request) (Response, error) 
 		return Response{Model: model, Decision: decision, Output: output, Result: result, Streamed: streamed}, err
 	}
 
-	metrics := ExecutionMetrics(model, result, time.Since(started), "success")
+	// A zero exit/transport completion says only that the native runtime
+	// returned output. It is not evidence that the coding task was correct.
+	metrics := ExecutionMetrics(model, result, time.Since(started), "completed")
 	r.Router.RecordExecution(request.Task, model.Name, metrics)
 	r.emit(ExecutionEvent{Kind: ExecutionCompleted, TaskID: request.Task.ID, Model: model, Metrics: metrics})
 	return Response{Model: model, Decision: decision, Output: output, Result: result,

@@ -37,9 +37,12 @@ type eventMsg struct {
 }
 
 type executionResultMsg struct {
-	result controlplane.ActionResult
-	err    error
+	result  controlplane.ActionResult
+	err     error
+	request controlplane.ActionRequest
 }
+
+type nativeFinishedMsg struct{ err error }
 
 type snapshotMsg struct {
 	snapshot controlplane.Snapshot
@@ -71,6 +74,7 @@ type Model struct {
 	composerEditing bool
 	confirmOpen     bool
 	pendingRequest  controlplane.ActionRequest
+	pendingNative   controlplane.NativeCommand
 	running         bool
 	lastEvent       string
 	eventHistory    []controlplane.Event
@@ -174,6 +178,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cancelRun()
 		}
 		m.cancelRun = nil
+		if message.result.Command != nil && message.err == nil {
+			m.pendingNative = message.result.Command
+			m.pendingRequest = message.request
+			m.confirmOpen = true
+			m.output.WriteString(message.result.Summary)
+			m.status = "Review · press Enter to launch native agent"
+			return m, nil
+		}
 		if message.err != nil {
 			if message.result.Output != "" && m.output.Len() == 0 {
 				m.output.WriteString(message.result.Output)
@@ -194,6 +206,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadSnapshot()
 		}
 		return m, nil
+	case nativeFinishedMsg:
+		m.running = false
+		m.pendingNative = nil
+		if message.err != nil {
+			m.status = "Native agent exited with error · " + message.err.Error()
+		} else {
+			m.status = "Native agent returned · dispatch outcome is not task correctness"
+		}
+		return m, m.loadSnapshot()
 	case tea.KeyPressMsg:
 		return m.updateKey(message)
 	default:
@@ -289,10 +310,20 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.confirmOpen {
 		switch key.String() {
 		case "esc", "n":
+			m.pendingNative = nil
 			m.confirmOpen = false
 			m.pendingRequest = controlplane.ActionRequest{}
 			m.status = "Ready · action cancelled"
 		case "enter", "y":
+			if m.pendingNative != nil {
+				command := m.pendingNative
+				m.pendingNative = nil
+				m.confirmOpen = false
+				m.pendingRequest = controlplane.ActionRequest{}
+				m.running = true
+				m.status = "Running · native agent"
+				return m, tea.Exec(command, func(err error) tea.Msg { return nativeFinishedMsg{err: err} })
+			}
 			request := m.pendingRequest
 			m.confirmOpen = false
 			m.pendingRequest = controlplane.ActionRequest{}
@@ -380,6 +411,13 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		commands := m.catalog.Commands()
 		if len(commands) > 0 && m.actionHasForm(commands[m.selected]) {
 			m.openComposer(commands[m.selected])
+		}
+	case "s":
+		if m.activeAction == "" {
+			if action, ok := m.catalog.Find("start"); ok {
+				m.openComposer(action)
+			}
+			return m, nil
 		}
 	case "t":
 		if m.activeAction == "" {
@@ -513,7 +551,7 @@ func defaultSubcommand(actionID, fallback string) string {
 }
 
 func (m *Model) composerNeedsObjective() bool {
-	return m.composerAction == "run" || m.composerAction == "route"
+	return m.composerAction == "run" || m.composerAction == "route" || m.composerAction == "start"
 }
 
 func (m *Model) updateComposerField(key tea.Key) (tea.Model, tea.Cmd) {
@@ -658,7 +696,7 @@ func (m *Model) startAction(actionID string) (tea.Model, tea.Cmd) {
 func (m *Model) execute(request controlplane.ActionRequest, ctx context.Context) tea.Cmd {
 	return func() tea.Msg {
 		result, err := m.options.Service.Execute(ctx, request)
-		return executionResultMsg{result: result, err: err}
+		return executionResultMsg{result: result, err: err, request: request}
 	}
 }
 
@@ -944,7 +982,7 @@ func (m *Model) renderMain(width int) string {
 	if home {
 		b.WriteString(headerStyle.Render("START HERE"))
 		b.WriteString("\n")
-		b.WriteString(panelStyle.Render("r  Run a task       route + execute\nt  Route only       preview the winning model\np  Execute a plan   run steps with review"))
+		b.WriteString(panelStyle.Render("r  Run a task       route + execute\ns  Start native     manual / choose agent / choose model\nt  Route only       preview the winning model\np  Execute a plan   run steps with review"))
 		b.WriteString("\n\n")
 		b.WriteString(headerStyle.Render("EXPLORE"))
 		b.WriteString("\n")
@@ -952,6 +990,8 @@ func (m *Model) renderMain(width int) string {
 		b.WriteString(mutedStyle.Render("/  open the command palette   ?  keyboard help"))
 		b.WriteString("\n\n")
 		b.WriteString(mutedStyle.Render("No provider calls are made until you confirm an action."))
+		b.WriteString("\n\n")
+		b.WriteString(m.renderNativeStatus(width))
 		return lipgloss.NewStyle().Width(width).Render(b.String())
 	}
 	if m.composerOpen {
@@ -1074,7 +1114,7 @@ func (m *Model) fieldChoices(field controlplane.FlagSpec) []string {
 			}
 		}
 	case "kind":
-		if m.composerAction == "run" || m.composerAction == "route" {
+		if m.composerAction == "run" || m.composerAction == "route" || m.composerAction == "start" {
 			return []string{"extract", "summarize", "code-change", "debug", "plan", "review", "refactor"}
 		}
 		if m.composerAction == "feedback" {
@@ -1082,6 +1122,10 @@ func (m *Model) fieldChoices(field controlplane.FlagSpec) []string {
 		}
 	case "risk":
 		return []string{"low", "medium", "high"}
+	case "choose":
+		return []string{"agent", "model"}
+	case "agent":
+		return []string{"claude", "codex"}
 	case "on-failure":
 		return []string{"abort-ask", "abort", "continue"}
 	}
@@ -1090,11 +1134,19 @@ func (m *Model) fieldChoices(field controlplane.FlagSpec) []string {
 
 func (m *Model) renderConfirmation(width int) string {
 	var b strings.Builder
-	b.WriteString(headerStyle.Render("CONFIRM ACTION"))
+	title := "CONFIRM ACTION"
+	if m.pendingNative != nil {
+		title = "REVIEW NATIVE DISPATCH"
+	}
+	b.WriteString(headerStyle.Render(title))
 	b.WriteString("\n")
-	b.WriteString(panelStyle.Render("Run veto " + m.pendingRequest.ActionID + "?"))
+	if m.pendingNative != nil && m.output.Len() > 0 {
+		b.WriteString(panelStyle.Render(truncate(strings.TrimSpace(m.output.String()), width-4)))
+	} else {
+		b.WriteString(panelStyle.Render("Run veto " + m.pendingRequest.ActionID + "?"))
+	}
 	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("Enter/y confirm · n/Esc cancel"))
+	b.WriteString(mutedStyle.Render("Enter/y launch · n/Esc cancel · native permissions and configuration remain in control of the agent"))
 	return lipgloss.NewStyle().Width(width).Render(b.String())
 }
 
@@ -1154,7 +1206,56 @@ func (m *Model) renderProviders(width int) string {
 		if !provider.Configured {
 			state = "not configured"
 		}
-		b.WriteString(fmt.Sprintf("%-18s %-16s %d model(s)\n", provider.Name, state, provider.ModelCount))
+		if provider.Unavailable {
+			state = "temporarily unavailable"
+		}
+		auth := provider.Auth
+		if auth == "" {
+			auth = "unknown"
+		}
+		billing := provider.Billing
+		if billing == "" {
+			billing = "unknown"
+		}
+		b.WriteString(truncate(fmt.Sprintf("%-10s %-23s installed=%t auth=%s billing=%s", provider.Name, state, provider.Installed, auth, billing), width-2))
+		b.WriteByte('\n')
+		if provider.Warning != "" {
+			b.WriteString(truncate("  warning: "+provider.Warning, width-2))
+			b.WriteByte('\n')
+		}
+		if len(provider.Models) > 0 {
+			b.WriteString(truncate("  models: "+strings.Join(provider.Models, ", "), width-2))
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
+func (m *Model) renderNativeStatus(width int) string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("NATIVE DISPATCH STATUS"))
+	b.WriteByte('\n')
+	b.WriteString("default agent: not configured (task-kind policy)\n")
+	for _, provider := range m.snapshot.Providers {
+		if provider.Name != "Claude" && provider.Name != "Codex" {
+			continue
+		}
+		state := "available"
+		if !provider.Installed {
+			state = "executable missing"
+		} else if provider.Unavailable {
+			state = "temporarily unavailable"
+		}
+		auth := provider.Auth
+		if auth == "" {
+			auth = "unknown"
+		}
+		billing := provider.Billing
+		if billing == "" {
+			billing = "unknown"
+		}
+		b.WriteString(truncate(fmt.Sprintf("%-7s %-24s auth=%s billing=%s", provider.Name, state, auth, billing), width-2))
+		b.WriteByte('\n')
 	}
 	return b.String()
 }

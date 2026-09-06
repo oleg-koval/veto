@@ -10,6 +10,7 @@ import (
 
 	hermesintegration "github.com/oleg-koval/veto/integrations/hermes"
 	"github.com/oleg-koval/veto/internal/controlplane"
+	"github.com/oleg-koval/veto/pkg/dispatch"
 	"github.com/oleg-koval/veto/pkg/ledger"
 )
 
@@ -44,15 +45,23 @@ func loadTUISnapshot(_ context.Context) (controlplane.Snapshot, error) {
 func readTUIProviders() []controlplane.ProviderSnapshot {
 	creds, _ := loadCredentials()
 	providers := make([]controlplane.ProviderSnapshot, 0, len(knownProviders)+2)
+	for _, native := range nativeAgentStatuses(dispatch.NewAvailabilityStore(availabilityPath())) {
+		name := native.Name
+		if len(name) > 0 {
+			name = strings.ToUpper(name[:1]) + name[1:]
+		}
+		models := []string{"native default"}
+		if native.Name == "claude" {
+			models = []string{"haiku", "sonnet", "opus"}
+		}
+		providers = append(providers, controlplane.ProviderSnapshot{Name: name, Configured: native.Auth == dispatch.AuthAuthenticated, Installed: native.Installed, Auth: string(native.Auth), Billing: string(native.Billing), Unavailable: native.Unavailable, Warning: native.Warning, Models: models})
+	}
 	for _, provider := range knownProviders {
 		configured := os.Getenv(provider.envKey) != "" || creds[provider.envKey] != ""
 		if provider.provider == "anthropic" && (os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true") {
 			configured = true
 		}
 		providers = append(providers, controlplane.ProviderSnapshot{Name: provider.name, Configured: configured})
-	}
-	if auth := codexCLIAuthentication(); auth != codexAuthNone {
-		providers = append(providers, controlplane.ProviderSnapshot{Name: "Codex", Configured: true})
 	}
 	if _, configured, err := loadOpenCodeConfig(vetoCfgPath()); err == nil && configured {
 		providers = append(providers, controlplane.ProviderSnapshot{Name: "OpenCode", Configured: true})
@@ -94,6 +103,7 @@ func readTUIHistory() []controlplane.HistorySnapshot {
 	if err != nil {
 		return nil
 	}
+	paths = append(paths, experimentPath())
 	sort.Strings(paths)
 	const maxHistory = 40
 	result := make([]controlplane.HistorySnapshot, 0, maxHistory)

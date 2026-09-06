@@ -10,8 +10,9 @@ import (
 	"strings"
 )
 
-// CLIExecutor runs a subscription CLI (e.g. claude -p) to answer prompts.
-// Cost is $0 marginal — the user pays a flat subscription, not per token.
+// CLIExecutor runs the Claude CLI (e.g. claude -p) to answer prompts. The
+// billing path is intentionally treated as unknown because the native CLI may
+// use subscription credentials or an inherited API key.
 type CLIExecutor struct {
 	binary string // "claude"
 	model  string

@@ -43,7 +43,7 @@ func main() {
 		return
 	}
 	// Notify once if new skills are pending approval (non-blocking).
-	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" && os.Args[1] != "feedback" && os.Args[1] != "analytics" && os.Args[1] != "opencode" && os.Args[1] != "hermes" && os.Args[1] != "models" && os.Args[1] != "tui" {
+	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" && os.Args[1] != "feedback" && os.Args[1] != "analytics" && os.Args[1] != "opencode" && os.Args[1] != "hermes" && os.Args[1] != "models" && os.Args[1] != "tui" && os.Args[1] != "start" && os.Args[1] != "unavailable" && os.Args[1] != "experiment" {
 		checkPendingSkills()
 	}
 	switch os.Args[1] {
@@ -51,6 +51,18 @@ func main() {
 		if err := cmdTUI(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "tui:", err)
 			os.Exit(1)
+		}
+	case "start":
+		if code := cmdStart(os.Args[2:]); code != 0 {
+			os.Exit(code)
+		}
+	case "unavailable":
+		if code := cmdUnavailable(os.Args[2:]); code != 0 {
+			os.Exit(code)
+		}
+	case "experiment":
+		if code := cmdExperiment(os.Args[2:]); code != 0 {
+			os.Exit(code)
 		}
 	case "route":
 		cmdRoute(os.Args[2:])
@@ -138,6 +150,9 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "COMMANDS")
 	fmt.Fprintln(o, "  tui                open the keyboard-first full-screen interface")
+	fmt.Fprintln(o, "  start              launch Claude Code or Codex manually or experimentally")
+	fmt.Fprintln(o, "  unavailable        temporarily exclude a native agent from dispatch")
+	fmt.Fprintln(o, "  experiment         inspect or delete local native-dispatch events")
 	fmt.Fprintln(o, "  login              connect a provider (opens browser, masked key input)")
 	fmt.Fprintln(o, "  logout             remove a configured provider or local model")
 	fmt.Fprintln(o, "  setup              discover and approve skills from your skill directories")
@@ -594,20 +609,21 @@ func runProvidersCommand(stdout io.Writer) int {
 	if auth := codexCLIAuthentication(); auth != codexAuthNone {
 		status := "authenticated (cli)"
 		if auth == codexAuthChatGPT {
-			status = "ChatGPT (cli)"
+			status = "ChatGPT (cli; billing UNKNOWN)"
 		} else if auth == codexAuthAPIKey {
-			status = "API key (cli)"
+			status = "API key (cli; cost UNKNOWN)"
 		}
 		providerRows = append(providerRows, []string{"Codex", status, "codex"})
 		configured++
 	}
 	for _, p := range knownProviders {
 		models := catalogModelDescription(p.provider)
-		// Anthropic: check subscription mode before API key
+		// Claude's marker is configuration, not proof of the billing path used by
+		// the native CLI. Keep API-key ambiguity visible instead of claiming free use.
 		if p.envKey == "ANTHROPIC_API_KEY" {
 			switch {
 			case os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true":
-				providerRows = append(providerRows, []string{p.name, "subscription (cli)", "Claude Haiku, Sonnet, Opus"})
+				providerRows = append(providerRows, []string{p.name, "UNKNOWN billing (Claude CLI)", "subscription/API selection is not verifiable"})
 				configured++
 			case os.Getenv(p.envKey) != "":
 				providerRows = append(providerRows, []string{p.name, "env var", models})
@@ -796,8 +812,9 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 		reg.caps[model.Name] = model
 	}
 
-	// Subscription mode: use claude CLI (flat-fee, $0 marginal) instead of API key.
-	// Subscription takes precedence over API key when both are present.
+	// Subscription mode uses claude CLI, but billing remains unknown. The native
+	// CLI can be affected by inherited ANTHROPIC_API_KEY and its billing choice
+	// is not observable from this boundary.
 	subscription := creds["CLAUDE_SUBSCRIPTION"] == "true" || os.Getenv("CLAUDE_SUBSCRIPTION") == "true"
 	providerKeys := map[string]string{
 		"anthropic":  getKey("ANTHROPIC_API_KEY", creds),
@@ -823,6 +840,10 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 			}
 		}
 		if modelExecutor != nil {
+			if model.Provider == "anthropic" && subscription {
+				model.CostPer1kInputUnknown = true
+				model.CostPer1kOutputUnknown = true
+			}
 			addBuiltin(model, modelExecutor)
 		}
 	}

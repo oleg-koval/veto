@@ -312,7 +312,7 @@ network-free.
 | `opencode.Runtime` | OpenCode session SSE or JSON CLI subprocess | `veto opencode connect` |
 | `OpenAICompatibleExecutor` | any OpenAI-compatible endpoint (HTTP) | local model configured via `veto login` |
 
-**Subscription mode** (`CLIExecutor`) shells out to the `claude` CLI with `-p` (print mode) and `--output-format text`. This bypasses the Anthropic API entirely — cost is $0 per route because it runs under the user's flat Claude Max / Pro subscription. Subscription takes precedence over API key when both are configured.
+**Subscription mode** (`CLIExecutor`) shells out to the `claude` CLI with `-p` (print mode) and `--output-format text`. This bypasses the Anthropic API transport, but Veto does not claim a zero cost unless the native billing mode is directly verifiable. When a subscription marker and `ANTHROPIC_API_KEY` coexist, billing remains UNKNOWN because inherited environment state can affect native CLI behavior.
 
 **Codex subscription mode** (`CodexCLIExecutor`) is registered automatically
 when `codex login status` succeeds. Admission runs ephemerally in a temporary
@@ -320,9 +320,9 @@ read-only workspace, ignores user config and exec-policy rules, and writes the
 schema-constrained decision to a dedicated output file. Full execution runs a
 normal ephemeral Codex agent in the caller's working directory so repository
 instructions, tools, hooks, and the user's approval policy remain effective.
-Authentication comes from the existing Codex CLI login. Veto distinguishes a
-ChatGPT subscription login (known zero marginal provider cost) from API-key or
-unrecognized CLI authentication, whose cost remains unknown.
+Authentication comes from the existing Codex CLI login. Veto keeps ChatGPT-plan
+billing and capacity UNKNOWN because login success is not cost evidence; API-key
+or unrecognized CLI authentication is also not treated as free.
 
 All concrete transports implement the short `Run` admission path and the
 separate `Execute` task path. HTTP executors send the provider-specific bounded
@@ -417,7 +417,7 @@ type streamer interface {
 The Claude subscription CLI implements the legacy path. Other executors use
 their buffered `Execute` method. Codex consumes its bounded JSONL event stream,
 prints completed agent messages, records only allowlisted tool lifecycle names,
-and reports CLI token usage with known zero marginal subscription cost. OpenCode exposes provider-reported usage and
+and reports CLI token usage while keeping subscription billing and capacity UNKNOWN. OpenCode exposes provider-reported usage and
 cost when present; unknown pricing is not recomputed as a known zero. Its API
 does not expose a portable per-prompt output-token field, so Veto still enforces
 the command timeout and bounded 8 MiB event/text safety limit, while reporting
@@ -605,3 +605,22 @@ cannot be created, routing continues with the ledger discarded.
 `history.json` remains separate: it preserves backward-compatible admission
 and execution aggregates used by the scorer. Corrupt or legacy history falls
 back conservatively and is not rewritten by the event ledger.
+
+## Native dispatch experiment
+
+`veto start` is a thin composition-root path over `pkg/dispatch` and
+`pkg/executor.NativeLauncher`. The policy is deterministic and explainable:
+manual mode selects the requested agent, agent-choice uses task kind plus
+availability, and model-choice uses a fixed model mapping where local metadata
+is safe. The launcher uses direct argument arrays and leaves native environment,
+working directory, permissions, configuration, sessions, and terminal streams
+untouched. The TUI uses Bubble Tea's terminal-release/restore handoff around
+the same child command.
+
+Native status keeps authentication, billing mode, capacity, and cost separate.
+Claude subscription/API ambiguity is UNKNOWN when Veto cannot verify the native
+CLI's actual path. `~/.veto/unavailable.json` stores only bounded, expiring
+manual exclusions. `~/.veto/experiment.log` stores bounded, local, allowlisted
+choice/process/usefulness events; it never stores task text, source,
+transcripts, responses, or credentials and can be deleted with
+`veto experiment --clear`.

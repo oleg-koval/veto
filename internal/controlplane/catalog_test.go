@@ -8,7 +8,7 @@ func TestDefaultCatalogCoversCLICommands(t *testing.T) {
 	want := []string{
 		"login", "logout", "setup", "run", "exec", "route", "benchmark",
 		"verify-models", "doctor", "feedback", "analytics", "opencode", "hermes",
-		"models", "providers", "disable", "enable", "version", "install-git-hook",
+		"models", "providers", "disable", "enable", "version", "install-git-hook", "start", "unavailable", "experiment",
 	}
 
 	catalog := DefaultCatalog()

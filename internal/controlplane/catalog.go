@@ -35,7 +35,14 @@ func DefaultCatalog() Catalog {
 		{ID: "enable", Label: "Enable", Command: "enable", Category: "Workspace", Description: "Restore one or more models to routing eligibility.", Flags: []FlagSpec{{Name: "model", Value: "string", Required: true, Description: "Model name(s) to re-enable, comma-separated."}}},
 		{ID: "version", Label: "Version", Command: "version", Category: "Workspace", Description: "Print the Veto version."},
 		{ID: "install-git-hook", Label: "Install git hook", Command: "install-git-hook", Category: "Workspace", Description: "Add Veto to the git workflow.", Flags: []FlagSpec{{Name: "force", Value: "bool", Description: "Overwrite an existing prepare-commit-msg hook."}}},
+		{ID: "start", Label: "Start native task", Command: "start", Category: "Execution", Description: "Launch Claude Code or Codex with a transparent manual or experimental choice.", Flags: startFlags()},
+		{ID: "unavailable", Label: "Temporary availability", Command: "unavailable", Category: "Providers", Description: "Temporarily exclude a native agent from dispatch.", Flags: []FlagSpec{{Name: "agent", Value: "string", Description: "claude or codex; omit to inspect all entries."}, {Name: "for", Value: "duration", Description: "Duration such as 30m or 2h."}, {Name: "clear", Value: "bool", Description: "Remove the agent's temporary unavailability."}}},
+		{ID: "experiment", Label: "Experiment log", Command: "experiment", Category: "Diagnostics", Description: "Inspect or delete local native-dispatch events.", Flags: []FlagSpec{{Name: "clear", Value: "bool", Description: "Delete the local experiment log."}}},
 	}}
+}
+
+func startFlags() []FlagSpec {
+	return []FlagSpec{{Name: "agent", Value: "string", Description: "claude or codex; required for manual/model choice."}, {Name: "choose", Value: "string", Description: "agent or model; omit for manual selection."}, {Name: "model", Value: "string", Description: "Explicit model override where supported."}, {Name: "kind", Value: "string", Description: "Task kind; auto-detected when omitted."}, {Name: "risk", Value: "string", Default: "medium", Description: "Risk level: low, medium, or high."}, {Name: "override-agent", Value: "string", Description: "Override an automatic agent proposal."}, {Name: "override-model", Value: "string", Description: "Override an automatic model proposal."}, {Name: "no-feedback", Value: "bool", Description: "Skip the post-run usefulness prompt."}}
 }
 
 func loginFlags() []FlagSpec {

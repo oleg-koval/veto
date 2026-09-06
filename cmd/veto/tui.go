@@ -77,6 +77,9 @@ func cmdTUI(args []string) error {
 				summary := "veto " + resolvedVersion()
 				return controlplane.ActionResult{ActionID: "version", Summary: summary, Output: summary}, nil
 			})
+			service.RegisterHandler("start", runTUIStart)
+			service.RegisterHandler("unavailable", runTUIUnavailable)
+			service.RegisterHandler("experiment", runTUIExperiment)
 			registerTUIActionHandlers(service, func() error {
 				return refreshTUIRouting(reg, mgr)
 			})
@@ -323,7 +326,7 @@ func runTUILogin(ctx context.Context, request controlplane.ActionRequest) (contr
 		if err := saveCredential("CLAUDE_SUBSCRIPTION", "true"); err != nil {
 			return controlplane.ActionResult{ActionID: "login"}, err
 		}
-		return controlplane.ActionResult{ActionID: "login", Summary: "Claude subscription connected"}, nil
+		return controlplane.ActionResult{ActionID: "login", Summary: "Claude CLI configured; billing remains UNKNOWN to Veto"}, nil
 	}
 	if provider == "openrouter" && (mode == "browser" || mode == "oauth") {
 		oauthCtx, cancel := context.WithTimeout(ctx, openRouterOAuthWait+5*time.Second)

@@ -93,7 +93,7 @@ func cmdLogin() {
 		fmt.Println()
 		fmt.Println("  How do you use Claude?")
 		fmt.Println()
-		fmt.Println("  1  Subscription  — Claude Max / Pro (uses claude CLI, $0 per route)")
+		fmt.Println("  1  Subscription  — Claude Max / Pro (uses claude CLI; billing remains UNKNOWN to Veto)")
 		fmt.Println("  2  API key       — pay per token via Anthropic API")
 		fmt.Println()
 		fmt.Print("  Mode [1-2]: ")
@@ -493,7 +493,7 @@ func loginClaudeSubscription() {
 
 	fmt.Println()
 	fmt.Printf("  Claude subscription connected! (%s)\n", version)
-	fmt.Println("  veto will use claude -p for all Claude routing — no API tokens consumed.")
+	fmt.Println("  Veto will use the claude CLI. Billing/API selection remains UNKNOWN to Veto; inherited API keys are preserved.")
 	fmt.Println()
 	fmt.Println("  What's next:")
 	fmt.Println("    veto providers              — confirm Claude is connected")

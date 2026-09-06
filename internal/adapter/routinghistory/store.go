@@ -9,6 +9,7 @@ package routinghistory
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -47,6 +48,8 @@ type FileStore struct {
 	events []persistedEvent
 }
 
+const maxHistoryEvents = 2000
+
 // NewFileStore returns a store backed by path, loading any existing history.
 // A missing or corrupt file yields an empty store: history is best-effort and
 // never a reason to fail a route.
@@ -65,11 +68,18 @@ func (s *FileStore) load() {
 	if err := json.Unmarshal(data, &persisted); err != nil {
 		return
 	}
+	if len(persisted) > maxHistoryEvents {
+		persisted = persisted[len(persisted)-maxHistoryEvents:]
+	}
 
 	for i := range persisted {
 		if persisted[i].ScoreKnown == nil {
-			known := persisted[i].Kind == "result" && persisted[i].Status == "success"
-			persisted[i].ScoreKnown = boolPtr(known)
+			// Old records did not distinguish transport completion from task
+			// success. Keep them readable, but do not let them train the policy.
+			persisted[i].ScoreKnown = boolPtr(false)
+			if persisted[i].Kind == "result" && persisted[i].Status == "success" {
+				persisted[i].Status = "completed"
+			}
 		}
 		s.apply(persisted[i])
 	}
@@ -87,11 +97,6 @@ func (s *FileStore) apply(event persistedEvent) {
 	}
 
 	scoreKnown := event.ScoreKnown != nil && *event.ScoreKnown
-	// Pre-telemetry history implied that a successful result's score was
-	// known. Preserve that behavior when loading legacy files.
-	if event.ScoreKnown == nil && event.Kind == "result" && event.Status == "success" {
-		scoreKnown = true
-	}
 	s.store.RecordExecution(event.TaskID, event.ModelName, event.TaskKind, router.ExecutionMetrics{
 		Status:       event.Status,
 		Score:        event.Score,
@@ -121,6 +126,7 @@ func (s *FileStore) LogDecisionForKind(taskID, modelName string, kind router.Tas
 		Kind: "decision", TaskID: taskID, ModelName: modelName,
 		TaskKind: kind, Accepted: d.Accept,
 	})
+	s.trimAndRebuild()
 }
 
 // LogResult records an unscoped execution result.
@@ -144,6 +150,18 @@ func (s *FileStore) RecordExecution(taskID, modelName string, kind router.TaskKi
 		CostKnown: metrics.CostKnown, LatencyMs: metrics.LatencyMs,
 		LatencyKnown: metrics.LatencyKnown,
 	})
+	s.trimAndRebuild()
+}
+
+func (s *FileStore) trimAndRebuild() {
+	if len(s.events) <= maxHistoryEvents {
+		return
+	}
+	s.events = append([]persistedEvent(nil), s.events[len(s.events)-maxHistoryEvents:]...)
+	s.store = router.NewMemoryStore()
+	for _, event := range s.events {
+		s.apply(event)
+	}
 }
 
 // Signal returns the aggregate signal maintained by the inner policy store.
@@ -165,7 +183,31 @@ func (s *FileStore) Save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path, data, 0600)
+	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".history-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, s.path); err != nil {
+		return fmt.Errorf("replace routing history: %w", err)
+	}
+	return nil
 }
 
 func boolPtr(value bool) *bool { return &value }
