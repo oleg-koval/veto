@@ -56,6 +56,7 @@ type doctorReport struct {
 }
 
 type doctorOptions struct {
+	ctx     context.Context
 	fix     bool
 	offline bool
 }
@@ -170,11 +171,18 @@ func runDoctorCommand(args []string, stdout, stderr io.Writer, deps doctorDeps) 
 }
 
 func runDoctor(options doctorOptions, deps doctorDeps) doctorReport {
+	ctx := options.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	checks := []doctorCheck{
 		checkDoctorExecutable(deps),
 		checkDoctorPath(deps),
 		checkDoctorVersion(deps),
 		checkDoctorProvenance(deps),
+	}
+	if ctx.Err() != nil {
+		return summarizeDoctorChecks(checks)
 	}
 
 	home, err := deps.userHome()
@@ -192,15 +200,36 @@ func runDoctor(options doctorOptions, deps doctorDeps) doctorReport {
 	} else {
 		root := filepath.Join(home, ".veto")
 		checks = append(checks, checkDoctorState(root, options, deps)...)
+		if ctx.Err() != nil {
+			return summarizeDoctorChecks(checks)
+		}
 		checks = append(checks, checkDoctorJSON(root, deps))
+		if ctx.Err() != nil {
+			return summarizeDoctorChecks(checks)
+		}
 		checks = append(checks, checkDoctorOpenRouterCatalog(root, deps))
+		if ctx.Err() != nil {
+			return summarizeDoctorChecks(checks)
+		}
 		checks = append(checks, checkDoctorOpenCode(root, deps))
+		if ctx.Err() != nil {
+			return summarizeDoctorChecks(checks)
+		}
 		models, modelsErr := readDoctorModels(filepath.Join(root, "models.json"), deps.fs)
 		checks = append(checks, checkDoctorModels(models, modelsErr))
+		if ctx.Err() != nil {
+			return summarizeDoctorChecks(checks)
+		}
 		checks = append(checks, checkDoctorSkills(root, deps))
+		if ctx.Err() != nil {
+			return summarizeDoctorChecks(checks)
+		}
 		checks = append(checks, checkDoctorDependencies(root, models, modelsErr, deps))
 	}
 
+	if ctx.Err() != nil {
+		return summarizeDoctorChecks(checks)
+	}
 	checks = append(checks, checkDoctorReleaseIntegrity(options, deps))
 	return summarizeDoctorChecks(checks)
 }

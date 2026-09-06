@@ -1,0 +1,1591 @@
+package tui
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/oleg-koval/veto/internal/controlplane"
+)
+
+const tickInterval = 80 * time.Millisecond
+
+const runningSpinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+// Options controls presentation-only behavior. Runtime actions remain owned
+// by the control-plane service and can be added without changing the shell.
+type Options struct {
+	Motion         bool
+	NoColor        bool
+	Mouse          bool
+	ScreenReader   bool
+	Service        controlplane.Service
+	ServiceFactory func() (controlplane.Service, error)
+}
+
+type tickMsg time.Time
+
+type eventMsg struct {
+	event controlplane.Event
+	ok    bool
+}
+
+type executionResultMsg struct {
+	result  controlplane.ActionResult
+	err     error
+	request controlplane.ActionRequest
+}
+
+type nativeFinishedMsg struct{ err error }
+
+type snapshotMsg struct {
+	snapshot controlplane.Snapshot
+	err      error
+}
+
+type serviceReadyMsg struct {
+	service controlplane.Service
+	err     error
+}
+
+// Model is the keyboard-first Veto shell. It intentionally contains no
+// provider clients or credential state.
+type Model struct {
+	catalog         controlplane.Catalog
+	options         Options
+	width           int
+	height          int
+	selected        int
+	hoveredCommand  int
+	activeAction    string
+	plansCursor     int
+	composerOpen    bool
+	composerAction  string
+	composerInput   string
+	composerFields  []controlplane.FlagSpec
+	composerValues  map[string]string
+	composerField   int
+	composerEditing bool
+	confirmOpen     bool
+	pendingRequest  controlplane.ActionRequest
+	pendingNative   controlplane.NativeCommand
+	running         bool
+	lastEvent       string
+	eventHistory    []controlplane.Event
+	output          strings.Builder
+	events          <-chan controlplane.Event
+	cancelRun       context.CancelFunc
+	snapshot        controlplane.Snapshot
+	paletteOpen     bool
+	helpOpen        bool
+	paletteQuery    string
+	paletteCursor   int
+	frame           uint8
+	status          string
+}
+
+// NewModel creates a shell with a deterministic initial state.
+func NewModel(catalog controlplane.Catalog, options Options) *Model {
+	status := "Ready · press r to start a task"
+	if options.ServiceFactory != nil {
+		status = "Loading · control plane"
+	}
+	return &Model{catalog: catalog, options: options, status: status, hoveredCommand: -1}
+}
+
+func (m *Model) Init() tea.Cmd {
+	commands := make([]tea.Cmd, 0, 2)
+	if m.options.Motion {
+		commands = append(commands, nextTick())
+	}
+	if m.options.Service != nil {
+		commands = append(commands, m.loadSnapshot())
+	}
+	if m.options.ServiceFactory != nil {
+		commands = append(commands, m.loadService())
+	}
+	return tea.Batch(commands...)
+}
+
+func nextTick() tea.Cmd {
+	return tea.Tick(tickInterval, func(now time.Time) tea.Msg { return tickMsg(now) })
+}
+
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch message := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = message.Width, message.Height
+		return m, nil
+	case tickMsg:
+		m.frame++
+		if m.options.Motion {
+			return m, nextTick()
+		}
+		return m, nil
+	case snapshotMsg:
+		if message.err == nil {
+			m.snapshot = message.snapshot
+		}
+		return m, nil
+	case serviceReadyMsg:
+		m.options.ServiceFactory = nil
+		if message.err != nil {
+			m.status = "Error · control plane unavailable"
+			return m, nil
+		}
+		m.options.Service = message.service
+		m.status = "Ready · press r to start a task"
+		return m, m.loadSnapshot()
+	case tea.MouseClickMsg:
+		m.updateMouse(message)
+		return m, nil
+	case tea.MouseMotionMsg:
+		m.updateMouseHover(message)
+		return m, nil
+	case tea.MouseWheelMsg:
+		if message.Button == tea.MouseWheelDown {
+			m.moveSelection(1)
+		} else if message.Button == tea.MouseWheelUp {
+			m.moveSelection(-1)
+		}
+		return m, nil
+	case eventMsg:
+		if !message.ok {
+			return m, nil
+		}
+		if message.event.Version != 0 && message.event.Version != controlplane.SchemaVersion {
+			m.status = fmt.Sprintf("Error · unsupported event schema %d", message.event.Version)
+			return m, waitForEvent(m.events)
+		}
+		message.event.Message = sanitizeProviderText(message.event.Message)
+		m.eventHistory = append(m.eventHistory, message.event)
+		if len(m.eventHistory) > 64 {
+			m.eventHistory = m.eventHistory[len(m.eventHistory)-64:]
+		}
+		m.lastEvent = message.event.Kind + " · " + message.event.Message
+		if message.event.Kind == "output" {
+			m.output.WriteString(message.event.Message)
+		}
+		return m, waitForEvent(m.events)
+	case executionResultMsg:
+		m.running = false
+		if m.cancelRun != nil {
+			m.cancelRun()
+		}
+		m.cancelRun = nil
+		if message.result.Command != nil && message.err == nil {
+			m.pendingNative = message.result.Command
+			m.pendingRequest = message.request
+			m.confirmOpen = true
+			m.output.WriteString(message.result.Summary)
+			m.status = "Review · press Enter to launch native agent"
+			return m, nil
+		}
+		if message.err != nil {
+			if message.result.Output != "" && m.output.Len() == 0 {
+				m.output.WriteString(sanitizeProviderText(message.result.Output))
+			}
+			if errors.Is(message.err, context.Canceled) {
+				m.status = "Ready · action cancelled"
+				return m, nil
+			}
+			m.status = "Error · " + sanitizeProviderText(message.err.Error())
+			return m, nil
+		}
+		m.activeAction = message.result.ActionID
+		m.status = "Ready · " + message.result.Summary
+		if m.output.Len() == 0 {
+			m.output.WriteString(sanitizeProviderText(message.result.Output))
+		}
+		if m.options.Service != nil {
+			return m, m.loadSnapshot()
+		}
+		return m, nil
+	case nativeFinishedMsg:
+		m.running = false
+		m.pendingNative = nil
+		if message.err != nil {
+			m.status = "Native agent exited with error · " + message.err.Error()
+		} else {
+			m.status = "Native agent returned · dispatch outcome is not task correctness"
+		}
+		return m, m.loadSnapshot()
+	case tea.KeyPressMsg:
+		return m.updateKey(message)
+	default:
+		return m, nil
+	}
+}
+
+func (m *Model) updateMouse(message tea.MouseClickMsg) {
+	if message.Button != tea.MouseLeft || m.composerOpen || m.confirmOpen || m.paletteOpen || m.helpOpen {
+		return
+	}
+	index := m.commandIndexAt(message.X, message.Y)
+	if index < 0 {
+		return
+	}
+	commands := m.catalog.Commands()
+	m.selected = index
+	m.status = "Ready · " + commands[index].Command
+}
+
+func (m *Model) updateMouseHover(message tea.MouseMotionMsg) {
+	if m.composerOpen || m.confirmOpen || m.paletteOpen || m.helpOpen {
+		m.hoveredCommand = -1
+		return
+	}
+	index := m.commandIndexAt(message.X, message.Y)
+	if index == m.hoveredCommand {
+		return
+	}
+	m.hoveredCommand = index
+	if index >= 0 {
+		commands := m.catalog.Commands()
+		m.status = "Hint · " + commands[index].Description
+	}
+}
+
+func (m *Model) commandIndexAt(x, y int) int {
+	commands := m.catalog.Commands()
+	if len(commands) == 0 || x < 0 || y < 0 {
+		return -1
+	}
+	width := m.width
+	if width < 1 {
+		width = 80
+	}
+	listWidth := 25
+	listOffset := 0
+	switch {
+	case width < 58:
+		listWidth = width
+		listOffset = lipgloss.Height(m.renderMain(width)) + 2
+	case width < 96:
+		listWidth = width / 3
+		if listWidth < 20 {
+			listWidth = 20
+		}
+	}
+	if x >= listWidth || y < listOffset+1 {
+		return -1
+	}
+	index := y - listOffset - 1 // COMMANDS header occupies the first row
+	if m.hoveredCommand >= 0 && index > m.hoveredCommand {
+		// The hovered command owns one extra tooltip row in the rail.
+		index--
+	}
+	maxVisible := len(commands)
+	if width < 30 {
+		maxVisible = min(maxVisible, 9)
+	}
+	if index < 0 || index >= maxVisible {
+		return -1
+	}
+	return index
+}
+
+func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := message.Key()
+	// Ctrl+C is the emergency escape hatch in every screen, including forms
+	// and overlays where ordinary character keys are intentionally captured.
+	if key.Mod == tea.ModCtrl && key.Code == 'c' {
+		if m.cancelRun != nil {
+			m.cancelRun()
+		}
+		return m, tea.Quit
+	}
+	if m.running && key.String() == "esc" {
+		if m.cancelRun != nil {
+			m.cancelRun()
+		}
+		action := m.composerAction
+		if action == "" {
+			action = m.activeAction
+		}
+		m.status = "Cancelling · " + action
+		return m, nil
+	}
+	if m.running {
+		return m, nil
+	}
+	if m.confirmOpen {
+		switch key.String() {
+		case "esc", "n":
+			m.pendingNative = nil
+			m.confirmOpen = false
+			m.pendingRequest = controlplane.ActionRequest{}
+			m.status = "Ready · action cancelled"
+		case "enter", "y":
+			if m.pendingNative != nil {
+				command := m.pendingNative
+				m.pendingNative = nil
+				m.confirmOpen = false
+				m.pendingRequest = controlplane.ActionRequest{}
+				m.running = true
+				m.status = "Running · native agent"
+				return m, tea.Exec(command, func(err error) tea.Msg { return nativeFinishedMsg{err: err} })
+			}
+			request := m.pendingRequest
+			m.confirmOpen = false
+			m.pendingRequest = controlplane.ActionRequest{}
+			return m.beginExecution(request)
+		}
+		return m, nil
+	}
+	if m.helpOpen {
+		if key.String() == "esc" || key.String() == "?" {
+			m.helpOpen = false
+		}
+		return m, nil
+	}
+	if m.paletteOpen {
+		return m.updatePalette(key)
+	}
+	if m.composerOpen {
+		return m.updateComposer(key)
+	}
+	if key.Mod == tea.ModCtrl && key.Code == 'k' {
+		m.paletteOpen = true
+		m.paletteQuery = ""
+		m.paletteCursor = 0
+		return m, nil
+	}
+
+	switch key.String() {
+	case "q":
+		if m.cancelRun != nil {
+			m.cancelRun()
+		}
+		return m, tea.Quit
+	case "/":
+		m.paletteOpen = true
+		m.paletteQuery = ""
+		m.paletteCursor = 0
+		return m, nil
+	case "?":
+		m.helpOpen = true
+		return m, nil
+	case "h":
+		m.activeAction = "history"
+		m.status = "Ready · history"
+	case "i":
+		m.activeAction = "integrations"
+		m.status = "Ready · integrations"
+	case "p":
+		m.activeAction = "plans"
+		m.status = "Ready · plans"
+	case "j", "down":
+		if m.activeAction == "plans" && len(m.snapshot.Plans) > 0 {
+			m.movePlanCursor(1)
+			return m, nil
+		}
+		m.moveSelection(1)
+	case "k", "up":
+		if m.activeAction == "plans" && len(m.snapshot.Plans) > 0 {
+			m.movePlanCursor(-1)
+			return m, nil
+		}
+		m.moveSelection(-1)
+	case "tab":
+		m.moveSelection(1)
+	case "enter":
+		if m.activeAction == "plans" && len(m.snapshot.Plans) > 0 {
+			m.openPlanComposer()
+			return m, nil
+		}
+		commands := m.catalog.Commands()
+		if len(commands) > 0 && m.actionSupportsForm(commands[m.selected]) {
+			m.openComposer(commands[m.selected])
+		} else {
+			m.activateSelected()
+			if len(commands) > 0 && m.options.Service != nil && directActions[commands[m.selected].ID] {
+				return m.startAction(commands[m.selected].ID)
+			}
+		}
+	case "r":
+		if m.activeAction == "" {
+			if action, ok := m.catalog.Find("run"); ok {
+				m.openComposer(action)
+			}
+			return m, nil
+		}
+		commands := m.catalog.Commands()
+		if len(commands) > 0 && m.actionHasForm(commands[m.selected]) {
+			m.openComposer(commands[m.selected])
+		}
+	case "s":
+		if m.activeAction == "" {
+			if action, ok := m.catalog.Find("start"); ok {
+				m.openComposer(action)
+			}
+			return m, nil
+		}
+	case "t":
+		if m.activeAction == "" {
+			if action, ok := m.catalog.Find("route"); ok {
+				m.openComposer(action)
+			}
+		}
+	case "m":
+		m.activeAction = "models"
+		m.status = "Ready · models"
+	case "d":
+		m.activeAction = "doctor"
+		m.status = "Ready · doctor"
+	case "home", "0":
+		m.activeAction = ""
+		m.selected = 0
+		m.status = "Ready · press r to start a task"
+	}
+	return m, nil
+}
+
+func (m *Model) actionHasForm(action controlplane.ActionSpec) bool {
+	return action.ID == "run" || action.ID == "route" || len(action.Flags) > 0 || len(action.Subcommands) > 0
+}
+
+func (m *Model) actionSupportsForm(action controlplane.ActionSpec) bool {
+	if action.ID == "run" || action.ID == "route" {
+		return true
+	}
+	// These commands are also navigation surfaces. Enter opens their screen;
+	// r opens the typed flag/subcommand form when an operation is needed.
+	switch action.ID {
+	case "analytics", "doctor", "hermes", "models", "opencode":
+		return false
+	default:
+		return m.actionHasForm(action)
+	}
+}
+
+var directActions = map[string]bool{
+	"benchmark": true,
+	"doctor":    true,
+	"providers": true,
+	"version":   true,
+}
+
+func (m *Model) updateComposer(key tea.Key) (tea.Model, tea.Cmd) {
+	if m.composerEditing {
+		return m.updateComposerField(key)
+	}
+	switch key.String() {
+	case "esc":
+		m.composerOpen = false
+		m.composerInput = ""
+	case "backspace":
+		m.composerInput = removeLastRune(m.composerInput)
+	case "enter":
+		if m.composerNeedsObjective() && strings.TrimSpace(m.composerInput) == "" {
+			m.status = "Error · enter a task objective"
+			return m, nil
+		}
+		if len(m.composerFields) > 0 {
+			m.composerEditing = true
+			m.composerField = 0
+			m.status = "Flags · " + m.composerFields[0].Name
+			return m, nil
+		}
+		return m.startExecution()
+	default:
+		if key.Text != "" {
+			m.composerInput += key.Text
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) openComposer(action controlplane.ActionSpec) {
+	m.composerAction = action.ID
+	m.composerInput = ""
+	m.composerFields = make([]controlplane.FlagSpec, 0, len(action.Flags))
+	m.composerValues = make(map[string]string)
+	for _, subcommand := range action.Subcommands {
+		subcommand = defaultSubcommand(action.ID, subcommand)
+		m.composerFields = append(m.composerFields, controlplane.FlagSpec{Name: "subcommand", Value: "command", Default: subcommand, Description: "Command operation."})
+		m.composerValues["subcommand"] = subcommand
+		break
+	}
+	for _, field := range action.Flags {
+		if field.Name == "task" {
+			continue
+		}
+		m.composerFields = append(m.composerFields, field)
+		m.composerValues[field.Name] = field.Default
+	}
+	m.composerField = 0
+	m.composerEditing = false
+	m.composerOpen = true
+	if !m.composerNeedsObjective() && len(m.composerFields) > 0 {
+		m.composerEditing = true
+		m.status = "Flags · " + m.composerFields[0].Name
+	}
+}
+
+func (m *Model) openPlanComposer() {
+	action, ok := m.catalog.Find("exec")
+	if !ok {
+		m.status = "Error · execute plan command unavailable"
+		return
+	}
+	m.openComposer(action)
+	if len(m.composerFields) == 0 {
+		return
+	}
+	m.composerValues["plan"] = m.snapshot.Plans[m.plansCursor%len(m.snapshot.Plans)].Name
+	m.composerField = 0
+	m.composerEditing = true
+	m.status = "Flags · plan=" + m.composerValues["plan"]
+}
+
+func defaultSubcommand(actionID, fallback string) string {
+	switch actionID {
+	case "analytics", "opencode":
+		return "status"
+	case "hermes":
+		return "api"
+	default:
+		return fallback
+	}
+}
+
+func (m *Model) composerNeedsObjective() bool {
+	return m.composerAction == "run" || m.composerAction == "route" || m.composerAction == "start"
+}
+
+func (m *Model) updateComposerField(key tea.Key) (tea.Model, tea.Cmd) {
+	if len(m.composerFields) == 0 {
+		return m.startExecution()
+	}
+	field := m.composerFields[m.composerField]
+	if choices := m.fieldChoices(field); len(choices) > 0 && (key.String() == "space" || key.Text == " ") {
+		current := m.composerValues[field.Name]
+		index := 0
+		for choiceIndex, choice := range choices {
+			if choice == current {
+				index = (choiceIndex + 1) % len(choices)
+				break
+			}
+		}
+		m.composerValues[field.Name] = choices[index]
+		m.status = "Flags · " + field.Name + "=" + choices[index]
+		return m, nil
+	}
+	if field.Value == "bool" && (key.String() == "space" || key.Text == " ") {
+		if m.composerValues[field.Name] == "true" {
+			m.composerValues[field.Name] = "false"
+		} else {
+			m.composerValues[field.Name] = "true"
+		}
+		m.status = "Flags · " + field.Name + "=" + m.composerValues[field.Name]
+		return m, nil
+	}
+	switch key.String() {
+	case "esc":
+		m.composerOpen = false
+		m.composerEditing = false
+	case "tab", "down":
+		m.composerField = (m.composerField + 1) % len(m.composerFields)
+		m.status = "Flags · " + m.composerFields[m.composerField].Name
+	case "shift+tab", "up":
+		m.composerField = (m.composerField - 1 + len(m.composerFields)) % len(m.composerFields)
+		m.status = "Flags · " + m.composerFields[m.composerField].Name
+	case "backspace":
+		value := m.composerValues[field.Name]
+		m.composerValues[field.Name] = removeLastRune(value)
+	case "enter":
+		if m.composerField < len(m.composerFields)-1 {
+			m.composerField++
+			m.status = "Flags · " + m.composerFields[m.composerField].Name
+			return m, nil
+		}
+		return m.startExecution()
+	default:
+		if key.Text != "" {
+			value := m.composerValues[field.Name]
+			if value == field.Default {
+				value = ""
+			}
+			m.composerValues[field.Name] = value + key.Text
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) startExecution() (tea.Model, tea.Cmd) {
+	objective := strings.TrimSpace(m.composerInput)
+	for _, field := range m.composerFields {
+		if field.Required && strings.TrimSpace(m.composerValues[field.Name]) == "" {
+			m.status = "Error · " + field.Name + " is required"
+			return m, nil
+		}
+	}
+	m.composerOpen = false
+	m.composerEditing = false
+	arguments := make(map[string]string, len(m.composerValues)+1)
+	arguments["objective"] = objective
+	for name, value := range m.composerValues {
+		if value != "" {
+			arguments[name] = value
+		}
+	}
+	request := controlplane.ActionRequest{ActionID: m.composerAction, Arguments: arguments}
+	if requiresConfirmation(request) {
+		m.pendingRequest = request
+		m.confirmOpen = true
+		m.status = "Confirm · " + request.ActionID
+		return m, nil
+	}
+	return m.beginExecution(request)
+}
+
+func (m *Model) beginExecution(request controlplane.ActionRequest) (tea.Model, tea.Cmd) {
+	if m.running {
+		return m, nil
+	}
+	m.running = true
+	m.activeAction = request.ActionID
+	m.output.Reset()
+	m.eventHistory = nil
+	m.lastEvent = "starting"
+	m.status = "Running · " + request.ActionID
+	if m.options.Service == nil {
+		m.activeAction = request.ActionID
+		m.running = false
+		m.status = "Ready · service unavailable in preview"
+		return m, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancelRun = cancel
+	m.events = m.options.Service.Subscribe(ctx)
+	return m, tea.Batch(m.execute(request, ctx), waitForEvent(m.events))
+}
+
+func requiresConfirmation(request controlplane.ActionRequest) bool {
+	switch request.ActionID {
+	case "login", "logout", "disable", "enable", "install-git-hook":
+		return true
+	case "doctor":
+		return request.Arguments["fix"] == "true"
+	case "setup":
+		return request.Arguments["auto-approve"] == "true" || strings.TrimSpace(request.Arguments["approved-files"]) != ""
+	case "opencode":
+		subcommand := request.Arguments["subcommand"]
+		return subcommand == "connect" || subcommand == "disconnect" || (subcommand == "plugin" && request.Arguments["operation"] != "status")
+	case "hermes":
+		return request.Arguments["subcommand"] == "plugin" && request.Arguments["operation"] != "status"
+	case "analytics":
+		return request.Arguments["subcommand"] == "enable" || request.Arguments["subcommand"] == "disable"
+	default:
+		return false
+	}
+}
+
+func (m *Model) startAction(actionID string) (tea.Model, tea.Cmd) {
+	if m.running {
+		return m, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancelRun = cancel
+	m.events = m.options.Service.Subscribe(ctx)
+	m.running = true
+	m.activeAction = actionID
+	m.lastEvent = "starting"
+	m.status = "Running · " + actionID
+	request := controlplane.ActionRequest{ActionID: actionID, Arguments: map[string]string{}}
+	return m, tea.Batch(m.execute(request, ctx), waitForEvent(m.events))
+}
+
+func (m *Model) execute(request controlplane.ActionRequest, ctx context.Context) tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.options.Service.Execute(ctx, request)
+		return executionResultMsg{result: result, err: err, request: request}
+	}
+}
+
+func (m *Model) loadSnapshot() tea.Cmd {
+	return func() tea.Msg {
+		snapshot, err := m.options.Service.Snapshot(context.Background())
+		return snapshotMsg{snapshot: snapshot, err: err}
+	}
+}
+
+func (m *Model) loadService() tea.Cmd {
+	return func() tea.Msg {
+		service, err := m.options.ServiceFactory()
+		return serviceReadyMsg{service: service, err: err}
+	}
+}
+
+func waitForEvent(updates <-chan controlplane.Event) tea.Cmd {
+	return func() tea.Msg {
+		event, ok := <-updates
+		return eventMsg{event: event, ok: ok}
+	}
+}
+
+func (m *Model) updatePalette(key tea.Key) (tea.Model, tea.Cmd) {
+	switch key.String() {
+	case "esc":
+		m.paletteOpen = false
+		m.paletteQuery = ""
+	case "enter":
+		filtered := m.filteredActions()
+		if len(filtered) > 0 {
+			action := filtered[m.paletteCursor%len(filtered)]
+			m.activeAction = action.ID
+			m.status = "Ready · " + action.Command
+			m.paletteOpen = false
+			m.paletteQuery = ""
+			if m.actionSupportsForm(action) {
+				m.openComposer(action)
+				return m, nil
+			}
+			if m.options.Service != nil && directActions[action.ID] {
+				return m.startAction(action.ID)
+			}
+		}
+		m.paletteOpen = false
+		m.paletteQuery = ""
+	case "backspace":
+		if m.paletteQuery != "" {
+			m.paletteQuery = removeLastRune(m.paletteQuery)
+			m.paletteCursor = 0
+		}
+	case "j", "down":
+		m.movePaletteCursor(1)
+	case "k", "up":
+		m.movePaletteCursor(-1)
+	default:
+		if key.Text != "" {
+			m.paletteQuery += key.Text
+			m.paletteCursor = 0
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) moveSelection(delta int) {
+	commands := m.catalog.Commands()
+	if len(commands) == 0 {
+		return
+	}
+	m.selected = (m.selected + delta + len(commands)) % len(commands)
+	m.status = "Ready · " + commands[m.selected].Command
+}
+
+func (m *Model) activateSelected() {
+	commands := m.catalog.Commands()
+	if len(commands) == 0 {
+		return
+	}
+	m.activeAction = commands[m.selected].ID
+	m.status = "Ready · veto " + commands[m.selected].Command
+}
+
+func (m *Model) movePaletteCursor(delta int) {
+	filtered := m.filteredActions()
+	if len(filtered) == 0 {
+		return
+	}
+	m.paletteCursor = (m.paletteCursor + delta + len(filtered)) % len(filtered)
+}
+
+func (m *Model) movePlanCursor(delta int) {
+	if len(m.snapshot.Plans) == 0 {
+		return
+	}
+	m.plansCursor = (m.plansCursor + delta + len(m.snapshot.Plans)) % len(m.snapshot.Plans)
+	m.status = "Ready · plan " + m.snapshot.Plans[m.plansCursor].Name
+}
+
+func (m *Model) filteredActions() []controlplane.ActionSpec {
+	query := strings.ToLower(strings.TrimSpace(m.paletteQuery))
+	if query == "" {
+		return m.catalog.Commands()
+	}
+	filtered := make([]controlplane.ActionSpec, 0)
+	for _, action := range m.catalog.Commands() {
+		if strings.Contains(strings.ToLower(action.ID), query) || strings.Contains(strings.ToLower(action.Description), query) {
+			filtered = append(filtered, action)
+		}
+	}
+	return filtered
+}
+
+func (m *Model) View() tea.View {
+	content := m.renderShell()
+	if m.paletteOpen {
+		content = m.renderPalette(content)
+	}
+	if m.helpOpen {
+		content = m.renderHelp(content)
+	}
+	if m.options.NoColor {
+		content = ansi.Strip(content)
+	}
+	view := tea.NewView(content)
+	// Screen-reader mode still uses the alternate screen: inline rendering
+	// relies on cursor-addressing sequences that some assistive terminals do
+	// not honor, which otherwise leaves every frame stacked in scrollback.
+	view.AltScreen = true
+	view.DisableBracketedPasteMode = m.options.ScreenReader
+	// Veto does not use focus events; avoid emitting focus-reporting control
+	// sequences that can confuse terminal tabs when the window is backgrounded.
+	view.ReportFocus = false
+	if m.options.Mouse {
+		view.MouseMode = tea.MouseModeCellMotion
+	}
+	view.WindowTitle = "Veto"
+	return view
+}
+
+func (m *Model) renderShell() string {
+	width := m.width
+	if width < 1 {
+		width = 80
+	}
+	commands := m.catalog.Commands()
+	var body string
+	switch {
+	case width < 58:
+		body = m.renderNarrow(commands, width)
+	case width < 96:
+		body = m.renderMedium(commands, width)
+	default:
+		body = m.renderWide(commands, width)
+	}
+	body = lipgloss.NewStyle().Width(width).Render(body)
+	status := m.statusLine(width)
+	height := m.height
+	if height < 1 {
+		height = 24
+	}
+	bodyLines := strings.Split(strings.TrimSuffix(body, "\n"), "\n")
+	statusHeight := lipgloss.Height(status)
+	availableBody := max(0, height-statusHeight)
+	if len(bodyLines) > availableBody {
+		switch {
+		case availableBody == 0:
+			bodyLines = nil
+		case availableBody == 1:
+			bodyLines = []string{mutedStyle.Render("…")}
+		default:
+			bodyLines = append(bodyLines[:availableBody-1], mutedStyle.Render("… more below; resize or use the palette"))
+		}
+	}
+	// Overlays are appended after the shell content. Do not pre-fill the
+	// background to terminal height first, or the palette/help panel lands
+	// below the viewport and captures keys while remaining invisible.
+	if !m.paletteOpen && !m.helpOpen && len(bodyLines) < availableBody {
+		bodyLines = append(bodyLines, make([]string, availableBody-len(bodyLines))...)
+	}
+	if len(bodyLines) == 0 {
+		return status
+	}
+	return strings.Join(bodyLines, "\n") + "\n" + status
+}
+
+func (m *Model) renderWide(commands []controlplane.ActionSpec, width int) string {
+	leftWidth := 25
+	rightWidth := 27
+	mainWidth := width - leftWidth - rightWidth - 4
+	if mainWidth < 24 {
+		return m.renderMedium(commands, width)
+	}
+	left := m.renderCommandList(commands, leftWidth)
+	main := m.renderMain(mainWidth)
+	right := m.renderInspector(rightWidth)
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", main, "  ", right)
+}
+
+func (m *Model) renderMedium(commands []controlplane.ActionSpec, width int) string {
+	listWidth := width / 3
+	if listWidth < 20 {
+		listWidth = 20
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, m.renderCommandList(commands, listWidth), "  ", m.renderMain(width-listWidth-2))
+}
+
+func (m *Model) renderNarrow(commands []controlplane.ActionSpec, width int) string {
+	return m.renderMain(width) + "\n\n" + m.renderCommandList(commands, width)
+}
+
+func (m *Model) renderCommandList(commands []controlplane.ActionSpec, width int) string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("COMMANDS"))
+	b.WriteByte('\n')
+	for index, action := range commands {
+		marker := "  "
+		if index == m.selected {
+			marker = "▸ "
+		}
+		line := truncate(marker+action.Label, width)
+		if index == m.selected {
+			line = selectedStyle.Render(line)
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+		if index == m.hoveredCommand {
+			description := truncate("  "+action.Description, width-2)
+			b.WriteString(mutedStyle.Render(description))
+			b.WriteByte('\n')
+		}
+		if index >= 8 && width < 30 {
+			b.WriteString(mutedStyle.Render("  + more in palette"))
+			break
+		}
+	}
+	return lipgloss.NewStyle().Width(width).Render(strings.TrimSuffix(b.String(), "\n"))
+}
+
+func (m *Model) renderMain(width int) string {
+	active := "Home"
+	if m.activeAction != "" {
+		if action, ok := m.catalog.Find(m.activeAction); ok {
+			active = action.Label
+		}
+	}
+	if m.composerOpen {
+		if action, ok := m.catalog.Find(m.composerAction); ok {
+			active = action.Label
+		} else if m.composerAction != "" {
+			active = m.composerAction
+		}
+	}
+	if m.confirmOpen && m.pendingRequest.ActionID != "" {
+		if action, ok := m.catalog.Find(m.pendingRequest.ActionID); ok {
+			active = action.Label
+		} else {
+			active = m.pendingRequest.ActionID
+		}
+	}
+	var b strings.Builder
+	home := m.activeAction == "" && !m.composerOpen && !m.confirmOpen && len(m.eventHistory) == 0 && m.output.Len() == 0
+	b.WriteString(brandStyle.Render("VETO"))
+	b.WriteString("  ")
+	b.WriteString(mutedStyle.Render("your local AI control plane"))
+	b.WriteString("\n\n")
+	if home {
+		b.WriteString(titleStyle.Render("What do you want to do?"))
+	} else {
+		b.WriteString(titleStyle.Render(active))
+	}
+	b.WriteString("\n")
+	instruction := "Every CLI command is available through the palette."
+	if home {
+		instruction = "Start with a task. Veto routes it, runs it, and shows you what happened."
+	} else if m.composerOpen {
+		instruction = "Set the fields below. Enter advances; Esc cancels without running anything."
+	} else if m.confirmOpen {
+		instruction = "Review this action before Veto makes changes."
+	}
+	b.WriteString(mutedStyle.Render(instruction))
+	b.WriteString("\n\n")
+	if home {
+		b.WriteString(headerStyle.Render("START HERE"))
+		b.WriteString("\n")
+		b.WriteString(panelStyle.Render("r  Run a task       route + execute\ns  Start native     manual / choose agent / choose model\nt  Route only       preview the winning model\np  Execute a plan   run steps with review"))
+		b.WriteString("\n\n")
+		b.WriteString(headerStyle.Render("EXPLORE"))
+		b.WriteString("\n")
+		b.WriteString("m  Models     h  History     i  Integrations     d  Doctor\n")
+		b.WriteString(mutedStyle.Render("/  open the command palette   ?  keyboard help"))
+		b.WriteString("\n\n")
+		b.WriteString(mutedStyle.Render("No provider calls are made until you confirm an action."))
+		b.WriteString("\n\n")
+		b.WriteString(m.renderNativeStatus(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
+	if m.composerOpen {
+		b.WriteString(m.renderComposer(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
+	if m.confirmOpen {
+		b.WriteString(m.renderConfirmation(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
+	if len(m.eventHistory) > 0 {
+		b.WriteString(m.renderLiveTimeline(width))
+		b.WriteString("\n\n")
+	}
+	if m.activeAction == "models" {
+		b.WriteString(m.renderModels(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
+	if m.activeAction == "providers" {
+		b.WriteString(m.renderProviders(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
+	if m.activeAction == "history" {
+		b.WriteString(m.renderHistory(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
+	if m.activeAction == "plans" || (m.activeAction == "exec" && m.output.Len() == 0) {
+		b.WriteString(m.renderPlans(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
+	if m.activeAction == "doctor" {
+		b.WriteString(m.renderHealth(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
+	if m.activeAction == "analytics" {
+		b.WriteString(m.renderAnalytics(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
+	if m.activeAction == "integrations" || m.activeAction == "opencode" || m.activeAction == "hermes" {
+		b.WriteString(m.renderIntegrations(width))
+		return lipgloss.NewStyle().Width(width).Render(b.String())
+	}
+	if m.output.Len() > 0 {
+		b.WriteString(headerStyle.Render("OUTPUT"))
+		b.WriteString("\n")
+		b.WriteString(panelStyle.Render(truncateBlock(strings.TrimSpace(m.output.String()), width-4)))
+		b.WriteString("\n\n")
+	} else {
+		b.WriteString(panelStyle.Render(truncate("⌘  Run a task   /  Find command   ?  Help", width-4)))
+		b.WriteString("\n\n")
+		b.WriteString(headerStyle.Render("NEXT"))
+		b.WriteString("\n")
+		b.WriteString("Start with a command or open the palette to inspect flags.\n")
+		b.WriteString(mutedStyle.Render("No provider calls are made until you confirm an action."))
+	}
+	return lipgloss.NewStyle().Width(width).Render(b.String())
+}
+
+func (m *Model) displayComposerValue(field controlplane.FlagSpec) string {
+	value := m.composerValues[field.Name]
+	if field.Secret && value != "" {
+		return strings.Repeat("•", len([]rune(value)))
+	}
+	return value
+}
+
+func (m *Model) renderComposer(width int) string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("COMPOSER · " + m.composerAction))
+	b.WriteString("\n")
+	if m.composerNeedsObjective() {
+		b.WriteString(panelStyle.Render("objective: " + m.composerInput + "▌"))
+		b.WriteString("\n")
+	}
+	if m.composerEditing && len(m.composerFields) > 0 {
+		field := m.composerFields[m.composerField]
+		b.WriteString(panelStyle.Render(field.Name + ": " + m.displayComposerValue(field) + "▌"))
+		b.WriteString("\n")
+		if field.Description != "" {
+			b.WriteString(mutedStyle.Render(field.Description))
+			b.WriteString("\n")
+		}
+		hint := "Enter next field/run · Tab move · Esc cancel"
+		if choices := m.fieldChoices(field); len(choices) > 0 {
+			hint = "Space cycle (" + strings.Join(choices, "/") + ") · Enter next field/run · Esc cancel"
+		}
+		if field.Value == "bool" {
+			hint = "Space toggle · Enter next field/run · Tab move · Esc cancel"
+		}
+		b.WriteString(mutedStyle.Render(hint))
+	} else if m.composerNeedsObjective() {
+		b.WriteString(mutedStyle.Render("Enter edit flags · Esc cancel"))
+	} else {
+		b.WriteString(mutedStyle.Render("Enter run · Esc cancel"))
+	}
+	return lipgloss.NewStyle().Width(width).Render(b.String())
+}
+
+func (m *Model) fieldChoices(field controlplane.FlagSpec) []string {
+	switch field.Name {
+	case "subcommand":
+		if action, ok := m.catalog.Find(m.composerAction); ok {
+			return action.Subcommands
+		}
+	case "operation":
+		if m.composerAction == "opencode" || m.composerAction == "hermes" {
+			return []string{"status", "install", "uninstall"}
+		}
+	case "mode":
+		if m.composerAction == "login" {
+			switch strings.ToLower(m.composerValues["provider"]) {
+			case "anthropic":
+				return []string{"api-key", "subscription"}
+			case "openrouter":
+				return []string{"api-key", "browser"}
+			case "local", "opencode":
+				return []string{"runtime"}
+			default:
+				return []string{"api-key"}
+			}
+		}
+	case "kind":
+		if m.composerAction == "run" || m.composerAction == "route" || m.composerAction == "start" {
+			return []string{"extract", "summarize", "code-change", "debug", "plan", "review", "refactor"}
+		}
+		if m.composerAction == "feedback" {
+			return []string{"bug", "feature", "optimization", "success"}
+		}
+	case "risk":
+		return []string{"low", "medium", "high"}
+	case "choose":
+		return []string{"agent", "model"}
+	case "agent":
+		return []string{"claude", "codex"}
+	case "on-failure":
+		return []string{"abort", "continue"}
+	}
+	return nil
+}
+
+func removeLastRune(value string) string {
+	if value == "" {
+		return ""
+	}
+	_, size := utf8.DecodeLastRuneInString(value)
+	return value[:len(value)-size]
+}
+
+func (m *Model) renderConfirmation(width int) string {
+	var b strings.Builder
+	title := "CONFIRM ACTION"
+	if m.pendingNative != nil {
+		title = "REVIEW NATIVE DISPATCH"
+	}
+	b.WriteString(headerStyle.Render(title))
+	b.WriteString("\n")
+	if m.pendingNative != nil && m.output.Len() > 0 {
+		b.WriteString(panelStyle.Render(truncateBlock(strings.TrimSpace(m.output.String()), width-4)))
+	} else {
+		b.WriteString(panelStyle.Render("Run veto " + m.pendingRequest.ActionID + "?"))
+	}
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("Enter/y launch · n/Esc cancel · native permissions and configuration remain in control of the agent"))
+	return lipgloss.NewStyle().Width(width).Render(b.String())
+}
+
+func (m *Model) renderModels(width int) string {
+	if len(m.snapshot.Models) == 0 {
+		return mutedStyle.Render("No configured models. Run veto login or open Providers.")
+	}
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("MODEL CATALOG"))
+	b.WriteString("\n")
+	for _, model := range m.snapshot.Models {
+		contextTokens := "unknown"
+		if model.ContextTokens > 0 {
+			contextTokens = strconv.Itoa(model.ContextTokens)
+		}
+		tools := "unknown"
+		if model.ToolsKnown {
+			tools = strings.Join(model.Tools, ",")
+			if tools == "" {
+				tools = "none"
+			}
+		}
+		policy := "normal"
+		if model.Excluded {
+			policy = "excluded"
+		} else if model.Pinned {
+			policy = "pinned"
+		} else if model.Favorite {
+			policy = "favorite"
+		}
+		line := fmt.Sprintf("%-22s %-10s %-10s %s", model.Name, model.Provider, model.Runtime, model.Tier)
+		b.WriteString(truncate(line, width-2))
+		b.WriteByte('\n')
+		details := fmt.Sprintf("  source=%s  status=%s  policy=%s  ctx=%s  tools=%s  cost=%s/%s", model.Source, model.Status, policy, contextTokens, tools, modelCost(model.CostPer1kInputUSD, model.CostPer1kInputKnown), modelCost(model.CostPer1kOutputUSD, model.CostPer1kOutputKnown))
+		b.WriteString(mutedStyle.Render(truncate(details, width-2)))
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func modelCost(value float64, known bool) string {
+	if !known {
+		return "unknown"
+	}
+	return fmt.Sprintf("$%.4f", value)
+}
+
+func (m *Model) renderProviders(width int) string {
+	if len(m.snapshot.Providers) == 0 {
+		return mutedStyle.Render("No providers configured. Run veto login to connect one.")
+	}
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("PROVIDER HEALTH"))
+	b.WriteString("\n")
+	for _, provider := range m.snapshot.Providers {
+		state := "ready"
+		if !provider.Configured {
+			state = "not configured"
+		}
+		if provider.Unavailable {
+			state = "temporarily unavailable"
+		}
+		auth := provider.Auth
+		if auth == "" {
+			auth = "unknown"
+		}
+		billing := provider.Billing
+		if billing == "" {
+			billing = "unknown"
+		}
+		b.WriteString(truncate(fmt.Sprintf("%-10s %-23s installed=%t auth=%s billing=%s", provider.Name, state, provider.Installed, auth, billing), width-2))
+		b.WriteByte('\n')
+		if provider.Warning != "" {
+			b.WriteString(truncate("  warning: "+provider.Warning, width-2))
+			b.WriteByte('\n')
+		}
+		if len(provider.Models) > 0 {
+			b.WriteString(truncate("  models: "+strings.Join(provider.Models, ", "), width-2))
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
+func (m *Model) renderNativeStatus(width int) string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("NATIVE DISPATCH STATUS"))
+	b.WriteByte('\n')
+	b.WriteString("default agent: not configured (task-kind policy)\n")
+	for _, provider := range m.snapshot.Providers {
+		if provider.Name != "Claude" && provider.Name != "Codex" {
+			continue
+		}
+		state := "available"
+		if !provider.Installed {
+			state = "executable missing"
+		} else if provider.Unavailable {
+			state = "temporarily unavailable"
+		}
+		auth := provider.Auth
+		if auth == "" {
+			auth = "unknown"
+		}
+		billing := provider.Billing
+		if billing == "" {
+			billing = "unknown"
+		}
+		b.WriteString(truncate(fmt.Sprintf("%-7s %-24s auth=%s billing=%s", provider.Name, state, auth, billing), width-2))
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func (m *Model) renderHistory(width int) string {
+	if len(m.snapshot.History) == 0 {
+		return mutedStyle.Render("No redacted activity yet. Completed routes and runs appear here.")
+	}
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("RECENT ACTIVITY"))
+	b.WriteString("\n")
+	for _, item := range m.snapshot.History {
+		stamp := item.Timestamp.Local().Format("15:04:05")
+		b.WriteString(truncate(fmt.Sprintf("%s  %-24s %-18s %-10s %s", stamp, item.Type, item.Model, item.Status, item.Runtime), width-2))
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func (m *Model) renderPlans(width int) string {
+	if len(m.snapshot.Plans) == 0 {
+		return mutedStyle.Render("No plans found. Create a plan under ~/.veto/plans to execute it here.")
+	}
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("PLANS"))
+	b.WriteString("\n")
+	for index, plan := range m.snapshot.Plans {
+		marker := "  "
+		if index == m.plansCursor%len(m.snapshot.Plans) {
+			marker = "▸ "
+		}
+		b.WriteString(truncate(marker+plan.Name, width-2))
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("↑/↓ select · Enter open Execute plan · r edit the command"))
+	return b.String()
+}
+
+func (m *Model) renderHealth(width int) string {
+	if len(m.snapshot.Health) == 0 {
+		return mutedStyle.Render("No health findings. Press Enter on Doctor to refresh diagnostics.")
+	}
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("HEALTH · SAFE DIAGNOSTICS"))
+	b.WriteString("\n")
+	for _, check := range m.snapshot.Health {
+		b.WriteString(truncate(fmt.Sprintf("%-6s %-24s %s", check.Status, check.ID, check.Message), width-2))
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func (m *Model) renderAnalytics(width int) string {
+	analytics := m.snapshot.Analytics
+	lines := []string{
+		headerStyle.Render("ANALYTICS & DATA"),
+		fmt.Sprintf("Local collection: %t", analytics.LocalCollection),
+		fmt.Sprintf("Local path: %s", analytics.LocalPath),
+		fmt.Sprintf("Retention: %d days", analytics.RetentionDays),
+		fmt.Sprintf("Future remote sharing: %s", analytics.RemoteSharing),
+		fmt.Sprintf("Remote transport active: %t", analytics.RemoteTransportActive),
+		mutedStyle.Render("Remote analytics are not active; preference changes remain explicit."),
+	}
+	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m *Model) renderIntegrations(width int) string {
+	if len(m.snapshot.Integrations) == 0 {
+		return mutedStyle.Render("No integrations detected. Use the OpenCode or Hermes command for setup.")
+	}
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("INTEGRATIONS"))
+	b.WriteString("\n")
+	for _, integration := range m.snapshot.Integrations {
+		b.WriteString(truncate(fmt.Sprintf("%-12s %-18s %s", integration.Name, integration.Status, integration.Detail), width-2))
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func (m *Model) renderInspector(width int) string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("STATUS"))
+	b.WriteString("\n")
+	state := "ready"
+	if m.running {
+		state = "running"
+	}
+	b.WriteString("● " + state + "\n")
+	monitor := m.snapshot.Monitor
+	latency := "unknown"
+	if monitor.LatencyKnown {
+		latency = fmt.Sprintf("%dms", monitor.LatencyMs)
+	}
+	cost := "unknown"
+	if monitor.CostKnown {
+		cost = fmt.Sprintf("$%.4f", monitor.CostUSD)
+	}
+	tokens := "unknown"
+	if monitor.TokensKnown {
+		tokens = strconv.Itoa(monitor.TotalTokens)
+	}
+	b.WriteString(mutedStyle.Render(fmt.Sprintf("providers  %d\nmodel      %s\nsessions   %d\ntools      %d\napprovals  %d\ntokens     %s\ncost       %s\nlatency    %s\nartifacts  %d", len(m.snapshot.Providers), valueOrDash(m.snapshot.Model), monitor.ActiveSessions, monitor.ActiveTools, monitor.PendingApprovals, tokens, cost, latency, monitor.Artifacts)))
+	b.WriteString("\n\n")
+	b.WriteString(headerStyle.Render("GUIDANCE"))
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("Tab moves focus\nEnter selects\nEsc closes overlays"))
+	if len(m.eventHistory) > 0 {
+		b.WriteString("\n\n")
+		b.WriteString(m.renderLiveTimeline(width))
+	}
+	return lipgloss.NewStyle().Width(width).Render(b.String())
+}
+
+func valueOrDash(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "—"
+	}
+	return value
+}
+
+func (m *Model) renderLiveTimeline(width int) string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("LIVE ROUTING"))
+	b.WriteString("\n")
+	start := max(0, len(m.eventHistory)-6)
+	for _, event := range m.eventHistory[start:] {
+		line := fmt.Sprintf("• %-22s %s", eventStage(event.Kind), event.Message)
+		b.WriteString(truncate(line, width))
+		b.WriteString("\n")
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+func eventStage(kind string) string {
+	kind = strings.TrimPrefix(kind, "route.")
+	kind = strings.TrimPrefix(kind, "execution.")
+	kind = strings.TrimPrefix(kind, "runtime.")
+	switch kind {
+	case "filter_pass", "filtering":
+		return "filtering"
+	case "filter_fail":
+		return "filtered"
+	case "shortlist":
+		return "shortlist"
+	case "ask_start":
+		return "admission"
+	case "ask_accept":
+		return "winner"
+	case "ask_reject":
+		return "rejected"
+	case "ask_error":
+		return "failure"
+	case "output":
+		return "execution output"
+	case "review.started":
+		return "review"
+	case "review.completed":
+		return "reviewed"
+	case "review.error":
+		return "review failure"
+	}
+	return kind
+}
+
+func (m *Model) statusLine(width int) string {
+	pulse := "·"
+	if m.running && m.options.Motion {
+		frames := []rune(runningSpinner)
+		pulse = string(frames[int(m.frame)%len(frames)])
+	} else if m.options.Motion && m.frame%2 == 1 {
+		pulse = "•"
+	}
+	status := fmt.Sprintf(" %s  %s", pulse, m.status)
+	hints := "r run  ·  / commands  ·  ? help  ·  q quit "
+	if width < 64 {
+		hints = "r run · / commands · ? help · q quit "
+	}
+	available := max(1, width-lipgloss.Width(hints)-1)
+	status = truncate(status, available)
+	return statusStyle.Width(width).Render(status + strings.Repeat(" ", max(1, width-lipgloss.Width(status)-lipgloss.Width(hints))) + hints)
+}
+
+func (m *Model) renderPalette(_ string) string {
+	filtered := m.filteredActions()
+	width := m.width
+	if width < 1 {
+		width = 80
+	}
+	panelWidth := min(max(20, width-8), 84)
+	if panelWidth > max(1, width-6) {
+		panelWidth = max(1, width-6)
+	}
+	rowWidth := max(20, panelWidth-6)
+	if rowWidth > panelWidth {
+		rowWidth = panelWidth
+	}
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Command palette"))
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("Type to filter · Enter run · Esc close"))
+	b.WriteString("\n\n")
+	query := m.paletteQuery
+	if query == "" {
+		query = mutedStyle.Render("type a command or description")
+	}
+	b.WriteString(panelStyle.Width(rowWidth).Render("/ " + query))
+	b.WriteString("\n\n")
+	b.WriteString(headerStyle.Render(fmt.Sprintf("%d command%s", len(filtered), pluralSuffix(len(filtered)))))
+	b.WriteString("\n")
+	for index, action := range filtered {
+		line := truncate("▸ "+action.Command+"  "+action.Description, rowWidth)
+		if index != m.paletteCursor {
+			line = "  " + strings.TrimPrefix(line, "▸ ")
+		}
+		if index == m.paletteCursor {
+			line = selectedStyle.Width(rowWidth).Render(line)
+		}
+		b.WriteString(line + "\n")
+		if index >= 8 {
+			break
+		}
+	}
+	if len(filtered) == 0 {
+		b.WriteString(mutedStyle.Render("No matching commands. Try a shorter search."))
+	}
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("↑/↓ move  ·  Enter run  ·  Esc close"))
+	overlay := overlayStyle.Width(panelWidth).Render(strings.TrimSuffix(b.String(), "\n"))
+	// A modal gets its own focused frame. Keeping the home screen underneath
+	// makes the palette look like a broken overlay and leaves too much visual
+	// competition for the command the user is choosing.
+	return renderModalFrame(overlay, m.statusLine(width), width, m.height)
+}
+
+func (m *Model) renderHelp(_ string) string {
+	width := m.width
+	if width < 1 {
+		width = 80
+	}
+	help := overlayStyle.Width(max(30, min(width-6, 72))).Render(strings.Join([]string{
+		titleStyle.Render("Keyboard help"),
+		"",
+		"j / ↓       move selection",
+		"k / ↑       move selection backwards",
+		"Tab         move focus",
+		"Ctrl+K / /   open command palette",
+		"r           run a task",
+		"t           route only",
+		"m           inspect models",
+		"d           run diagnostics",
+		"0 / Home    return to the start screen",
+		"Tab         edit the command's CLI-compatible flags",
+		"h           open redacted history",
+		"i           inspect integrations",
+		"p           inspect plans",
+		"Enter       select the focused command or edit its flags",
+		"Esc         close an overlay",
+		"q / Ctrl+C  quit cleanly",
+	}, "\n"))
+	return renderModalFrame(help, m.statusLine(width), width, m.height)
+}
+
+func renderModalFrame(panel, footer string, width, height int) string {
+	if height < 1 {
+		height = 24
+	}
+	return lipgloss.Place(width, max(1, height-1), lipgloss.Center, lipgloss.Center, panel) + "\n" + footer
+}
+
+func pluralSuffix(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
+}
+
+func truncate(value string, width int) string {
+	if width <= 0 || lipgloss.Width(value) <= width {
+		return value
+	}
+	return ansi.Truncate(value, width, "…")
+}
+
+func truncateBlock(value string, width int) string {
+	lines := strings.Split(value, "\n")
+	for index, line := range lines {
+		lines[index] = truncate(line, width)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func sanitizeProviderText(value string) string {
+	value = ansi.Strip(value)
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return -1
+		}
+		return r
+	}, value)
+}
+
+var (
+	brandStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7EE787"))
+	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F2CC60"))
+	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#79C0FF"))
+	mutedStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#8B949E"))
+	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#30363D"))
+	panelStyle    = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#30363D")).Padding(0, 1)
+	statusStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#C9D1D9")).Background(lipgloss.Color("#161B22"))
+	overlayStyle  = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#4B5563")).Background(lipgloss.Color("#0D1117")).Padding(1, 2)
+)

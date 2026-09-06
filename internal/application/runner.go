@@ -24,6 +24,10 @@ type Router interface {
 	RecordExecution(router.TaskSpec, string, router.ExecutionMetrics)
 }
 
+type timedRouter interface {
+	RouteWithAdmissionTimeout(context.Context, router.TaskSpec, time.Duration) (router.ModelCapabilities, router.AdmissionDecision, error)
+}
+
 // RuntimeResolver is the application-facing execution port. It deliberately
 // returns the stable runtime contract rather than a provider implementation.
 type RuntimeResolver interface {
@@ -73,10 +77,11 @@ type Runner struct {
 
 // Request is the plain input model crossing the application boundary.
 type Request struct {
-	Task    router.TaskSpec
-	Skills  []string
-	Options execution.ExecutionOptions
-	Writer  io.Writer
+	Task             router.TaskSpec
+	Skills           []string
+	AdmissionTimeout time.Duration
+	Options          execution.ExecutionOptions
+	Writer           io.Writer
 }
 
 // Response is the plain output model returned by the application boundary.
@@ -100,7 +105,18 @@ func (r Runner) Execute(ctx context.Context, request Request) (Response, error) 
 		return Response{}, errors.New("application: runtime resolver is nil")
 	}
 
-	model, decision, err := r.Router.Route(ctx, request.Task)
+	var model router.ModelCapabilities
+	var decision router.AdmissionDecision
+	var err error
+	if request.AdmissionTimeout > 0 {
+		if timed, ok := r.Router.(timedRouter); ok {
+			model, decision, err = timed.RouteWithAdmissionTimeout(ctx, request.Task, request.AdmissionTimeout)
+		} else {
+			model, decision, err = r.Router.Route(ctx, request.Task)
+		}
+	} else {
+		model, decision, err = r.Router.Route(ctx, request.Task)
+	}
 	if err != nil {
 		return Response{}, err
 	}
@@ -166,7 +182,9 @@ func (r Runner) Execute(ctx context.Context, request Request) (Response, error) 
 		return Response{Model: model, Decision: decision, Output: output, Result: result, Streamed: streamed}, err
 	}
 
-	metrics := ExecutionMetrics(model, result, time.Since(started), "success")
+	// A zero exit/transport completion says only that the native runtime
+	// returned output. It is not evidence that the coding task was correct.
+	metrics := ExecutionMetrics(model, result, time.Since(started), "completed")
 	r.Router.RecordExecution(request.Task, model.Name, metrics)
 	r.emit(ExecutionEvent{Kind: ExecutionCompleted, TaskID: request.Task.ID, Model: model, Metrics: metrics})
 	return Response{Model: model, Decision: decision, Output: output, Result: result,

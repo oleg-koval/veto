@@ -49,6 +49,17 @@ func TestManager_Route_FirstAccepted(t *testing.T) {
 	assert.Equal(t, 1, calls, "should stop after first acceptance")
 }
 
+func TestManager_Route_AppliesRuntimeAndProviderFilters(t *testing.T) {
+	exec := &executorMock{RunFunc: func(_ context.Context, _ string) AdmissionResult { return AdmissionResult{Output: acceptJSON()} }}
+	mgr := NewManager(NewRegistryFromModels([]ModelCapabilities{
+		{Name: "openai-api", Provider: "OpenAI", Runtime: "api", Tier: "mid"},
+		{Name: "anthropic-cli", Provider: "Anthropic", Runtime: "cli", Tier: "mid"},
+	}), NewAdmissionGate(exec), NewMemoryStore())
+	model, _, err := mgr.Route(context.Background(), TaskSpec{Kind: KindCodeChange, ProviderFilter: "openai", RuntimeFilter: "API"})
+	require.NoError(t, err)
+	assert.Equal(t, "openai-api", model.Name)
+}
+
 func TestManager_Route_SkipRejectTakeSecond(t *testing.T) {
 	n := 0
 	exec := &executorMock{
@@ -251,6 +262,28 @@ func TestManager_Route_EmitsAskEvents(t *testing.T) {
 	assert.Equal(t, EventAskReject, askEvents[1].Kind)
 	assert.Equal(t, EventAskStart, askEvents[2].Kind)
 	assert.Equal(t, EventAskAccept, askEvents[3].Kind)
+}
+
+func TestManager_RouteEmitsShortlistAfterFiltering(t *testing.T) {
+	exec := &executorMock{RunFunc: func(_ context.Context, _ string) AdmissionResult {
+		return AdmissionResult{Output: acceptJSON()}
+	}}
+	mgr := NewManager(NewRegistry(), NewAdmissionGate(exec), NewMemoryStore())
+	var events []ProgressEvent
+	mgr.OnEvent = func(event ProgressEvent) { events = append(events, event) }
+	_, _, err := mgr.Route(context.Background(), TaskSpec{ID: "shortlist", Kind: KindCodeChange})
+	if err != nil {
+		t.Fatalf("route failed: %v", err)
+	}
+	for _, event := range events {
+		if event.Kind == EventShortlist {
+			if !strings.Contains(event.Detail, "candidate(s)") {
+				t.Fatalf("shortlist detail = %q", event.Detail)
+			}
+			return
+		}
+	}
+	t.Fatal("shortlist event was not emitted")
 }
 
 // TestManager_Route_RankOrderDeterministic verifies that when multiple candidates

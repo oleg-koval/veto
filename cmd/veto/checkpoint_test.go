@@ -31,6 +31,13 @@ func TestTaskHash_DifferentInputs(t *testing.T) {
 	}
 }
 
+func TestTaskHash_IncludesNormalizedToolConstraints(t *testing.T) {
+	base := taskHashWithTools("task", "code-change", "medium", 0, []string{"write", "read"}, false)
+	assert.Equal(t, base, taskHashWithTools("task", "code-change", "medium", 0, []string{" read ", "write", "read"}, false))
+	assert.NotEqual(t, base, taskHashWithTools("task", "code-change", "medium", 0, []string{"read"}, false))
+	assert.NotEqual(t, base, taskHashWithTools("task", "code-change", "medium", 0, []string{"read", "write"}, true))
+}
+
 func TestTaskHash_IsShortHex(t *testing.T) {
 	h := taskHash("obj", "kind", "risk", 0)
 	assert.Len(t, h, 16)

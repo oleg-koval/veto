@@ -34,6 +34,8 @@ if [[ ! -x "${veto_binary}" ]]; then
     exit 1
 fi
 
+python3 scripts/tui-pty-smoke.py "${veto_binary}"
+
 smoke_home=${tmp_dir}/home
 mkdir -p "${smoke_home}"
 smoke_workdir=${tmp_dir}/work
@@ -84,7 +86,8 @@ if [[ -e "${smoke_home}/.veto/credentials.json" ]]; then
 fi
 
 server_info=${tmp_dir}/server.info
-python3 scripts/onboarding_fake_provider.py "${server_info}" >"${tmp_dir}/server.log" 2>&1 &
+VETO_SMOKE_REQUEST_SIGNAL="${smoke_home}/.veto/fake-provider-request.received" \
+    python3 scripts/onboarding_fake_provider.py "${server_info}" >"${tmp_dir}/server.log" 2>&1 &
 server_pid=$!
 
 for _ in $(seq 1 50); do
@@ -119,8 +122,32 @@ with open(path, "w", encoding="utf-8") as models:
         "model": "review-model",
         "strengths": ["review"],
         "weaknesses": ["summarize"],
+    }, {
+        "name": "slow-local",
+        "endpoint": f"http://127.0.0.1:{port}/slow/v1/chat/completions",
+        "model": "slow-model",
+        "tier": "mid",
+        "strengths": ["debug"],
     }], models)
 os.chmod(path, 0o600)
+PY
+
+mkdir -p "${smoke_home}/.veto/plans"
+python3 - "${smoke_home}/.veto/plans/smoke-plan.md" <<'PY'
+import pathlib
+import sys
+
+pathlib.Path(sys.argv[1]).write_text(
+    "---\n"
+    "title: TUI smoke plan\n"
+    "version: 1\n"
+    "steps:\n"
+    "  - task: summarize this example\n"
+    "    kind: summarize\n"
+    "    risk: low\n"
+    "---\n",
+    encoding="utf-8",
+)
 PY
 
 chmod 0755 "${smoke_home}/.veto"
@@ -144,9 +171,11 @@ if models_mode != 0o600:
     raise SystemExit(f"models.json mode is {models_mode:o}, want 600")
 PY
 
+python3 scripts/tui-pty-smoke.py "${veto_binary}" --execution-home "${smoke_home}"
+
 providers_output=$(veto providers)
 assert_contains "${providers_output}" 'smoke-local'
-assert_contains "${providers_output}" '2 model(s) available for routing'
+assert_contains "${providers_output}" '3 model(s) available for routing'
 
 route_output=$(veto route --json --timeout 10s 'summarize this example')
 python3 - "${route_output}" <<'PY'

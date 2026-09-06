@@ -266,7 +266,7 @@ func TestPrintUsageContainsRootHelpContent(t *testing.T) {
 	var out bytes.Buffer
 	printUsage(&out)
 	usage := out.String()
-	for _, want := range []string{"USAGE", "COMMANDS", "QUICK START", "PROVIDERS", "doctor", "hermes", "models"} {
+	for _, want := range []string{"USAGE", "COMMANDS", "QUICK START", "PROVIDERS", "doctor", "hermes", "models", "--screen-reader"} {
 		if !strings.Contains(usage, want) {
 			t.Fatalf("usage does not contain %q", want)
 		}

@@ -1,6 +1,7 @@
 package routinghistory
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -66,8 +67,16 @@ func TestFileStore_LegacyHistoryFallsBackAcrossTaskKinds(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, legacy, 0600))
 
 	sig := NewFileStore(path).Signal("model", router.KindReview)
-	assert.InDelta(t, 1.0, sig.HistoricalSuccessRate, 0.001)
-	assert.InDelta(t, 0.8, sig.AvgEvalScore, 0.001)
+	assert.InDelta(t, 0.5, sig.HistoricalSuccessRate, 0.001)
+	assert.InDelta(t, 0.7, sig.AvgEvalScore, 0.001)
+}
+
+func TestFileStore_CompletedTransportDoesNotCountAsSuccess(t *testing.T) {
+	s := NewFileStore(filepath.Join(t.TempDir(), "history.json"))
+	s.RecordExecution("task", "model", router.KindCodeChange, router.ExecutionMetrics{Status: "completed"})
+	sig := s.Signal("model", router.KindCodeChange)
+	assert.Equal(t, 0.5, sig.HistoricalSuccessRate)
+	assert.False(t, sig.EvalScoreKnown)
 }
 
 func TestFileStore_SatisfiesRouterStoreContracts(t *testing.T) {
@@ -83,4 +92,18 @@ func TestFileStore_PreservesHistoryFilePermissions(t *testing.T) {
 	info, err := os.Stat(path)
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+}
+
+func TestFileStoreBoundsPersistedHistory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	s := NewFileStore(path)
+	for i := 0; i < 2100; i++ {
+		s.RecordExecution("task", "model", router.KindCodeChange, router.ExecutionMetrics{Status: "completed"})
+	}
+	require.NoError(t, s.Save())
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var events []persistedEvent
+	require.NoError(t, json.Unmarshal(data, &events))
+	assert.LessOrEqual(t, len(events), maxHistoryEvents)
 }

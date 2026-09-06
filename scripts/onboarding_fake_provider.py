@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 
 import json
+import os
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
+        if self.path.startswith("/slow"):
+            time.sleep(2)
         length = int(self.headers.get("Content-Length", "0"))
         request = json.loads(self.rfile.read(length))
         prompt = request["messages"][0]["content"]
+        signal_path = os.environ.get("VETO_SMOKE_REQUEST_SIGNAL", "")
+        if signal_path.startswith(os.path.sep) and os.path.isdir(os.path.dirname(signal_path)):
+            with open(signal_path, "a", encoding="ascii") as signal:
+                signal.write("request\n")
         if "suggested_alternative_model" in prompt:
             content = json.dumps({
                 "accept": True,

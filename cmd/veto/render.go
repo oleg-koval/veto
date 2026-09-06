@@ -66,6 +66,10 @@ func (r *Renderer) OnEvent(e router.ProgressEvent) {
 		}
 		r.filterBuf = append(r.filterBuf, filterEntry{model: e.Model, pass: false, reason: reason})
 
+	case router.EventShortlist:
+		r.flushFilters()
+		fmt.Printf("    shortlisted  %s\n", e.Detail)
+
 	case router.EventAskStart:
 		r.flushFilters()
 		if !r.askHeader {

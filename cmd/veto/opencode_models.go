@@ -12,7 +12,7 @@ func addOpenCodeModels(
 	config opencode.Config,
 	discovery opencode.Discovery,
 	deps opencode.Dependencies,
-	disabled map[string]bool,
+	_ map[string]bool,
 ) {
 	known := make(map[string]router.ModelCapabilities, len(reg.caps))
 	for _, capability := range router.NewRegistry().All() {
@@ -23,9 +23,6 @@ func addOpenCodeModels(
 	}
 	for _, model := range discovery.Models {
 		name := openCodeModelName(model)
-		if disabled[name] {
-			continue
-		}
 		capability, ok := known[model.Provider+"\x00"+model.ID]
 		if !ok {
 			capability = router.ModelCapabilities{

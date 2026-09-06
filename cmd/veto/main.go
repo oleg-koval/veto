@@ -28,6 +28,13 @@ func main() {
 		return
 	}
 	if len(os.Args) < 2 {
+		if isInteractiveTerminal(os.Stdin) && isInteractiveTerminal(os.Stdout) {
+			if err := cmdTUI(nil); err != nil {
+				fmt.Fprintln(os.Stderr, "tui:", err)
+				os.Exit(1)
+			}
+			return
+		}
 		printUsage(os.Stdout)
 		os.Exit(0)
 	}
@@ -36,10 +43,27 @@ func main() {
 		return
 	}
 	// Notify once if new skills are pending approval (non-blocking).
-	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" && os.Args[1] != "feedback" && os.Args[1] != "analytics" && os.Args[1] != "opencode" && os.Args[1] != "hermes" && os.Args[1] != "models" {
+	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" && os.Args[1] != "feedback" && os.Args[1] != "analytics" && os.Args[1] != "opencode" && os.Args[1] != "hermes" && os.Args[1] != "models" && os.Args[1] != "tui" && os.Args[1] != "start" && os.Args[1] != "unavailable" && os.Args[1] != "experiment" {
 		checkPendingSkills()
 	}
 	switch os.Args[1] {
+	case "tui":
+		if err := cmdTUI(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "tui:", err)
+			os.Exit(1)
+		}
+	case "start":
+		if code := cmdStart(os.Args[2:]); code != 0 {
+			os.Exit(code)
+		}
+	case "unavailable":
+		if code := cmdUnavailable(os.Args[2:]); code != 0 {
+			os.Exit(code)
+		}
+	case "experiment":
+		if code := cmdExperiment(os.Args[2:]); code != 0 {
+			os.Exit(code)
+		}
 	case "route":
 		cmdRoute(os.Args[2:])
 	case "benchmark":
@@ -89,6 +113,22 @@ func main() {
 	}
 }
 
+func isInteractiveTerminal(file *os.File) bool {
+	info, err := file.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+func splitTaskList(value string) []string {
+	parts := strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' || r == '\n' })
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
 func rootHelpRequested(arg string) bool {
 	switch arg {
 	case "help", "--help", "-h":
@@ -109,6 +149,10 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  veto <command> [flags]")
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "COMMANDS")
+	fmt.Fprintln(o, "  tui                open the keyboard-first full-screen interface")
+	fmt.Fprintln(o, "  start              launch Claude Code or Codex manually or experimentally")
+	fmt.Fprintln(o, "  unavailable        temporarily exclude a native agent from dispatch")
+	fmt.Fprintln(o, "  experiment         inspect or delete local native-dispatch events")
 	fmt.Fprintln(o, "  login              connect a provider (opens browser, masked key input)")
 	fmt.Fprintln(o, "  logout             remove a configured provider or local model")
 	fmt.Fprintln(o, "  setup              discover and approve skills from your skill directories")
@@ -124,6 +168,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  hermes             install or diagnose the native Hermes integration")
 	fmt.Fprintln(o, "  models             list effective models, runtimes, capabilities, and costs")
 	fmt.Fprintln(o, "  providers          show which providers are configured")
+	fmt.Fprintln(o, "  disable            exclude a model from routing")
+	fmt.Fprintln(o, "  enable             restore a model to routing eligibility")
 	fmt.Fprintln(o, "  version            print veto version")
 	fmt.Fprintln(o, "  install-git-hook   add veto to your git workflow")
 	fmt.Fprintln(o)
@@ -137,6 +183,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  --kind      extract|summarize|code-change|debug|plan|review|refactor")
 	fmt.Fprintln(o, "              (auto-detected from the task text if omitted)")
 	fmt.Fprintln(o, "  --risk      low|medium|high  (default: medium)")
+	fmt.Fprintln(o, "  --required-tools  comma-separated capabilities required by the task")
+	fmt.Fprintln(o, "  --requires-executable-tools  require a runtime with executable tools")
 	fmt.Fprintln(o, "  --max-cost  estimated preflight ceiling in USD, e.g. 0.01  (default: none)")
 	fmt.Fprintln(o, "  --quiet     print only the selected model name — useful in scripts")
 	fmt.Fprintln(o, "  --json      print one JSON result line — implies --quiet and --no-resume")
@@ -161,6 +209,12 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  --include-provider  explicitly include the provider/model name")
 	fmt.Fprintln(o, "  --no-browser prepare the issue URL without opening a browser")
 	fmt.Fprintln(o)
+	fmt.Fprintln(o, "TUI FLAGS")
+	fmt.Fprintln(o, "  --reduce-motion  disable non-essential animation")
+	fmt.Fprintln(o, "  --no-color       disable styling and ANSI colors (also respects NO_COLOR)")
+	fmt.Fprintln(o, "  --no-mouse       disable mouse reporting")
+	fmt.Fprintln(o, "  --screen-reader  use a stable text-only layout without stacked redraws")
+	fmt.Fprintln(o)
 	fmt.Fprintln(o, "SKILLS")
 	fmt.Fprintln(o, "  Skills are instruction snippets injected into the executor prompt.")
 	fmt.Fprintln(o, "  veto scans skill directories you approve: ~/.veto/skills/ (auto-approved,")
@@ -182,6 +236,8 @@ func cmdRoute(args []string) {
 	taskObj := fs.String("task", "", "task objective (or pass as a positional argument)")
 	kindFlag := fs.String("kind", "", "task kind (auto-detected from objective if omitted): extract|summarize|code-change|debug|plan|review|refactor")
 	risk := fs.String("risk", "medium", "risk level: low|medium|high")
+	requiredTools := fs.String("required-tools", "", "comma-separated capabilities required by the task")
+	requiresExecutableTools := fs.Bool("requires-executable-tools", false, "require a runtime that exposes executable tools")
 	maxCost := fs.Float64("max-cost", 0, "estimated preflight cost ceiling in USD (0 = none)")
 	timeout := fs.Duration("timeout", 30*time.Second, "per-model admission timeout")
 	quiet := fs.Bool("quiet", false, "suppress routing animation (useful in scripts)")
@@ -233,7 +289,9 @@ func cmdRoute(args []string) {
 	if *providerFilter != "" {
 		hashObjective += "\x00provider=" + *providerFilter
 	}
-	hash := taskHash(hashObjective, kind, *risk, *maxCost)
+	requiredToolsForHash := splitTaskList(*requiredTools)
+	requiresExecutableForHash := *requiresExecutableTools || requiresExecutableRuntime(objective)
+	hash := taskHashWithTools(hashObjective, kind, *risk, *maxCost, requiredToolsForHash, requiresExecutableForHash)
 	cp := &Checkpoint{Hash: hash, Objective: objective}
 	if !*noResume {
 		if saved, ok := loadCheckpoint(hash); ok {
@@ -312,10 +370,13 @@ func cmdRoute(args []string) {
 		Kind:                    router.TaskKind(kind),
 		Complexity:              router.Complexity(complexity),
 		Objective:               objective,
-		RequiresExecutableTools: requiresExecutableRuntime(objective),
+		RequiredTools:           requiredToolsForHash,
+		RequiresExecutableTools: requiresExecutableForHash,
 		Risk:                    router.Risk(*risk),
 		MaxCostUSD:              *maxCost,
 		SkipModels:              cp.triedNames(),
+		RuntimeFilter:           *runtimeFilter,
+		ProviderFilter:          *providerFilter,
 	}
 
 	model, decision, err := mgr.Route(ctx, spec)
@@ -445,39 +506,13 @@ func keepDashboardAlive(url string) {
 // inferKind guesses the task kind from the objective text so users don't have
 // to pass --kind. ponytail: keyword heuristic; --kind always overrides it.
 func inferKind(objective string) string {
-	s := strings.ToLower(objective)
-	switch {
-	case containsAny(s, "fix", "bug", "debug", "error", "crash", "broken", "failing"):
-		return "debug"
-	case containsAny(s, "refactor", "clean up", "restructure", "rename", "extract method"):
-		return "refactor"
-	case containsAny(s, "summarize", "summary", "tl;dr", "recap"):
-		return "summarize"
-	case containsAny(s, "extract", "parse", "pull out", "scrape"):
-		return "extract"
-	case containsAny(s, "review", "audit", "critique", "check"):
-		return "review"
-	case containsAny(s, "plan", "design", "architect", "propose"):
-		return "plan"
-	default:
-		return "code-change"
-	}
+	return string(router.InferKind(objective))
 }
 
 // requiresExecutableRuntime recognizes explicit requests to mutate repository
 // state. Content-only code generation remains eligible for text transports.
 func requiresExecutableRuntime(objective string) bool {
-	s := strings.ToLower(objective)
-	if containsAny(s,
-		"git push", "commit and push", "push when", "push once",
-		"modify the repository", "edit the repository", "update the repository",
-		"modify the repo", "edit the repo", "commit the changes",
-	) {
-		return true
-	}
-
-	prTarget, _, mutation := pullRequestMutationSignals(s)
-	return prTarget && mutation
+	return router.RequiresExecutableRuntime(objective)
 }
 
 func pullRequestMutationSignals(objective string) (prTarget, reviewTarget, mutation bool) {
@@ -545,27 +580,9 @@ func cmdInstallGitHook(args []string) {
 	force := fs.Bool("force", false, "overwrite an existing prepare-commit-msg hook")
 	_ = fs.Parse(args)
 
-	hookPath := filepath.Join(".git", "hooks", "prepare-commit-msg")
-	if _, err := os.Stat(".git"); os.IsNotExist(err) {
-		fmt.Fprintln(os.Stderr, "error: not inside a git repository")
-		os.Exit(1)
-	}
-
-	// don't clobber a hook we didn't write — that could destroy the user's own hook
-	if existing, err := os.ReadFile(hookPath); err == nil && !*force {
-		if !strings.Contains(string(existing), hookMarker) {
-			fmt.Fprintf(os.Stderr, "error: %s already exists and was not installed by veto\n", hookPath)
-			fmt.Fprintln(os.Stderr, "re-run with --force to overwrite it")
-			os.Exit(1)
-		}
-	}
-
-	// objective comes from the staged stat; --kind is omitted so veto infers it
-	script := "#!/bin/sh\n# " + hookMarker + "\n" +
-		"MODEL=$(veto route --quiet --task \"$(git diff --cached --stat)\" 2>/dev/null)\n" +
-		"if [ -n \"$MODEL\" ]; then\n  printf '\\n# veto suggested model: %s\\n' \"$MODEL\" >> \"$1\"\nfi\n"
-	if err := os.WriteFile(hookPath, []byte(script), 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "error writing hook: %v\n", err)
+	hookPath, err := installGitHookFile(*force)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 	fmt.Printf("  Installed: %s\n", hookPath)
@@ -574,26 +591,31 @@ func cmdInstallGitHook(args []string) {
 
 // cmdProviders prints which provider API keys are configured and their source.
 func cmdProviders() {
+	_ = runProvidersCommand(os.Stdout)
+}
+
+func runProvidersCommand(stdout io.Writer) int {
 	creds, _ := loadCredentials()
 	providerRows := make([][]string, 0, len(knownProviders)+2)
 	configured := 0
 	if auth := codexCLIAuthentication(); auth != codexAuthNone {
 		status := "authenticated (cli)"
 		if auth == codexAuthChatGPT {
-			status = "ChatGPT (cli)"
+			status = "ChatGPT (cli; billing UNKNOWN)"
 		} else if auth == codexAuthAPIKey {
-			status = "API key (cli)"
+			status = "API key (cli; cost UNKNOWN)"
 		}
 		providerRows = append(providerRows, []string{"Codex", status, "codex"})
 		configured++
 	}
 	for _, p := range knownProviders {
 		models := catalogModelDescription(p.provider)
-		// Anthropic: check subscription mode before API key
+		// Claude's marker is configuration, not proof of the billing path used by
+		// the native CLI. Keep API-key ambiguity visible instead of claiming free use.
 		if p.envKey == "ANTHROPIC_API_KEY" {
 			switch {
 			case os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true":
-				providerRows = append(providerRows, []string{p.name, "subscription (cli)", "Claude Haiku, Sonnet, Opus"})
+				providerRows = append(providerRows, []string{p.name, "UNKNOWN billing (Claude CLI)", "subscription/API selection is not verifiable"})
 				configured++
 			case os.Getenv(p.envKey) != "":
 				providerRows = append(providerRows, []string{p.name, "env var", models})
@@ -621,29 +643,31 @@ func cmdProviders() {
 		providerRows = append(providerRows, []string{"OpenCode", string(config.Mode), "run 'veto opencode status'"})
 		configured++
 	}
-	printCLITable([]string{"provider", "status", "models"}, providerRows)
+	writeCLITable(stdout, []string{"provider", "status", "models"}, providerRows)
 
 	locals, _ := loadLocalModels()
 	if len(locals) > 0 {
-		fmt.Println()
+		fmt.Fprintln(stdout)
 		localRows := make([][]string, 0, len(locals))
 		for _, lm := range locals {
 			localRows = append(localRows, []string{lm.Name, lm.Endpoint, lm.Model})
 		}
-		printCLITable([]string{"local model", "endpoint", "model id"}, localRows)
+		writeCLITable(stdout, []string{"local model", "endpoint", "model id"}, localRows)
 		configured += len(locals)
 	}
 
-	fmt.Println()
+	fmt.Fprintln(stdout)
 	if configured == 0 {
-		fmt.Println("  No providers configured — run 'veto login' to get started.")
+		fmt.Fprintln(stdout, "  No providers configured — run 'veto login' to get started.")
 	} else {
 		// build an accurate model count from the registry
 		reg, err := buildProviderRegistryWithCatalog(true)
 		if err == nil {
-			fmt.Printf("  %d model(s) available for routing\n", len(reg.modelCaps()))
+			available := loadCandidatePreferences().Filter(reg.modelCaps())
+			fmt.Fprintf(stdout, "  %d model(s) available for routing\n", len(available))
 		}
 	}
+	return 0
 }
 
 func catalogModelDescription(provider string) string {
@@ -718,6 +742,17 @@ func (r *providerRegistry) modelCaps() []router.ModelCapabilities {
 	return r.modelCapsForRuntime("")
 }
 
+// Models exposes safe catalog metadata to the in-process control plane. It
+// never returns credentials or runtime client state.
+func (r *providerRegistry) Models() []router.ModelCapabilities {
+	return r.modelCaps()
+}
+
+// Preferences exposes the same local eligibility policy used by routing.
+func (r *providerRegistry) Preferences() router.CandidatePreferences {
+	return loadCandidatePreferences()
+}
+
 // modelCapsForRuntime returns effective capabilities, optionally restricted to
 // one execution runtime. Runtime integrations use this to avoid selecting a
 // model that their host cannot execute.
@@ -758,7 +793,6 @@ func buildProviderRegistry() (*providerRegistry, error) {
 func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 	creds, _ := loadCredentials() // best-effort; env vars take precedence
 	catalog := router.NewRegistry()
-	disabled := loadDisabledModels()
 	preferences := loadCandidatePreferences()
 	reg := &providerRegistry{
 		executors: make(map[string]execution.RuntimeAdapter),
@@ -766,15 +800,13 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 	}
 
 	addBuiltin := func(model router.ModelCapabilities, exec execution.RuntimeAdapter) {
-		if disabled[model.Name] {
-			return
-		}
 		reg.executors[model.Name] = exec
 		reg.caps[model.Name] = model
 	}
 
-	// Subscription mode: use claude CLI (flat-fee, $0 marginal) instead of API key.
-	// Subscription takes precedence over API key when both are present.
+	// Subscription mode uses claude CLI, but billing remains unknown. The native
+	// CLI can be affected by inherited ANTHROPIC_API_KEY and its billing choice
+	// is not observable from this boundary.
 	subscription := creds["CLAUDE_SUBSCRIPTION"] == "true" || os.Getenv("CLAUDE_SUBSCRIPTION") == "true"
 	providerKeys := map[string]string{
 		"anthropic":  getKey("ANTHROPIC_API_KEY", creds),
@@ -800,6 +832,10 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 			}
 		}
 		if modelExecutor != nil {
+			if model.Provider == "anthropic" && subscription {
+				model.CostPer1kInputUnknown = true
+				model.CostPer1kOutputUnknown = true
+			}
 			addBuiltin(model, modelExecutor)
 		}
 	}
@@ -849,14 +885,14 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 		discovery, discoverErr := opencodert.Discover(ctx, openCodeConfig, deps)
 		cancel()
 		if discoverErr == nil {
-			addOpenCodeModels(reg, openCodeConfig, discovery, deps, disabled)
+			addOpenCodeModels(reg, openCodeConfig, discovery, deps, nil)
 		} else if len(reg.executors) == 0 {
 			return nil, fmt.Errorf("connect configured OpenCode runtime: %w", discoverErr)
 		}
 	}
 
 	if len(reg.executors) == 0 {
-		return nil, fmt.Errorf("no providers configured — run 'veto login' or set ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY / XAI_API_KEY")
+		return nil, errNoProvidersConfigured
 	}
 	return reg, nil
 }

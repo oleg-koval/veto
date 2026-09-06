@@ -7,6 +7,7 @@ type EventKind string
 const (
 	EventFilterPass EventKind = "filter_pass"
 	EventFilterFail EventKind = "filter_fail"
+	EventShortlist  EventKind = "shortlist"
 	EventAskStart   EventKind = "ask_start"
 	EventAskAccept  EventKind = "ask_accept"
 	EventAskReject  EventKind = "ask_reject"
