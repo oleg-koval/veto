@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"slices"
 	"sort"
 	"strconv"
@@ -29,6 +30,7 @@ type ControlService struct {
 	skillResolver func(context.Context, router.TaskSpec) []string
 	outputWriter  func(string, string, bool) error
 	historySaver  func() error
+	routeRecorder func(router.ProgressEvent)
 
 	mu       sync.RWMutex
 	snapshot controlplane.Snapshot
@@ -57,6 +59,11 @@ func (s *ControlService) SetSkillResolver(resolver func(context.Context, router.
 // SetHistorySaver persists routing history after a completed control-plane action.
 func (s *ControlService) SetHistorySaver(saver func() error) {
 	s.historySaver = saver
+}
+
+// SetRouteEventRecorder wires delivery-side persistence for routing events.
+func (s *ControlService) SetRouteEventRecorder(recorder func(router.ProgressEvent)) {
+	s.routeRecorder = recorder
 }
 
 // NewControlService creates a service over an existing Runner and Router.
@@ -234,6 +241,14 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 	if (request.ActionID == "route" || request.ActionID == "run") && objective == "" {
 		return controlplane.ActionResult{}, errors.New("control plane: objective is required")
 	}
+	var task router.TaskSpec
+	if request.ActionID == "route" || request.ActionID == "run" {
+		var err error
+		task, err = taskFromRequest(request, objective)
+		if err != nil {
+			return controlplane.ActionResult{}, err
+		}
+	}
 	var requestCtx context.Context
 	var cancel context.CancelFunc
 	var admissionTimeout time.Duration
@@ -287,7 +302,6 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		if s.router == nil {
 			return controlplane.ActionResult{}, errors.New("control plane: router is nil")
 		}
-		task := taskFromRequest(request, objective)
 		model, decision, err := routeWithTimeout(s.router, requestCtx, task, admissionTimeout)
 		if err != nil {
 			s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "error"})
@@ -300,12 +314,11 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		if s.router == nil {
 			return controlplane.ActionResult{}, errors.New("control plane: router is nil")
 		}
-		task := taskFromRequest(request, objective)
 		skills := []string(nil)
 		if s.skillResolver != nil {
 			skills = s.skillResolver(requestCtx, task)
 		}
-		response, err := s.runner.Execute(requestCtx, Request{Task: task, Skills: skills, AdmissionTimeout: admissionTimeout, Options: executionOptions(request), Writer: outputWriter{s: s, actionID: request.ActionID}})
+		response, err := s.runner.Execute(requestCtx, Request{Task: task, Skills: skills, AdmissionTimeout: admissionTimeout, Options: execution.ExecutionOptions{MaxOutputTokens: task.MaxTokens}, Writer: outputWriter{s: s, actionID: request.ActionID}})
 		status := "ready"
 		if err != nil {
 			status = "error"
@@ -368,7 +381,7 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 	}
 }
 
-func taskFromRequest(request controlplane.ActionRequest, objective string) router.TaskSpec {
+func taskFromRequest(request controlplane.ActionRequest, objective string) (router.TaskSpec, error) {
 	kind := router.TaskKind(request.Arguments["kind"])
 	if kind == "" {
 		kind = router.InferKind(objective)
@@ -377,9 +390,23 @@ func taskFromRequest(request controlplane.ActionRequest, objective string) route
 	if risk == "" {
 		risk = router.RiskMedium
 	}
-	maxCost, _ := strconv.ParseFloat(request.Arguments["max-cost"], 64)
-	maxTokens, _ := strconv.Atoi(request.Arguments["max-output-tokens"])
-	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, MaxTokens: maxTokens, RequiredTools: splitRequestList(request.Arguments["required-tools"]), RequiresExecutableTools: request.Arguments["requires-executable-tools"] == "true" || router.RequiresExecutableRuntime(objective), SuccessCriteria: splitRequestList(request.Arguments["criteria"]), RuntimeFilter: request.Arguments["runtime"], ProviderFilter: request.Arguments["provider"], Source: "tui"}
+	var maxCost float64
+	if raw := strings.TrimSpace(request.Arguments["max-cost"]); raw != "" {
+		parsed, err := strconv.ParseFloat(raw, 64)
+		if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+			return router.TaskSpec{}, fmt.Errorf("control plane: invalid max-cost %q", raw)
+		}
+		maxCost = parsed
+	}
+	var maxTokens int
+	if raw := strings.TrimSpace(request.Arguments["max-output-tokens"]); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			return router.TaskSpec{}, fmt.Errorf("control plane: invalid max-output-tokens %q", raw)
+		}
+		maxTokens = parsed
+	}
+	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, MaxTokens: maxTokens, RequiredTools: splitRequestList(request.Arguments["required-tools"]), RequiresExecutableTools: request.Arguments["requires-executable-tools"] == "true" || router.RequiresExecutableRuntime(objective), SuccessCriteria: splitRequestList(request.Arguments["criteria"]), RuntimeFilter: request.Arguments["runtime"], ProviderFilter: request.Arguments["provider"], Source: "tui"}, nil
 }
 
 func routeWithTimeout(port Router, ctx context.Context, task router.TaskSpec, timeout time.Duration) (router.ModelCapabilities, router.AdmissionDecision, error) {
@@ -400,11 +427,6 @@ func splitRequestList(value string) []string {
 		}
 	}
 	return result
-}
-
-func executionOptions(request controlplane.ActionRequest) execution.ExecutionOptions {
-	maxTokens, _ := strconv.Atoi(request.Arguments["max-output-tokens"])
-	return execution.ExecutionOptions{MaxOutputTokens: maxTokens}
 }
 
 func (s *ControlService) wrapHooks(original Hooks) Hooks {
@@ -481,6 +503,9 @@ func (s *ControlService) recordRuntimeMonitor(event execution.RuntimeEvent) {
 }
 
 func (s *ControlService) publishRouteEvent(event router.ProgressEvent) {
+	if s.routeRecorder != nil {
+		s.routeRecorder(event)
+	}
 	message := event.Model
 	if len(event.Reasons) > 0 {
 		message += " · " + strings.Join(event.Reasons, ",")

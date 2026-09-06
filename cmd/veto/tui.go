@@ -38,13 +38,13 @@ func cmdTUI(args []string) error {
 	if fs.NArg() > 0 {
 		return fmt.Errorf("tui does not accept positional arguments")
 	}
-
 	model := tui.NewModel(controlplane.DefaultCatalog(), tui.Options{
 		Motion:       !*reduceMotion && !*screenReader,
 		NoColor:      *noColor || *screenReader || os.Getenv("NO_COLOR") != "",
 		Mouse:        !*noMouse && !*screenReader,
 		ScreenReader: *screenReader,
 		ServiceFactory: func() (controlplane.Service, error) {
+			setupLogger()
 			reg, mgr, store, err := prepareTUIRouting()
 			if err != nil {
 				return nil, fmt.Errorf("prepare routing: %w", err)
@@ -52,6 +52,9 @@ func cmdTUI(args []string) error {
 			service := application.NewControlServiceWithSnapshot(newApplicationRunner(reg, mgr), mgr, loadTUISnapshot)
 			service.SetOutputWriter(writeOutputFile)
 			service.SetHistorySaver(store.Save)
+			service.SetRouteEventRecorder(func(event router.ProgressEvent) {
+				logEvent("", "", "", event)
+			})
 			service.SetSkillResolver(func(ctx context.Context, task router.TaskSpec) []string {
 				_, bodies := resolveSkills(ctx, reg, mgr, task)
 				return bodies
@@ -719,11 +722,18 @@ func runTUIExec(ctx context.Context, request controlplane.ActionRequest, service
 		}
 		return controlplane.ActionResult{ActionID: "exec", Summary: "plan validated", Output: strings.Join(lines, "\n")}, nil
 	}
-	failureMode := request.Arguments["on-failure"]
+	requestedFailureMode := strings.TrimSpace(request.Arguments["on-failure"])
+	if requestedFailureMode == "abort-ask" {
+		return controlplane.ActionResult{ActionID: "exec"}, errors.New("on-failure mode abort-ask is not supported in the TUI; choose abort or continue")
+	}
+	failureMode := requestedFailureMode
 	if failureMode == "" {
 		failureMode = resolveOnFailure("")
+		if failureMode == "abort-ask" {
+			failureMode = "abort"
+		}
 	}
-	if failureMode != "abort" && failureMode != "continue" && failureMode != "abort-ask" {
+	if failureMode != "abort" && failureMode != "continue" {
 		return controlplane.ActionResult{ActionID: "exec"}, fmt.Errorf("invalid on-failure mode %q", failureMode)
 	}
 	stepTimeout := 60 * time.Second

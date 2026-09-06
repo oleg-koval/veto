@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/oleg-koval/veto/internal/controlplane"
@@ -39,6 +40,19 @@ func TestControlServiceRoutesAndPublishesProgress(t *testing.T) {
 	}
 }
 
+func TestControlServiceRecordsRouteEvents(t *testing.T) {
+	t.Parallel()
+
+	service := NewControlService(Runner{}, nil)
+	want := router.ProgressEvent{Kind: router.EventAskAccept, Model: "test-model"}
+	var got router.ProgressEvent
+	service.SetRouteEventRecorder(func(event router.ProgressEvent) { got = event })
+	service.publishRouteEvent(want)
+	if got.Kind != want.Kind || got.Model != want.Model {
+		t.Fatalf("recorded route event = %#v, want %#v", got, want)
+	}
+}
+
 func TestControlServiceRejectsUnsupportedRequestSchema(t *testing.T) {
 	t.Parallel()
 
@@ -51,9 +65,12 @@ func TestControlServiceRejectsUnsupportedRequestSchema(t *testing.T) {
 func TestTaskFromRequestPreservesComposerCapabilitiesAndCriteria(t *testing.T) {
 	t.Parallel()
 
-	task := taskFromRequest(controlplane.ActionRequest{Arguments: map[string]string{
+	task, err := taskFromRequest(controlplane.ActionRequest{Arguments: map[string]string{
 		"kind": "review", "risk": "high", "required-tools": "read, browser-dom", "requires-executable-tools": "true", "criteria": "tests pass; no regression", "max-cost": "0.25", "max-output-tokens": "120",
 	}}, "inspect the change")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if task.Kind != router.KindReview || task.Risk != router.RiskHigh || !task.RequiresExecutableTools || task.MaxCostUSD != 0.25 || task.MaxTokens != 120 {
 		t.Fatalf("task = %#v", task)
 	}
@@ -65,7 +82,10 @@ func TestTaskFromRequestPreservesComposerCapabilitiesAndCriteria(t *testing.T) {
 func TestTaskFromRequestInfersKindWhenComposerLeavesKindEmpty(t *testing.T) {
 	t.Parallel()
 
-	task := taskFromRequest(controlplane.ActionRequest{}, "summarize this incident")
+	task, err := taskFromRequest(controlplane.ActionRequest{}, "summarize this incident")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if task.Kind != router.KindSummarize {
 		t.Fatalf("inferred kind = %q, want %q", task.Kind, router.KindSummarize)
 	}
@@ -121,6 +141,34 @@ func TestControlServicePropagatesHistorySaveFailure(t *testing.T) {
 	}
 	if result.Model != "test-model" {
 		t.Fatalf("result = %#v, want completed route result", result)
+	}
+}
+
+func TestControlServiceRejectsInvalidNumericLimitsBeforeRouting(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name      string
+		argument  string
+		value     string
+		wantError string
+	}{
+		{name: "max cost", argument: "max-cost", value: "0.1x", wantError: "invalid max-cost"},
+		{name: "max output tokens", argument: "max-output-tokens", value: "many", wantError: "invalid max-output-tokens"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			routerPort := &serviceRouter{}
+			service := NewControlService(Runner{}, routerPort)
+			_, err := service.Execute(context.Background(), controlplane.ActionRequest{ActionID: "route", Arguments: map[string]string{
+				"objective": "summarize this", test.argument: test.value,
+			}})
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("invalid limit error = %v, want %q", err, test.wantError)
+			}
+			if routerPort.called {
+				t.Fatal("router called for invalid numeric limit")
+			}
+		})
 	}
 }
 

@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -279,6 +280,49 @@ func TestModelCommandPaletteFiltersAndSelectsAction(t *testing.T) {
 	model = updated.(*Model)
 	if model.paletteOpen || model.activeAction != "doctor" {
 		t.Fatalf("palette selection did not activate doctor: open=%v action=%q", model.paletteOpen, model.activeAction)
+	}
+}
+
+func TestModelBackspaceRemovesWholeRuneFromTextEditors(t *testing.T) {
+	t.Run("objective", func(t *testing.T) {
+		model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+		model.composerOpen = true
+		model.composerAction = "run"
+		model.composerInput = "café"
+		updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+		if got := updated.(*Model).composerInput; got != "caf" || !utf8.ValidString(got) {
+			t.Fatalf("objective after backspace = %q", got)
+		}
+	})
+
+	t.Run("flag", func(t *testing.T) {
+		model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+		model.composerOpen = true
+		model.composerEditing = true
+		model.composerFields = []controlplane.FlagSpec{{Name: "value"}}
+		model.composerValues = map[string]string{"value": "模型"}
+		updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+		if got := updated.(*Model).composerValues["value"]; got != "模" || !utf8.ValidString(got) {
+			t.Fatalf("flag after backspace = %q", got)
+		}
+	})
+
+	t.Run("palette", func(t *testing.T) {
+		model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+		model.paletteOpen = true
+		model.paletteQuery = "café"
+		updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+		if got := updated.(*Model).paletteQuery; got != "caf" || !utf8.ValidString(got) {
+			t.Fatalf("palette query after backspace = %q", got)
+		}
+	})
+}
+
+func TestModelDoesNotOfferInteractivePlanFailureMode(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	choices := model.fieldChoices(controlplane.FlagSpec{Name: "on-failure"})
+	if slices.Contains(choices, "abort-ask") {
+		t.Fatalf("TUI on-failure choices = %#v", choices)
 	}
 }
 

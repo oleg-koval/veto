@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -482,9 +483,7 @@ func (m *Model) updateComposer(key tea.Key) (tea.Model, tea.Cmd) {
 		m.composerOpen = false
 		m.composerInput = ""
 	case "backspace":
-		if len(m.composerInput) > 0 {
-			m.composerInput = m.composerInput[:len(m.composerInput)-1]
-		}
+		m.composerInput = removeLastRune(m.composerInput)
 	case "enter":
 		if m.composerNeedsObjective() && strings.TrimSpace(m.composerInput) == "" {
 			m.status = "Error · enter a task objective"
@@ -602,9 +601,7 @@ func (m *Model) updateComposerField(key tea.Key) (tea.Model, tea.Cmd) {
 		m.status = "Flags · " + m.composerFields[m.composerField].Name
 	case "backspace":
 		value := m.composerValues[field.Name]
-		if len(value) > 0 {
-			m.composerValues[field.Name] = value[:len(value)-1]
-		}
+		m.composerValues[field.Name] = removeLastRune(value)
 	case "enter":
 		if m.composerField < len(m.composerFields)-1 {
 			m.composerField++
@@ -760,8 +757,8 @@ func (m *Model) updatePalette(key tea.Key) (tea.Model, tea.Cmd) {
 		m.paletteOpen = false
 		m.paletteQuery = ""
 	case "backspace":
-		if len(m.paletteQuery) > 0 {
-			m.paletteQuery = m.paletteQuery[:len(m.paletteQuery)-1]
+		if m.paletteQuery != "" {
+			m.paletteQuery = removeLastRune(m.paletteQuery)
 			m.paletteCursor = 0
 		}
 	case "j", "down":
@@ -1142,9 +1139,17 @@ func (m *Model) fieldChoices(field controlplane.FlagSpec) []string {
 	case "agent":
 		return []string{"claude", "codex"}
 	case "on-failure":
-		return []string{"abort-ask", "abort", "continue"}
+		return []string{"abort", "continue"}
 	}
 	return nil
+}
+
+func removeLastRune(value string) string {
+	if value == "" {
+		return ""
+	}
+	_, size := utf8.DecodeLastRuneInString(value)
+	return value[:len(value)-size]
 }
 
 func (m *Model) renderConfirmation(width int) string {

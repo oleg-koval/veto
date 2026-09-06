@@ -238,6 +238,9 @@ func TestRunTUISetupAutoApprovesSelectedDirectory(t *testing.T) {
 	previousConfig := vetoCfgPathOverride
 	vetoCfgPathOverride = configPath
 	t.Cleanup(func() { vetoCfgPathOverride = previousConfig })
+	previousSkillsDir := skillsDirOverride
+	skillsDirOverride = t.TempDir()
+	t.Cleanup(func() { skillsDirOverride = previousSkillsDir })
 	directory := t.TempDir()
 	if err := os.WriteFile(filepath.Join(directory, "review.md"), []byte("---\nname: review\n---\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -252,6 +255,10 @@ func TestRunTUISetupAutoApprovesSelectedDirectory(t *testing.T) {
 	if !containsStr(loadSkillsConfig().ApprovedDirs, directory) {
 		t.Fatalf("approved dirs = %#v", loadSkillsConfig().ApprovedDirs)
 	}
+	loaded := loadSkills()
+	if len(loaded) != 1 || loaded[0].Name != "review" {
+		t.Fatalf("loaded skills = %#v, want approved directory skill", loaded)
+	}
 }
 
 func TestRunTUISetupApprovesSelectedFiles(t *testing.T) {
@@ -259,6 +266,9 @@ func TestRunTUISetupApprovesSelectedFiles(t *testing.T) {
 	previousConfig := vetoCfgPathOverride
 	vetoCfgPathOverride = configPath
 	t.Cleanup(func() { vetoCfgPathOverride = previousConfig })
+	previousSkillsDir := skillsDirOverride
+	skillsDirOverride = t.TempDir()
+	t.Cleanup(func() { skillsDirOverride = previousSkillsDir })
 	directory := t.TempDir()
 	first := filepath.Join(directory, "first.md")
 	second := filepath.Join(directory, "second.md")
@@ -279,6 +289,10 @@ func TestRunTUISetupApprovesSelectedFiles(t *testing.T) {
 	if !containsStr(loadSkillsConfig().ApprovedFiles, first) || containsStr(loadSkillsConfig().ApprovedFiles, second) {
 		t.Fatalf("approved files = %#v", loadSkillsConfig().ApprovedFiles)
 	}
+	loaded := loadSkills()
+	if len(loaded) != 1 || loaded[0].Source != first {
+		t.Fatalf("loaded skills = %#v, want only selected file", loaded)
+	}
 }
 
 func TestRunTUIExecDryRunValidatesAndListsPlan(t *testing.T) {
@@ -293,6 +307,20 @@ func TestRunTUIExecDryRunValidatesAndListsPlan(t *testing.T) {
 	}
 	if result.Summary != "plan validated" || !strings.Contains(result.Output, "inspect the change") {
 		t.Fatalf("dry-run result = %#v", result)
+	}
+}
+
+func TestRunTUIExecRejectsInteractiveFailureMode(t *testing.T) {
+	planPath := filepath.Join(t.TempDir(), "plan.md")
+	data := []byte("---\ntitle: TUI plan\nversion: 1\nsteps:\n  - task: inspect the change\n    kind: review\n    risk: low\n---\n")
+	if err := os.WriteFile(planPath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runTUIExec(context.Background(), controlplane.ActionRequest{ActionID: "exec", Arguments: map[string]string{
+		"plan": planPath, "on-failure": "abort-ask",
+	}}, nil, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "not supported in the TUI") {
+		t.Fatalf("abort-ask error = %v", err)
 	}
 }
 

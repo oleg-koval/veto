@@ -125,5 +125,5 @@ func runFlags() []FlagSpec {
 }
 
 func execFlags() []FlagSpec {
-	return []FlagSpec{{Name: "quiet", Value: "bool", Description: "Suppress routing pipeline."}, {Name: "dry-run", Value: "bool", Description: "Print steps without executing."}, {Name: "timeout", Value: "duration", Default: "60s", Description: "Per-step timeout."}, {Name: "max-output-tokens", Value: "int", Default: strconv.Itoa(execution.DefaultExecutionMaxTokens), Description: "Maximum output tokens per step."}, {Name: "on-failure", Value: "string", Description: "abort-ask, abort, or continue."}, {Name: "no-feedback", Value: "bool", Description: "Disable the opt-in post-run feedback prompt."}}
+	return []FlagSpec{{Name: "quiet", Value: "bool", Description: "Suppress routing pipeline."}, {Name: "dry-run", Value: "bool", Description: "Print steps without executing."}, {Name: "timeout", Value: "duration", Default: "60s", Description: "Per-step timeout."}, {Name: "max-output-tokens", Value: "int", Default: strconv.Itoa(execution.DefaultExecutionMaxTokens), Description: "Maximum output tokens per step."}, {Name: "on-failure", Value: "string", Description: "Abort or continue after a failed step."}, {Name: "no-feedback", Value: "bool", Description: "Disable the opt-in post-run feedback prompt."}}
 }

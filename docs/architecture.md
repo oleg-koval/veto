@@ -479,7 +479,7 @@ Approval state is stored in `~/.veto/config.json` under the `"skills"` key as `a
 
 **Resolution flow** for each `veto run` call:
 
-1. `loadSkills()` reads all `.md` files from `skillSourceDirs()` (the union of `~/.veto/skills/` and user-approved dirs), filtering to only approved files in unapproved dirs.
+1. `loadSkills()` reads `.md` files from `~/.veto/skills/`, user-approved directories, and the parent directories of individually approved files. External files are loaded only when their directory or exact path is approved.
 2. `matchSkills(spec)` separates matches into kind-specific (skill has `kinds` list that includes the task kind) and generic (empty `kinds`). Kind-specific are preferred; combined list capped at 2.
 3. `withSkills(objective, bodies)` prepends matched skill bodies under `## Relevant skills` before the task objective. Internal/meta routes (review, plan conversion) pass `nil` to avoid recursion.
 
