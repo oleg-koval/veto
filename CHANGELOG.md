@@ -3,6 +3,13 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0](https://github.com/oleg-koval/veto/compare/v0.9.0...v0.10.0) (2026-09-06)
+
+
+### Features
+
+* add routing cockpit TUI and harden runtime controls ([#91](https://github.com/oleg-koval/veto/issues/91)) ([c5b9f68](https://github.com/oleg-koval/veto/commit/c5b9f68253df159f308556ee09ecc21437e2bd59))
+
 ## [0.9.0](https://github.com/oleg-koval/veto/compare/v0.8.1...v0.9.0) (2026-09-01)
 
 
