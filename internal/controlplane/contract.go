@@ -3,6 +3,7 @@ package controlplane
 
 import (
 	"context"
+	"io"
 	"time"
 )
 
@@ -43,6 +44,16 @@ type ActionResult struct {
 	Summary  string
 	Model    string
 	Output   string
+	Command  NativeCommand
+}
+
+// NativeCommand is a reviewed command prepared by the control plane. The TUI
+// owns the confirmation step before invoking Run.
+type NativeCommand interface {
+	Run() error
+	SetStdin(io.Reader)
+	SetStdout(io.Writer)
+	SetStderr(io.Writer)
 }
 
 // Snapshot is the read-only state needed to render the shell.
@@ -88,9 +99,15 @@ type MonitorSnapshot struct {
 
 // ProviderSnapshot contains safe availability metadata only.
 type ProviderSnapshot struct {
-	Name       string
-	Configured bool
-	ModelCount int
+	Name        string
+	Configured  bool
+	ModelCount  int
+	Installed   bool
+	Auth        string
+	Billing     string
+	Unavailable bool
+	Warning     string
+	Models      []string
 }
 
 // ModelSnapshot contains safe catalog metadata only; credentials and prompt

@@ -361,11 +361,6 @@ func cmdRoute(args []string) {
 		RuntimeFilter:           *runtimeFilter,
 		ProviderFilter:          *providerFilter,
 	}
-	_ = saveTUIMission(tuiMissionRecord{
-		RunID: currentRunID(hash), TaskID: hash, Kind: kind, Risk: *risk,
-		CreatedAt: time.Now(), Objective: objective,
-	})
-
 	model, decision, err := mgr.Route(ctx, spec)
 	// persist history regardless of outcome — os.Exit below skips defers
 	_ = store.Save()

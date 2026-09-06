@@ -3,6 +3,27 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0](https://github.com/oleg-koval/veto/compare/v0.9.0...v0.10.0) (2026-09-06)
+
+
+### Features
+
+* add routing cockpit TUI and harden runtime controls ([#91](https://github.com/oleg-koval/veto/issues/91)) ([c5b9f68](https://github.com/oleg-koval/veto/commit/c5b9f68253df159f308556ee09ecc21437e2bd59))
+
+## [0.9.0](https://github.com/oleg-koval/veto/compare/v0.8.1...v0.9.0) (2026-09-01)
+
+
+### Features
+
+* **site:** local commands and changelog pages, GA4/GSC wiring, mobile fixes ([#85](https://github.com/oleg-koval/veto/issues/85)) ([25ebd1b](https://github.com/oleg-koval/veto/commit/25ebd1b9a10069582d3d35505a0052a6de440206))
+
+## [0.8.1](https://github.com/oleg-koval/veto/compare/v0.8.0...v0.8.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* address clean architecture review findings ([#83](https://github.com/oleg-koval/veto/issues/83)) ([ebae6b8](https://github.com/oleg-koval/veto/commit/ebae6b86b68874cc7cc0cdd0402e4cb3fd5ae625))
+
 ## [0.8.0](https://github.com/oleg-koval/veto/compare/v0.7.0...v0.8.0) (2026-08-31)
 
 

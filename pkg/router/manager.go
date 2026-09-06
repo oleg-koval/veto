@@ -64,6 +64,16 @@ func (m *Manager) SetOnEvent(handler func(ProgressEvent)) {
 // The first accepted candidate is returned. All decisions are logged.
 // Returns ErrNoCandidate if no model passes the admission gate.
 func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, AdmissionDecision, error) {
+	return m.route(ctx, task, 0)
+}
+
+// RouteWithAdmissionTimeout routes with a request-local per-model admission
+// deadline without mutating the manager or affecting concurrent callers.
+func (m *Manager) RouteWithAdmissionTimeout(ctx context.Context, task TaskSpec, timeout time.Duration) (ModelCapabilities, AdmissionDecision, error) {
+	return m.route(ctx, task, timeout)
+}
+
+func (m *Manager) route(ctx context.Context, task TaskSpec, admissionTimeout time.Duration) (ModelCapabilities, AdmissionDecision, error) {
 	if task.Complexity == "" {
 		task.Complexity = InferComplexity(task.Objective, task.Kind)
 	}
@@ -123,17 +133,12 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 	}
 
 	// Every admission call consumes the per-run budget, including transport
-	// failures. A failed runtime is skipped for its sibling model aliases so a
-	// broken subscription CLI cannot consume the entire budget before another
-	// configured runtime gets a chance.
+	// failures. Do not suppress sibling models that share a runtime identity:
+	// provider APIs can return model-specific failures, and another alias may
+	// still be viable.
 	attempts := 0
-	failedRuntimes := make(map[string]struct{})
 	for _, model := range ranked {
 		if skipSet[model.Name] {
-			continue
-		}
-		runtimeID := m.gate.RuntimeIdentity(model)
-		if _, failed := failedRuntimes[runtimeID]; failed {
 			continue
 		}
 		if attempts >= m.maxAdmissions {
@@ -145,9 +150,8 @@ func (m *Manager) Route(ctx context.Context, task TaskSpec) (ModelCapabilities, 
 		m.emit(ProgressEvent{Kind: EventAskStart, Model: model.Name})
 		attempts++
 
-		decision, err := m.gate.Ask(ctx, task, model)
+		decision, err := m.gate.AskWithTimeout(ctx, task, model, admissionTimeout)
 		if err != nil {
-			failedRuntimes[runtimeID] = struct{}{}
 			if ctx.Err() != nil {
 				return ModelCapabilities{}, AdmissionDecision{}, fmt.Errorf("routing: %w", ctx.Err())
 			}

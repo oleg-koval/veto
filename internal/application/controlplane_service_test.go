@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oleg-koval/veto/internal/controlplane"
 	"github.com/oleg-koval/veto/pkg/execution"
@@ -100,7 +101,7 @@ func TestTaskFromRequestKeepsOutputBudgetOutOfRoutingCapabilities(t *testing.T) 
 	task := taskFromRequest(controlplane.ActionRequest{Arguments: map[string]string{
 		"kind": "review", "risk": "high", "required-tools": "read, browser-dom", "requires-executable-tools": "true", "criteria": "tests pass; no regression", "max-cost": "0.25", "max-output-tokens": "120",
 	}}, "inspect the change")
-	if task.Kind != router.KindReview || task.Risk != router.RiskHigh || !task.RequiresExecutableTools || task.MaxCostUSD != 0.25 || task.MaxTokens != 0 {
+	if task.Kind != router.KindReview || task.Risk != router.RiskHigh || !task.RequiresExecutableTools || task.MaxCostUSD != 0.25 || task.MaxTokens != 120 {
 		t.Fatalf("task = %#v", task)
 	}
 	if len(task.RequiredTools) != 2 || task.RequiredTools[1] != "browser-dom" || len(task.SuccessCriteria) != 2 {
@@ -117,6 +118,63 @@ func TestTaskFromRequestInfersKindWhenComposerLeavesKindEmpty(t *testing.T) {
 	task := taskFromRequest(controlplane.ActionRequest{}, "summarize this incident")
 	if task.Kind != router.KindSummarize {
 		t.Fatalf("inferred kind = %q, want %q", task.Kind, router.KindSummarize)
+	}
+}
+
+func TestTaskFromRequestInfersExecutableRequirement(t *testing.T) {
+	t.Parallel()
+
+	task := taskFromRequest(controlplane.ActionRequest{}, "commit and push the repository changes")
+	if !task.RequiresExecutableTools {
+		t.Fatalf("task should require executable tools: %#v", task)
+	}
+}
+
+func TestControlServiceUsesRouteTimeoutPerAdmission(t *testing.T) {
+	t.Parallel()
+
+	routerPort := &timedServiceRouter{serviceRouter: serviceRouter{model: router.ModelCapabilities{Name: "test-model", Provider: "test"}}}
+	service := NewControlService(Runner{}, routerPort)
+	_, err := service.Execute(context.Background(), controlplane.ActionRequest{ActionID: "route", Arguments: map[string]string{
+		"objective": "summarize this", "timeout": "25ms",
+	}})
+	if err != nil {
+		t.Fatalf("route failed: %v", err)
+	}
+	if routerPort.admissionTimeout != 25*time.Millisecond {
+		t.Fatalf("admission timeout = %s, want 25ms", routerPort.admissionTimeout)
+	}
+}
+
+func TestControlServiceResolvesSkillsBeforeRun(t *testing.T) {
+	t.Parallel()
+
+	routerPort := &serviceRouter{model: router.ModelCapabilities{Name: "test-model", Provider: "test"}}
+	runtime := &capturingRuntime{}
+	service := NewControlService(Runner{Router: routerPort, Runtime: serviceResolver{runtime: runtime}}, routerPort)
+	service.SetSkillResolver(func(context.Context, router.TaskSpec) []string { return []string{"approved skill instructions"} })
+	_, err := service.Execute(context.Background(), controlplane.ActionRequest{ActionID: "run", Arguments: map[string]string{"objective": "write"}})
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if !strings.Contains(runtime.prompt, "approved skill instructions") {
+		t.Fatalf("run prompt = %q, missing approved skill", runtime.prompt)
+	}
+}
+
+func TestControlServicePropagatesHistorySaveFailure(t *testing.T) {
+	t.Parallel()
+
+	historyErr := errors.New("history unavailable")
+	routerPort := &serviceRouter{model: router.ModelCapabilities{Name: "test-model", Provider: "test"}}
+	service := NewControlService(Runner{}, routerPort)
+	service.SetHistorySaver(func() error { return historyErr })
+	result, err := service.Execute(context.Background(), controlplane.ActionRequest{ActionID: "route", Arguments: map[string]string{"objective": "summarize this"}})
+	if !errors.Is(err, historyErr) {
+		t.Fatalf("Execute error = %v, want history error", err)
+	}
+	if result.Model != "test-model" {
+		t.Fatalf("result = %#v, want completed route result", result)
 	}
 }
 
@@ -429,6 +487,16 @@ type serviceRouter struct {
 	task   router.TaskSpec
 }
 
+type timedServiceRouter struct {
+	serviceRouter
+	admissionTimeout time.Duration
+}
+
+func (r *timedServiceRouter) RouteWithAdmissionTimeout(ctx context.Context, task router.TaskSpec, timeout time.Duration) (router.ModelCapabilities, router.AdmissionDecision, error) {
+	r.admissionTimeout = timeout
+	return r.Route(ctx, task)
+}
+
 func (r *serviceRouter) Route(_ context.Context, task router.TaskSpec) (router.ModelCapabilities, router.AdmissionDecision, error) {
 	r.called = true
 	r.task = task
@@ -467,6 +535,20 @@ func (r serviceResolver) RuntimeFor(string) (execution.RuntimeAdapter, bool) {
 }
 
 type serviceRuntime struct{}
+
+type capturingRuntime struct {
+	prompt string
+}
+
+func (r *capturingRuntime) Run(context.Context, string) execution.Result {
+	return execution.Result{Output: "accepted"}
+}
+func (r *capturingRuntime) Execute(_ context.Context, prompt string, _ execution.ExecutionOptions) execution.Result {
+	r.prompt = prompt
+	return execution.Result{Output: "done"}
+}
+func (*capturingRuntime) EffectiveTools() []string { return nil }
+func (*capturingRuntime) RuntimeID() string        { return "capturing" }
 
 func (serviceRuntime) Run(context.Context, string) execution.Result {
 	return execution.Result{Output: "accepted"}

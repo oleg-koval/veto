@@ -86,7 +86,8 @@ if [[ -e "${smoke_home}/.veto/credentials.json" ]]; then
 fi
 
 server_info=${tmp_dir}/server.info
-python3 scripts/onboarding_fake_provider.py "${server_info}" >"${tmp_dir}/server.log" 2>&1 &
+VETO_SMOKE_REQUEST_SIGNAL="${smoke_home}/.veto/fake-provider-request.received" \
+    python3 scripts/onboarding_fake_provider.py "${server_info}" >"${tmp_dir}/server.log" 2>&1 &
 server_pid=$!
 
 for _ in $(seq 1 50); do

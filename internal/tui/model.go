@@ -61,9 +61,12 @@ type eventMsg struct {
 }
 
 type executionResultMsg struct {
-	result controlplane.ActionResult
-	err    error
+	result  controlplane.ActionResult
+	err     error
+	request controlplane.ActionRequest
 }
+
+type nativeFinishedMsg struct{ err error }
 
 type snapshotMsg struct {
 	snapshot controlplane.Snapshot
@@ -96,6 +99,7 @@ type Model struct {
 	composerEditing     bool
 	confirmOpen         bool
 	pendingRequest      controlplane.ActionRequest
+	pendingNative       controlplane.NativeCommand
 	running             bool
 	lastEvent           string
 	decisionModel       string
@@ -264,6 +268,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cancelRun()
 		}
 		m.cancelRun = nil
+		if message.result.Command != nil && message.err == nil {
+			m.pendingNative = message.result.Command
+			m.pendingRequest = message.request
+			m.confirmOpen = true
+			m.output.WriteString(message.result.Summary)
+			m.status = "Review · press Enter to launch native agent"
+			return m, nil
+		}
 		if m.healthLoading {
 			if message.err != nil {
 				m.healthLoading = false
@@ -325,6 +337,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadSnapshot()
 		}
 		return m, nil
+	case nativeFinishedMsg:
+		m.running = false
+		m.pendingNative = nil
+		if message.err != nil {
+			m.status = "Native agent exited with error · " + message.err.Error()
+		} else {
+			m.status = "Native agent returned · dispatch outcome is not task correctness"
+		}
+		return m, m.loadSnapshot()
 	case tea.KeyPressMsg:
 		return m.updateKey(message)
 	default:
@@ -521,11 +542,21 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.confirmOpen {
 		switch key.String() {
 		case "esc", "n":
+			m.pendingNative = nil
 			m.confirmOpen = false
 			m.pendingRequest = controlplane.ActionRequest{}
 			m.returnToProviders = false
 			m.status = "Ready · action cancelled"
 		case "enter", "y":
+			if m.pendingNative != nil {
+				command := m.pendingNative
+				m.pendingNative = nil
+				m.confirmOpen = false
+				m.pendingRequest = controlplane.ActionRequest{}
+				m.running = true
+				m.status = "Running · native agent"
+				return m, tea.Exec(command, func(err error) tea.Msg { return nativeFinishedMsg{err: err} })
+			}
 			request := m.pendingRequest
 			m.confirmOpen = false
 			m.pendingRequest = controlplane.ActionRequest{}
@@ -1415,7 +1446,7 @@ func (m *Model) startAction(actionID string) (tea.Model, tea.Cmd) {
 func (m *Model) execute(request controlplane.ActionRequest, ctx context.Context) tea.Cmd {
 	return func() tea.Msg {
 		result, err := m.options.Service.Execute(ctx, request)
-		return executionResultMsg{result: result, err: err}
+		return executionResultMsg{result: result, err: err, request: request}
 	}
 }
 
@@ -2305,6 +2336,12 @@ func (m *Model) renderConfirmation(width int) string {
 		description = "Veto will install curated design skills into its managed integration scope."
 	}
 	b.WriteString(panelStyle.Render(prompt + "\n" + description))
+	if m.pendingNative != nil && m.output.Len() > 0 {
+		b.WriteString("\n")
+		b.WriteString(headerStyle.Render("NATIVE DISPATCH DECISION"))
+		b.WriteString("\n")
+		b.WriteString(workspacePanelStyle.Width(max(12, width)).Render(formatMultiline(m.output.String(), max(10, width-8), 12)))
+	}
 	if arguments := m.confirmationArguments(action); len(arguments) > 0 {
 		b.WriteString("\n")
 		b.WriteString(headerStyle.Render("REQUEST"))
@@ -3507,10 +3544,34 @@ func (m *Model) renderProviders(width int) string {
 	}
 	content := headerStyle.Render("FLEET · PROVIDERS") + "\n" + mutedStyle.Render("Connect, update, verify, or remove providers without leaving Veto.") + "\n" + m.renderDataFilter(total, len(rows)) + "\n\n" + renderSelectableDataTable([]string{"Provider", "State", "Models", "Managed by", "Action"}, page, max(20, width-8), selected) + "\n\n" + m.renderDataPager(len(rows), start, end)
 	content += "\n" + mutedStyle.Render("M Models · A Add provider · R refresh · Enter manage")
+	if health := m.renderProviderHealth(); health != "" {
+		content += "\n\n" + health
+	}
 	if m.output.Len() > 0 {
 		content += "\n\n" + headerStyle.Render("LAST PROVIDER ACTION") + "\n" + formatMultiline(m.output.String(), max(20, width-8), 8)
 	}
 	return workspacePanelStyle.Width(max(12, width)).Render(content)
+}
+
+func (m *Model) renderProviderHealth() string {
+	var lines []string
+	for _, provider := range m.snapshot.Providers {
+		if !provider.Installed && provider.Auth == "" && provider.Billing == "" && !provider.Unavailable && provider.Warning == "" {
+			continue
+		}
+		line := fmt.Sprintf("%-12s auth=%s billing=%s", provider.Name, valueOrDash(provider.Auth), valueOrDash(provider.Billing))
+		if provider.Unavailable {
+			line += " · temporarily unavailable"
+		}
+		if provider.Warning != "" {
+			line += " · " + provider.Warning
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return headerStyle.Render("PROVIDER HEALTH") + "\n" + strings.Join(lines, "\n")
 }
 
 func (m *Model) renderHistory(width int) string {

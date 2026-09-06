@@ -110,6 +110,12 @@ func skillSourceDirs() []string {
 			dirs = append(dirs, d)
 		}
 	}
+	for _, file := range cfg.ApprovedFiles {
+		dir := filepath.Dir(file)
+		if !containsStr(dirs, dir) {
+			dirs = append(dirs, dir)
+		}
+	}
 	return dirs
 }
 
@@ -135,7 +141,7 @@ func loadSkills() []skill {
 			}
 			path := filepath.Join(dir, e.Name())
 			// veto-generated dir: always approved. Others: must be in approved list.
-			if dir != vetoDir && !approvedFiles[path] {
+			if dir != vetoDir && !containsStr(cfg.ApprovedDirs, dir) && !approvedFiles[path] {
 				continue
 			}
 			data, err := os.ReadFile(path)

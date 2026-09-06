@@ -73,6 +73,65 @@ veto route --json "summarize this pull request"
 - **Fail-closed review** — optional acceptance criteria reject unavailable,
   malformed, incomplete, or inconsistent reviews.
 
+## Native dispatch experiment
+
+The existing TUI and CLI also expose a deliberately small native-agent
+experiment. Veto never becomes the coding agent: Claude Code or Codex keeps its
+own permissions, tools, MCP, sessions, authentication, environment, and
+stdin/stdout/stderr.
+
+```bash
+# Manual control: Veto does not choose
+veto start --agent claude "Fix the failing parser test"
+veto start --agent codex "Fix the failing parser test"
+
+# H2: choose the native agent with a transparent fixed policy
+veto start --choose agent "Fix the failing parser test"
+
+# H1: keep the agent fixed and choose only its model
+veto start --choose model --agent claude "Fix the failing parser test"
+veto start --choose model --agent codex "Fix the failing parser test"
+```
+
+The policy uses task kind, installed/authentication state, explicit settings,
+and temporary availability. It does not use model self-admission, historical
+quality scores, embeddings, or learned routing. Every proposal prints its
+reason, constraints, excluded alternatives, unknowns, and that history was not
+used. Use `--override-agent` or `--override-model` for an immediate CLI
+override; the TUI shows the same proposal before launch.
+
+The native status is intentionally conservative. `authenticated`,
+`subscription`, `API`, capacity, and cost are separate facts. Claude billing
+is shown as UNKNOWN when Veto cannot verify whether the native CLI uses a
+subscription or an inherited `ANTHROPIC_API_KEY`; Veto preserves that
+environment variable. Codex ChatGPT-plan billing is also not treated as free
+capacity evidence.
+
+Temporarily exclude an agent without quota scraping:
+
+```bash
+veto unavailable claude --for 2h
+veto unavailable codex --for 30m
+veto unavailable
+veto unavailable claude --clear
+```
+
+Native-dispatch events are local, bounded, and stored in
+`~/.veto/experiment.log`. They contain timestamps, anonymous local run IDs,
+mode, choices, reason metadata, process status, and optional usefulness
+feedback. Prompts, source code, repositories, transcripts, responses, and
+credentials are not recorded by default. Inspect or delete the log with
+`veto experiment` and `veto experiment --clear`.
+
+In the TUI, press `s` or choose **Start native task** from the palette. The
+home/provider views show native executable, authentication, billing, warning,
+and temporary-unavailability state; the review screen explains the proposal
+before Bubble Tea releases the terminal to the child process.
+
+This experiment does not guarantee task correctness, verified success, known
+cost, capacity, or product-market fit. A native process exit of zero means only
+that the process returned successfully; it is not an objective coding outcome.
+
 ## Why veto exists
 
 As model rosters multiply, every multi-model workflow faces the same decision: which model should get this task? Hardcoded rules, manual selection, and keyword routing miss context that matters, while sending everything to the largest model wastes capacity and money.
@@ -204,15 +263,15 @@ veto login
 
 For Anthropic, veto asks whether you use a **subscription** (Claude Max / Pro) or an **API key**:
 
-- **Subscription mode** — if you have Claude Code installed and logged in, veto shells out to `claude -p` instead of hitting the API. Cost is $0 per route — your flat subscription covers it.
+- **Subscription mode** — if you have Claude Code installed and logged in, veto shells out to `claude -p` instead of hitting the API. Veto reports billing as UNKNOWN unless the execution mode is directly verifiable; an inherited `ANTHROPIC_API_KEY` can affect native CLI behavior.
 - **API key mode** — standard pay-per-token via the Anthropic API.
 
 For subscription mode, veto verifies the `claude` CLI is present and saves a `CLAUDE_SUBSCRIPTION=true` marker. For API key mode, it opens the keys page in your browser and stores the key (masked input) at `~/.veto/credentials.json` (mode 0600).
 
 Veto also detects an installed Codex CLI whose `codex login status` succeeds.
-It registers the `codex` agent automatically. A ChatGPT login uses subscription
-access with known zero marginal provider cost; an API-key or unrecognized login
-keeps cost unknown rather than pretending it is free. OpenAI API models remain
+It registers the `codex` agent automatically. A ChatGPT login is authenticated,
+but its billing and capacity remain UNKNOWN to Veto; an API-key or unrecognized
+login also keeps cost unknown rather than pretending it is free. OpenAI API models remain
 a separate, text-only provider path configured with `OPENAI_API_KEY`.
 
 For OpenRouter, `veto login` recommends browser authorization. Veto binds an
@@ -719,7 +778,7 @@ automatically. See [the event schema](docs/event-ledger.md).
 | OpenCode runtime | connected `provider/model` bindings | `veto opencode connect` |
 | Local / self-hosted | any name you choose | `veto login` → option 5 (guided Ollama install, LM Studio, or manual) |
 
-Subscription mode takes precedence over API key when both are configured. Claude and Codex subscription modes expose their CLI tools and use their existing flat-subscription login instead of API billing. OpenCode can execute tools already allowed by the user's OpenCode policy; Veto does not infer a tool or browser capability from the model name and never auto-approves a new permission request. Anthropic/OpenAI/OpenRouter APIs and local OpenAI-compatible servers are text-only through Veto, even when the underlying model advertises function calling. Local inference has $0 provider billing, but still consumes your machine's resources. `veto providers` shows which mode is active and lists all local models.
+Subscription mode takes precedence over API key when both are configured. Claude and Codex subscription modes expose their CLI tools, but Veto does not independently verify flat-subscription billing or capacity and therefore reports those fields as UNKNOWN. OpenCode can execute tools already allowed by the user's OpenCode policy; Veto does not infer a tool or browser capability from the model name and never auto-approves a new permission request. Anthropic/OpenAI/OpenRouter APIs and local OpenAI-compatible servers are text-only through Veto, even when the underlying model advertises function calling. Local inference has $0 provider billing, but still consumes your machine's resources. `veto providers` shows which mode is active and lists all local models.
 
 Veto fetches and safely caches OpenRouter's larger catalog, filters it locally,
 and sends admission requests to at most three candidates. Models with unknown

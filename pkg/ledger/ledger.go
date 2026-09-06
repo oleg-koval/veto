@@ -45,6 +45,13 @@ const (
 	EventGoalStep           EventType = "goal.step"
 	EventGoalCompleted      EventType = "goal.completed"
 	EventGoalStopped        EventType = "goal.stopped"
+	EventLaunchRequested    EventType = "experiment.launch_requested"
+	EventChoiceProposed     EventType = "experiment.choice_proposed"
+	EventChoiceOverridden   EventType = "experiment.choice_overridden"
+	EventNativeStarted      EventType = "experiment.native_started"
+	EventNativeExited       EventType = "experiment.native_exited"
+	EventUnavailableMarked  EventType = "experiment.unavailable_marked"
+	EventOutcomeReported    EventType = "experiment.outcome_reported"
 )
 
 // Event is the allowlisted JSON envelope persisted as one line. It deliberately
@@ -70,6 +77,13 @@ type Event struct {
 	CostUSD          *float64  `json:"cost_usd,omitempty"`
 	LatencyMS        *int64    `json:"latency_ms,omitempty"`
 	Detail           string    `json:"detail,omitempty"`
+	Mode             string    `json:"mode,omitempty"`
+	ProposedAgent    string    `json:"proposed_agent,omitempty"`
+	FinalAgent       string    `json:"final_agent,omitempty"`
+	ProposedModel    string    `json:"proposed_model,omitempty"`
+	FinalModel       string    `json:"final_model,omitempty"`
+	Override         bool      `json:"override,omitempty"`
+	Outcome          string    `json:"outcome,omitempty"`
 }
 
 // Usage holds token consumption metrics for a model invocation.

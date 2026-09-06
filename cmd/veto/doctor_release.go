@@ -34,6 +34,10 @@ const (
 )
 
 func checkDoctorReleaseIntegrity(options doctorOptions, deps doctorDeps) doctorCheck {
+	ctx := options.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if options.offline {
 		return doctorCheck{ID: "release.integrity", Status: doctorWarn, Message: "offline mode; official checksum verification was skipped"}
 	}
@@ -49,7 +53,7 @@ func checkDoctorReleaseIntegrity(options doctorOptions, deps doctorDeps) doctorC
 		return doctorCheck{ID: "release.integrity", Status: doctorFail, Message: "running executable cannot be resolved for checksum verification"}
 	}
 	binaryAssetPath := doctorBinaryAssetPath(resolved, deps.goos, deps.goarch)
-	manifest, err := fetchDoctorReleaseAsset(context.Background(), deps, resolved, "BINARY_SHA256SUMS", doctorManifestMaxBytes)
+	manifest, err := fetchDoctorReleaseAsset(ctx, deps, resolved, "BINARY_SHA256SUMS", doctorManifestMaxBytes)
 	if err != nil {
 		return doctorCheck{ID: "release.integrity", Status: doctorFail, Message: "official binary checksum manifest is unavailable or untrusted"}
 	}
@@ -74,7 +78,7 @@ func checkDoctorReleaseIntegrity(options doctorOptions, deps doctorDeps) doctorC
 		check.Message += "; automatic replacement refused: " + reason
 		return check
 	}
-	staged, repairErr := repairDoctorExecutable(context.Background(), deps, executablePath, resolved, expected, current)
+	staged, repairErr := repairDoctorExecutable(ctx, deps, executablePath, resolved, expected, current)
 	if repairErr != nil {
 		if installed, readErr := readDoctorFileLimited(deps.fs, executablePath, doctorBinaryMaxBytes); readErr == nil && sha256.Sum256(installed) == expected {
 			return doctorCheck{ID: "release.integrity", Status: doctorFixed, Message: "installed the checksum-valid official binary; replacement cleanup reported: " + repairErr.Error()}

@@ -52,15 +52,20 @@ func cmdTUI(args []string) error {
 		Version:      resolvedVersion(),
 		Executable:   runningExecutable,
 		ServiceFactory: func() (controlplane.Service, error) {
-			reg, mgr, _, err := prepareTUIRouting()
+			reg, mgr, store, err := prepareTUIRouting()
 			if err != nil {
 				return nil, fmt.Errorf("prepare routing: %w", err)
 			}
 			service := application.NewControlServiceWithSnapshot(newApplicationRunner(reg, mgr), mgr, loadTUISnapshot)
-			service.SetRoutingRefresher(func() error {
-				return refreshTUIRouting(reg, mgr)
-			})
 			service.SetOutputWriter(writeOutputFile)
+			service.SetHistorySaver(store.Save)
+			service.SetRouteEventRecorder(func(event router.ProgressEvent) {
+				logEvent("", "", "", event)
+			})
+			service.SetSkillResolver(func(ctx context.Context, task router.TaskSpec) []string {
+				_, bodies := resolveSkills(ctx, reg, mgr, task)
+				return bodies
+			})
 			service.SetReviewer(func(ctx context.Context, task router.TaskSpec, output, model string) (bool, error) {
 				result, err := reviewOutput(ctx, reg, mgr, task, output, model)
 				return result.Passed, err

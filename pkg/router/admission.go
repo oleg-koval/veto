@@ -6,19 +6,19 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/oleg-koval/veto/pkg/execution"
 )
 
 const admissionModelTimeout = 20 * time.Second
 
 //go:generate moq -out mocks/executor.go -pkg mocks -skip-ensure -fmt goimports . Executor
 
-// AdmissionResult is the small result needed by the admission boundary.
-// Runtime-specific execution telemetry stays in the execution contract and
-// concrete adapter packages.
-type AdmissionResult struct {
-	Output string
-	Error  error
-}
+// AdmissionResult is the result returned by the admission boundary. It remains
+// an alias of the stable execution result so existing executors whose Run
+// method returns executor.Result continue to satisfy Executor. Admission uses
+// only Output and Error; full-task telemetry remains an execution concern.
+type AdmissionResult = execution.Result
 
 // ToolCapabilities describes the tools available to an admission probe.
 // Known distinguishes a known empty list from a runtime that has not yet
@@ -104,13 +104,22 @@ func (f singleFactory) For(_ string) (Executor, bool) { return f.exec, true }
 // the JSON response into an AdmissionDecision.
 // on any failure (exec error, parse error, no JSON found) the gate rejects — never silently accepts.
 func (g *AdmissionGate) Ask(ctx context.Context, task TaskSpec, model ModelCapabilities) (AdmissionDecision, error) {
+	return g.AskWithTimeout(ctx, task, model, 0)
+}
+
+// AskWithTimeout runs one admission check with a request-local timeout. A
+// non-positive timeout uses the gate's configured default.
+func (g *AdmissionGate) AskWithTimeout(ctx context.Context, task TaskSpec, model ModelCapabilities, timeoutOverride time.Duration) (AdmissionDecision, error) {
 	exec, ok := g.factory.For(model.Name)
 	if !ok {
 		return AdmissionDecision{Accept: false, ReasonCodes: []string{ReasonParseFailure}},
 			fmt.Errorf("no executor registered for model %q", model.Name)
 	}
 	// per-model cap: a hung model shouldn't block routing indefinitely
-	timeout := g.timeout
+	timeout := timeoutOverride
+	if timeout <= 0 {
+		timeout = g.timeout
+	}
 	if timeout <= 0 {
 		timeout = admissionModelTimeout
 	}
@@ -120,7 +129,7 @@ func (g *AdmissionGate) Ask(ctx context.Context, task TaskSpec, model ModelCapab
 	// use the executor's actual tool list, not the model's theoretical capability.
 	// HTTP executors are text-only — no tools pass through a plain chat completion.
 	// Only CLIExecutor (claude -p) runs with real tool access.
-	effectiveTools := model.SupportsTools
+	var effectiveTools []string
 	toolsKnown := true
 	if tp, ok := exec.(ToolProvider); ok {
 		capabilities := tp.AdmissionTools()
