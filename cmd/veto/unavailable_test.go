@@ -11,6 +11,9 @@ import (
 )
 
 func TestRunUnavailableAcceptsAgentBeforeFlagsAndCanClear(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	require.NoError(t, resetExperimentLogger())
+	t.Cleanup(func() { _ = resetExperimentLogger() })
 	store := dispatch.NewAvailabilityStore(filepath.Join(t.TempDir(), "unavailable.json"))
 	var output, diagnostics bytes.Buffer
 	require.Equal(t, 0, runUnavailable([]string{"claude", "--for", "2h"}, &output, &diagnostics, store))
@@ -24,5 +27,14 @@ func TestRunUnavailableAcceptsAgentBeforeFlagsAndCanClear(t *testing.T) {
 	require.Empty(t, entries)
 	if strings.Contains(output.String(), "sk-secret") {
 		t.Fatal("availability output leaked a secret")
+	}
+}
+
+func TestRunUnavailableRejectsMutationFlagsWithoutAgent(t *testing.T) {
+	for _, args := range [][]string{{"--for", "2h"}, {"--clear"}} {
+		var output, diagnostics bytes.Buffer
+		code := runUnavailable(args, &output, &diagnostics, dispatch.NewAvailabilityStore(filepath.Join(t.TempDir(), "unavailable.json")))
+		require.Equal(t, 2, code, "args=%v output=%q diagnostics=%q", args, output.String(), diagnostics.String())
+		require.Contains(t, diagnostics.String(), "agent is required")
 	}
 }

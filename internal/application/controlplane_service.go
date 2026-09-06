@@ -242,9 +242,14 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		return controlplane.ActionResult{}, errors.New("control plane: objective is required")
 	}
 	var task router.TaskSpec
+	var executionOptions execution.ExecutionOptions
 	if request.ActionID == "route" || request.ActionID == "run" {
 		var err error
 		task, err = taskFromRequest(request, objective)
+		if err != nil {
+			return controlplane.ActionResult{}, err
+		}
+		executionOptions, err = executionOptionsFromRequest(request)
 		if err != nil {
 			return controlplane.ActionResult{}, err
 		}
@@ -279,6 +284,11 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		admissionTimeout = parsedTimeout
 	}
 	s.mu.Lock()
+	if _, exists := s.active[request.ActionID]; exists {
+		s.mu.Unlock()
+		cancel()
+		return controlplane.ActionResult{}, fmt.Errorf("control plane: action %q is already active", request.ActionID)
+	}
 	s.active[request.ActionID] = cancel
 	s.mu.Unlock()
 	defer func() {
@@ -318,7 +328,7 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		if s.skillResolver != nil {
 			skills = s.skillResolver(requestCtx, task)
 		}
-		response, err := s.runner.Execute(requestCtx, Request{Task: task, Skills: skills, AdmissionTimeout: admissionTimeout, Options: execution.ExecutionOptions{MaxOutputTokens: task.MaxTokens}, Writer: outputWriter{s: s, actionID: request.ActionID}})
+		response, err := s.runner.Execute(requestCtx, Request{Task: task, Skills: skills, AdmissionTimeout: admissionTimeout, Options: executionOptions, Writer: outputWriter{s: s, actionID: request.ActionID}})
 		status := "ready"
 		if err != nil {
 			status = "error"
@@ -393,20 +403,24 @@ func taskFromRequest(request controlplane.ActionRequest, objective string) (rout
 	var maxCost float64
 	if raw := strings.TrimSpace(request.Arguments["max-cost"]); raw != "" {
 		parsed, err := strconv.ParseFloat(raw, 64)
-		if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+		if err != nil || parsed < 0 || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
 			return router.TaskSpec{}, fmt.Errorf("control plane: invalid max-cost %q", raw)
 		}
 		maxCost = parsed
 	}
+	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, RequiredTools: splitRequestList(request.Arguments["required-tools"]), RequiresExecutableTools: request.Arguments["requires-executable-tools"] == "true" || router.RequiresExecutableRuntime(objective), SuccessCriteria: splitRequestList(request.Arguments["criteria"]), RuntimeFilter: request.Arguments["runtime"], ProviderFilter: request.Arguments["provider"], Source: "tui"}, nil
+}
+
+func executionOptionsFromRequest(request controlplane.ActionRequest) (execution.ExecutionOptions, error) {
 	var maxTokens int
 	if raw := strings.TrimSpace(request.Arguments["max-output-tokens"]); raw != "" {
 		parsed, err := strconv.Atoi(raw)
-		if err != nil {
-			return router.TaskSpec{}, fmt.Errorf("control plane: invalid max-output-tokens %q", raw)
+		if err != nil || parsed <= 0 {
+			return execution.ExecutionOptions{}, fmt.Errorf("control plane: invalid max-output-tokens %q", raw)
 		}
 		maxTokens = parsed
 	}
-	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, MaxTokens: maxTokens, RequiredTools: splitRequestList(request.Arguments["required-tools"]), RequiresExecutableTools: request.Arguments["requires-executable-tools"] == "true" || router.RequiresExecutableRuntime(objective), SuccessCriteria: splitRequestList(request.Arguments["criteria"]), RuntimeFilter: request.Arguments["runtime"], ProviderFilter: request.Arguments["provider"], Source: "tui"}, nil
+	return execution.ExecutionOptions{MaxOutputTokens: maxTokens}, nil
 }
 
 func routeWithTimeout(port Router, ctx context.Context, task router.TaskSpec, timeout time.Duration) (router.ModelCapabilities, router.AdmissionDecision, error) {

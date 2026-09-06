@@ -9,9 +9,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/oleg-koval/veto/internal/controlplane"
@@ -21,10 +23,12 @@ import (
 )
 
 func cmdStart(args []string) int {
-	return runStart(args, os.Stdin, os.Stdout, os.Stderr, executor.NewNativeLauncher(), dispatch.NewAvailabilityStore(availabilityPath()))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runStart(ctx, args, os.Stdin, os.Stdout, os.Stderr, executor.NewNativeLauncher(), dispatch.NewAvailabilityStore(availabilityPath()))
 }
 
-func runStart(args []string, input io.Reader, output, diagnostics io.Writer, launcher *executor.NativeLauncher, availability *dispatch.AvailabilityStore) int {
+func runStart(ctx context.Context, args []string, input io.Reader, output, diagnostics io.Writer, launcher *executor.NativeLauncher, availability *dispatch.AvailabilityStore) int {
 	fs := flag.NewFlagSet("start", flag.ContinueOnError)
 	fs.SetOutput(diagnostics)
 	agent := fs.String("agent", "", "native agent: claude or codex")
@@ -57,7 +61,7 @@ func runStart(args []string, input io.Reader, output, diagnostics io.Writer, lau
 	if *kind == "" {
 		*kind = inferKind(objective)
 	}
-	statuses := nativeAgentStatuses(availability)
+	statuses := nativeAgentStatuses(ctx, availability)
 	request := dispatch.Request{Mode: mode, Agent: *agent, Model: *model, Kind: *kind, Risk: *risk}
 	proposal, err := dispatch.Decide(request, statuses, nativeModels())
 	if err != nil {
@@ -93,10 +97,14 @@ func runStart(args []string, input io.Reader, output, diagnostics io.Writer, lau
 		logNativeEventWithRun(runID, ledger.EventChoiceOverridden, proposal, final, true, final.Explanation())
 		fmt.Fprintln(output, "Override: "+final.Explanation())
 	}
+	if err := validateNativeDecision(final, statuses); err != nil {
+		fmt.Fprintln(diagnostics, "error:", err)
+		return 1
+	}
 
 	logNativeEventWithRun(runID, ledger.EventLaunchRequested, proposal, final, false, "native dispatch requested")
 	logNativeEventWithRun(runID, ledger.EventChoiceProposed, proposal, final, false, proposal.Explanation())
-	cmd, err := launcher.Command(context.Background(), final.Agent, final.Model, objective)
+	cmd, err := launcher.Command(ctx, final.Agent, final.Model, objective)
 	if err != nil {
 		fmt.Fprintln(diagnostics, "error:", err)
 		return 1
@@ -172,20 +180,12 @@ func askNativeOutcome(input io.Reader, output io.Writer) string {
 }
 
 func logNativeEventWithRun(runID string, eventType ledger.EventType, proposal, final dispatch.Decision, overridden bool, detail string) {
-	setupExperimentLogger()
-	if experimentLedger == nil {
-		return
-	}
 	event := ledger.Event{RunID: runID, Type: eventType, Mode: string(proposal.Mode), ProposedAgent: proposal.Agent, FinalAgent: final.Agent, ProposedModel: proposal.Model, FinalModel: final.Model, Override: overridden, Detail: detail}
-	_ = experimentLedger.Append(event)
+	_ = appendExperimentEvent(event)
 }
 
 func logNativeEventWithOutcome(runID string, proposal, final dispatch.Decision, outcome string) {
-	setupExperimentLogger()
-	if experimentLedger == nil {
-		return
-	}
-	_ = experimentLedger.Append(ledger.Event{RunID: runID, Type: ledger.EventOutcomeReported, Mode: string(proposal.Mode), ProposedAgent: proposal.Agent, FinalAgent: final.Agent, ProposedModel: proposal.Model, FinalModel: final.Model, Outcome: outcome})
+	_ = appendExperimentEvent(ledger.Event{RunID: runID, Type: ledger.EventOutcomeReported, Mode: string(proposal.Mode), ProposedAgent: proposal.Agent, FinalAgent: final.Agent, ProposedModel: proposal.Model, FinalModel: final.Model, Outcome: outcome})
 }
 
 func availabilityPath() string {
@@ -197,14 +197,14 @@ var experimentLedger *ledger.Writer
 var experimentFile *os.File
 var experimentLoggerMu sync.Mutex
 
+const maxExperimentLogBytes = 256 * 1024
+
 func experimentPath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".veto", "experiment.log")
 }
 
-func setupExperimentLogger() {
-	experimentLoggerMu.Lock()
-	defer experimentLoggerMu.Unlock()
+func setupExperimentLoggerLocked() {
 	if experimentLedger != nil {
 		return
 	}
@@ -213,7 +213,7 @@ func setupExperimentLogger() {
 		experimentFile = nil
 	}
 	path := experimentPath()
-	if info, err := os.Stat(path); err == nil && info.Size() > 256*1024 {
+	if info, err := os.Stat(path); err == nil && info.Size() >= maxExperimentLogBytes {
 		_ = os.Remove(path)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
@@ -230,6 +230,27 @@ func setupExperimentLogger() {
 	experimentLedger = ledger.NewWriter(file)
 }
 
+func appendExperimentEvent(event ledger.Event) error {
+	experimentLoggerMu.Lock()
+	defer experimentLoggerMu.Unlock()
+	setupExperimentLoggerLocked()
+	if experimentFile != nil {
+		if info, err := experimentFile.Stat(); err == nil && info.Size() >= maxExperimentLogBytes {
+			_ = experimentFile.Close()
+			experimentFile = nil
+			experimentLedger = nil
+			if err := os.Remove(experimentPath()); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			setupExperimentLoggerLocked()
+		}
+	}
+	if experimentLedger == nil {
+		return nil
+	}
+	return experimentLedger.Append(event)
+}
+
 func resetExperimentLogger() error {
 	experimentLoggerMu.Lock()
 	defer experimentLoggerMu.Unlock()
@@ -242,7 +263,7 @@ func resetExperimentLogger() error {
 	return err
 }
 
-func nativeAgentStatuses(availability *dispatch.AvailabilityStore) []dispatch.AgentStatus {
+func nativeAgentStatuses(ctx context.Context, availability *dispatch.AvailabilityStore) []dispatch.AgentStatus {
 	creds, credentialErr := loadCredentials()
 	apiKey := os.Getenv("ANTHROPIC_API_KEY") != "" || creds["ANTHROPIC_API_KEY"] != ""
 	subscription := os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true"
@@ -263,7 +284,7 @@ func nativeAgentStatuses(availability *dispatch.AvailabilityStore) []dispatch.Ag
 		claude.Warning = "credentials file could not be read; authentication/billing may be incomplete"
 	}
 	codex := dispatch.AgentStatus{Name: "codex", Installed: executableAvailable("codex"), Auth: dispatch.AuthUnauthenticated, Billing: dispatch.BillingUnknown}
-	if auth := codexCLIAuthentication(); auth != codexAuthNone {
+	if auth := codexCLIAuthenticationContext(ctx); auth != codexAuthNone {
 		codex.Auth = dispatch.AuthAuthenticated
 		switch auth {
 		case codexAuthChatGPT:
@@ -305,11 +326,28 @@ func executableAvailable(name string) bool {
 	return err == nil
 }
 
-type execNativeCommand struct{ *exec.Cmd }
+type execNativeCommand struct {
+	launcher       *executor.NativeLauncher
+	agent, model   string
+	objective      string
+	stdin          io.Reader
+	stdout, stderr io.Writer
+}
 
-func (c *execNativeCommand) SetStdin(reader io.Reader)  { c.Stdin = reader }
-func (c *execNativeCommand) SetStdout(writer io.Writer) { c.Stdout = writer }
-func (c *execNativeCommand) SetStderr(writer io.Writer) { c.Stderr = writer }
+func (c *execNativeCommand) Run() error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	cmd, err := c.launcher.Command(ctx, c.agent, c.model, c.objective)
+	if err != nil {
+		return err
+	}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = c.stdin, c.stdout, c.stderr
+	return cmd.Run()
+}
+
+func (c *execNativeCommand) SetStdin(reader io.Reader)  { c.stdin = reader }
+func (c *execNativeCommand) SetStdout(writer io.Writer) { c.stdout = writer }
+func (c *execNativeCommand) SetStderr(writer io.Writer) { c.stderr = writer }
 
 var _ controlplane.NativeCommand = (*execNativeCommand)(nil)
 
@@ -318,15 +356,11 @@ func runTUIStart(ctx context.Context, request controlplane.ActionRequest) (contr
 	if objective == "" {
 		return controlplane.ActionResult{ActionID: "start"}, fmt.Errorf("objective is required")
 	}
-	proposal, final, err := nativeProposal(request.Arguments, nativeAgentStatuses(dispatch.NewAvailabilityStore(availabilityPath())))
+	proposal, final, err := nativeProposal(request.Arguments, nativeAgentStatuses(ctx, dispatch.NewAvailabilityStore(availabilityPath())))
 	if err != nil {
 		return controlplane.ActionResult{ActionID: "start"}, err
 	}
 	launcher := executor.NewNativeLauncher()
-	command, err := launcher.Command(context.Background(), final.Agent, final.Model, objective)
-	if err != nil {
-		return controlplane.ActionResult{ActionID: "start"}, err
-	}
 	runID, _ := ledger.NewRunID()
 	if runID == "" {
 		runID = currentRunID("native-dispatch")
@@ -336,7 +370,7 @@ func runTUIStart(ctx context.Context, request controlplane.ActionRequest) (contr
 	if proposal.Agent != final.Agent || proposal.Model != final.Model {
 		logNativeEventWithRun(runID, ledger.EventChoiceOverridden, proposal, final, true, final.Explanation())
 	}
-	return controlplane.ActionResult{ActionID: "start", Summary: nativeDecisionSummary(proposal, final), Model: final.Agent, Command: &loggedNativeCommand{command: &execNativeCommand{Cmd: command}, runID: runID, proposal: proposal, final: final}}, nil
+	return controlplane.ActionResult{ActionID: "start", Summary: nativeDecisionSummary(proposal, final), Model: final.Agent, Command: &loggedNativeCommand{command: &execNativeCommand{launcher: launcher, agent: final.Agent, model: final.Model, objective: objective}, runID: runID, proposal: proposal, final: final}}, nil
 }
 
 func nativeProposal(arguments map[string]string, statuses []dispatch.AgentStatus) (dispatch.Decision, dispatch.Decision, error) {
@@ -372,14 +406,28 @@ func nativeProposal(arguments map[string]string, statuses []dispatch.AgentStatus
 		overrideModel = arguments["model"]
 	}
 	if overrideAgent == "" && overrideModel == "" {
+		if err := validateNativeDecision(proposal, statuses); err != nil {
+			return dispatch.Decision{}, dispatch.Decision{}, err
+		}
 		return proposal, proposal, nil
 	}
 	final, err := dispatch.Decide(dispatch.Request{Mode: dispatch.ModeManual, Agent: valueOr(proposal.Agent, overrideAgent), Model: valueOr(proposal.Model, overrideModel), Kind: kind, Risk: arguments["risk"]}, statuses, nativeModels())
 	if err != nil {
 		return dispatch.Decision{}, dispatch.Decision{}, err
 	}
+	if err := validateNativeDecision(final, statuses); err != nil {
+		return dispatch.Decision{}, dispatch.Decision{}, err
+	}
 	final.Reason = "the user overrode Veto's proposal immediately"
 	return proposal, final, nil
+}
+
+func validateNativeDecision(decision dispatch.Decision, statuses []dispatch.AgentStatus) error {
+	if strings.TrimSpace(decision.Model) == "" {
+		return nil
+	}
+	_, err := dispatch.Decide(dispatch.Request{Mode: dispatch.ModeChooseModel, Agent: decision.Agent, Model: decision.Model}, statuses, nativeModels())
+	return err
 }
 
 func nativeDecisionSummary(proposal, final dispatch.Decision) string {

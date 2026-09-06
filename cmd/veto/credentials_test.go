@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -58,6 +59,18 @@ func TestLoadCredentials_CorruptJSON(t *testing.T) {
 
 	_, err := loadCredentials()
 	require.Error(t, err)
+}
+
+func TestSaveCredential_InitializesNullCredentials(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := credentialsPath()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0700))
+	require.NoError(t, os.WriteFile(path, []byte("null"), 0600))
+
+	require.NoError(t, saveCredential("OPENAI_API_KEY", "sk-openai"))
+	creds, err := loadCredentials()
+	require.NoError(t, err)
+	assert.Equal(t, "sk-openai", creds["OPENAI_API_KEY"])
 }
 
 func TestGetKey_EnvVarWins(t *testing.T) {

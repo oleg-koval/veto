@@ -13,6 +13,47 @@ import termios
 import time
 
 
+def exec_or_exit(binary: str, argv: list[str], env: dict[str, str]) -> None:
+    try:
+        os.execve(binary, argv, env)
+    except OSError:
+        os._exit(127)
+
+
+def wait_for_exit(pid: int, timeout: float, drain=None) -> int:
+    end = time.monotonic() + timeout
+    status = None
+    while time.monotonic() < end:
+        if drain is not None:
+            drain()
+        waited, candidate = os.waitpid(pid, os.WNOHANG)
+        if waited == pid:
+            status = candidate
+            if drain is not None:
+                drain()
+            break
+        time.sleep(0.05)
+    if status is None:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        grace = time.monotonic() + 1
+        while time.monotonic() < grace:
+            waited, candidate = os.waitpid(pid, os.WNOHANG)
+            if waited == pid:
+                status = candidate
+                break
+            time.sleep(0.05)
+        if status is None:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            _, status = os.waitpid(pid, 0)
+    return status
+
+
 def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secret_probe: bool = False, home: str | None = None, term: str | None = None, command: list[str] | None = None) -> None:
     home_context = tempfile.TemporaryDirectory(prefix="veto-tui-pty-") if home is None else None
     selected_home = home if home is not None else home_context.name
@@ -24,7 +65,7 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
             if term is not None:
                 env["TERM"] = term
             argv = [binary, "tui", *args] if command is None else [binary, *command]
-            os.execve(binary, argv, env)
+            exec_or_exit(binary, argv, env)
 
         try:
             termios.tcsetwinsize(master, (rows, columns))
@@ -79,18 +120,7 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
             time.sleep(0.15)
             os.write(master, b"q")
 
-            end = time.monotonic() + 8
-            status = None
-            while time.monotonic() < end:
-                drain()
-                waited, status = os.waitpid(pid, os.WNOHANG)
-                if waited == pid:
-                    drain()
-                    break
-                time.sleep(0.05)
-            if status is None:
-                os.kill(pid, signal.SIGTERM)
-                _, status = os.waitpid(pid, 0)
+            status = wait_for_exit(pid, 8, drain)
             if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
                 raise SystemExit(f"TUI exited unsuccessfully: status={status} output={bytes(output)!r}")
             if b"\x1b[?1049h" not in output or b"\x1b[?1049l" not in output:
@@ -111,10 +141,9 @@ def run_execution(binary: str, home: str) -> None:
     if pid == 0:
         env = os.environ.copy()
         env.update({"HOME": home, "NO_COLOR": "1"})
-        os.execve(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
+        exec_or_exit(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
 
     output = bytearray()
-    status = None
     try:
         termios.tcsetwinsize(master, (24, 100))
         deadline = time.monotonic() + 8
@@ -159,15 +188,7 @@ def run_execution(binary: str, home: str) -> None:
             raise SystemExit(f"TUI Run did not render live routing evidence: output={bytes(output)!r}")
         os.write(master, b"q")
 
-        end = time.monotonic() + 8
-        while time.monotonic() < end:
-            waited, status = os.waitpid(pid, os.WNOHANG)
-            if waited == pid:
-                break
-            time.sleep(0.05)
-        if status is None:
-            os.kill(pid, signal.SIGTERM)
-            _, status = os.waitpid(pid, 0)
+        status = wait_for_exit(pid, 8)
         if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
             raise SystemExit(f"TUI Run exited unsuccessfully: status={status} output={bytes(output)!r}")
     finally:
@@ -179,10 +200,9 @@ def run_cancellation(binary: str, home: str) -> None:
     if pid == 0:
         env = os.environ.copy()
         env.update({"HOME": home, "NO_COLOR": "1"})
-        os.execve(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
+        exec_or_exit(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
 
     output = bytearray()
-    status = None
     try:
         termios.tcsetwinsize(master, (24, 100))
         deadline = time.monotonic() + 8
@@ -235,15 +255,7 @@ def run_cancellation(binary: str, home: str) -> None:
             raise SystemExit(f"TUI Run cancellation was not rendered: output={bytes(output)!r}")
         os.write(master, b"q")
 
-        end = time.monotonic() + 8
-        while time.monotonic() < end:
-            waited, status = os.waitpid(pid, os.WNOHANG)
-            if waited == pid:
-                break
-            time.sleep(0.05)
-        if status is None:
-            os.kill(pid, signal.SIGTERM)
-            _, status = os.waitpid(pid, 0)
+        status = wait_for_exit(pid, 8)
         if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
             raise SystemExit(f"TUI cancellation exited unsuccessfully: status={status} output={bytes(output)!r}")
     finally:
@@ -255,10 +267,9 @@ def run_route(binary: str, home: str) -> None:
     if pid == 0:
         env = os.environ.copy()
         env.update({"HOME": home, "NO_COLOR": "1"})
-        os.execve(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
+        exec_or_exit(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
 
     output = bytearray()
-    status = None
     try:
         termios.tcsetwinsize(master, (24, 100))
         deadline = time.monotonic() + 8
@@ -301,15 +312,7 @@ def run_route(binary: str, home: str) -> None:
             raise SystemExit(f"TUI Route did not render completion evidence: output={bytes(output)!r}")
         os.write(master, b"q")
 
-        end = time.monotonic() + 8
-        while time.monotonic() < end:
-            waited, status = os.waitpid(pid, os.WNOHANG)
-            if waited == pid:
-                break
-            time.sleep(0.05)
-        if status is None:
-            os.kill(pid, signal.SIGTERM)
-            _, status = os.waitpid(pid, 0)
+        status = wait_for_exit(pid, 8)
         if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
             raise SystemExit(f"TUI Route exited unsuccessfully: status={status} output={bytes(output)!r}")
     finally:
@@ -324,11 +327,23 @@ def run_resize(binary: str, home: str | None = None) -> None:
         if pid == 0:
             env = os.environ.copy()
             env.update({"HOME": selected_home, "NO_COLOR": "1"})
-            os.execve(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
+            exec_or_exit(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
 
         output = bytearray()
-        status = None
         try:
+            def drain() -> None:
+                while True:
+                    ready, _, _ = select.select([master], [], [], 0)
+                    if not ready:
+                        return
+                    try:
+                        data = os.read(master, 8192)
+                    except OSError:
+                        return
+                    if not data:
+                        return
+                    output.extend(data)
+
             termios.tcsetwinsize(master, (24, 100))
             deadline = time.monotonic() + 8
             while time.monotonic() < deadline and b"VETO" not in output:
@@ -340,21 +355,15 @@ def run_resize(binary: str, home: str | None = None) -> None:
                         break
             termios.tcsetwinsize(master, (12, 40))
             time.sleep(0.3)
+            drain()
             termios.tcsetwinsize(master, (24, 100))
             time.sleep(0.5)
+            drain()
             os.write(master, b"q")
 
-            end = time.monotonic() + 8
-            while time.monotonic() < end:
-                waited, status = os.waitpid(pid, os.WNOHANG)
-                if waited == pid:
-                    break
-                time.sleep(0.05)
-            if status is None:
-                os.kill(pid, signal.SIGTERM)
-                _, status = os.waitpid(pid, 0)
+            status = wait_for_exit(pid, 8, drain)
             if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
-                raise SystemExit(f"TUI resize exited unsuccessfully: status={status}")
+                raise SystemExit(f"TUI resize exited unsuccessfully: status={status} output={bytes(output)!r}")
         finally:
             os.close(master)
     finally:
@@ -367,10 +376,9 @@ def run_plan(binary: str, home: str) -> None:
     if pid == 0:
         env = os.environ.copy()
         env.update({"HOME": home, "NO_COLOR": "1"})
-        os.execve(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
+        exec_or_exit(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
 
     output = bytearray()
-    status = None
     try:
         termios.tcsetwinsize(master, (24, 100))
         deadline = time.monotonic() + 8
@@ -410,15 +418,7 @@ def run_plan(binary: str, home: str) -> None:
             raise SystemExit(f"TUI Execute plan did not reach visible Runner output: output={bytes(output)!r}")
         os.write(master, b"q")
 
-        end = time.monotonic() + 8
-        while time.monotonic() < end:
-            waited, status = os.waitpid(pid, os.WNOHANG)
-            if waited == pid:
-                break
-            time.sleep(0.05)
-        if status is None:
-            os.kill(pid, signal.SIGTERM)
-            _, status = os.waitpid(pid, 0)
+        status = wait_for_exit(pid, 8)
         if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
             raise SystemExit(f"TUI Execute plan exited unsuccessfully: status={status} output={bytes(output)!r}")
     finally:

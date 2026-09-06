@@ -62,7 +62,7 @@ func loadTUISnapshot(ctx context.Context) (controlplane.Snapshot, error) {
 	if err := ctx.Err(); err != nil {
 		return snapshot, err
 	}
-	snapshot.Providers = readTUIProviders()
+	snapshot.Providers = readTUIProviders(ctx)
 	if err := ctx.Err(); err != nil {
 		return snapshot, err
 	}
@@ -96,10 +96,10 @@ func cachedTUIDoctor(ctx context.Context) doctorReport {
 	return report
 }
 
-func readTUIProviders() []controlplane.ProviderSnapshot {
+func readTUIProviders(ctx context.Context) []controlplane.ProviderSnapshot {
 	creds, _ := loadCredentials()
 	providers := make([]controlplane.ProviderSnapshot, 0, len(knownProviders)+2)
-	for _, native := range nativeAgentStatuses(dispatch.NewAvailabilityStore(availabilityPath())) {
+	for _, native := range nativeAgentStatuses(ctx, dispatch.NewAvailabilityStore(availabilityPath())) {
 		name := native.Name
 		if len(name) > 0 {
 			name = strings.ToUpper(name[:1]) + name[1:]
@@ -153,8 +153,8 @@ func readTUIHistory() []controlplane.HistorySnapshot {
 	paths = append(paths, experimentPath())
 	sort.Strings(paths)
 	const maxHistory = 40
-	result := make([]controlplane.HistorySnapshot, 0, maxHistory)
-	for index := len(paths) - 1; index >= 0 && len(result) < maxHistory; index-- {
+	result := make([]controlplane.HistorySnapshot, 0, len(paths)*maxHistory)
+	for index := len(paths) - 1; index >= 0; index-- {
 		file, openErr := os.Open(paths[index])
 		if openErr != nil {
 			continue
@@ -164,12 +164,16 @@ func readTUIHistory() []controlplane.HistorySnapshot {
 		if readErr != nil {
 			continue
 		}
-		for eventIndex := len(events) - 1; eventIndex >= 0 && len(result) < maxHistory; eventIndex-- {
+		first := max(0, len(events)-maxHistory)
+		for eventIndex := len(events) - 1; eventIndex >= first; eventIndex-- {
 			event := events[eventIndex]
 			result = append(result, controlplane.HistorySnapshot{Timestamp: event.Timestamp, Type: string(event.Type), Model: event.Model, Runtime: event.Runtime, Status: event.Status})
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Timestamp.After(result[j].Timestamp) })
+	if len(result) > maxHistory {
+		result = result[:maxHistory]
+	}
 	return result
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/oleg-koval/veto/internal/controlplane"
@@ -71,7 +72,7 @@ func TestTaskFromRequestPreservesComposerCapabilitiesAndCriteria(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if task.Kind != router.KindReview || task.Risk != router.RiskHigh || !task.RequiresExecutableTools || task.MaxCostUSD != 0.25 || task.MaxTokens != 120 {
+	if task.Kind != router.KindReview || task.Risk != router.RiskHigh || !task.RequiresExecutableTools || task.MaxCostUSD != 0.25 || task.MaxTokens != 0 {
 		t.Fatalf("task = %#v", task)
 	}
 	if len(task.RequiredTools) != 2 || task.RequiredTools[1] != "browser-dom" || len(task.SuccessCriteria) != 2 {
@@ -154,7 +155,11 @@ func TestControlServiceRejectsInvalidNumericLimitsBeforeRouting(t *testing.T) {
 		wantError string
 	}{
 		{name: "max cost", argument: "max-cost", value: "0.1x", wantError: "invalid max-cost"},
+		{name: "negative max cost", argument: "max-cost", value: "-1", wantError: "invalid max-cost"},
+		{name: "non-finite max cost", argument: "max-cost", value: "NaN", wantError: "invalid max-cost"},
 		{name: "max output tokens", argument: "max-output-tokens", value: "many", wantError: "invalid max-output-tokens"},
+		{name: "zero max output tokens", argument: "max-output-tokens", value: "0", wantError: "invalid max-output-tokens"},
+		{name: "negative max output tokens", argument: "max-output-tokens", value: "-1", wantError: "invalid max-output-tokens"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			routerPort := &serviceRouter{}
@@ -176,7 +181,8 @@ func TestControlServiceRunsThroughRunnerAndStreamsOutput(t *testing.T) {
 	t.Parallel()
 
 	routerPort := &serviceRouter{model: router.ModelCapabilities{Name: "test-model", Provider: "test"}}
-	runner := Runner{Router: routerPort, Runtime: serviceResolver{runtime: serviceRuntime{}}}
+	runtime := &capturingServiceRuntime{}
+	runner := Runner{Router: routerPort, Runtime: serviceResolver{runtime: runtime}}
 	service := NewControlService(runner, routerPort)
 	updates := service.Subscribe(context.Background())
 	result, err := service.Execute(context.Background(), controlplane.ActionRequest{
@@ -188,6 +194,12 @@ func TestControlServiceRunsThroughRunnerAndStreamsOutput(t *testing.T) {
 	}
 	if result.Output != "done" || result.Model != "test-model" {
 		t.Fatalf("result = %#v", result)
+	}
+	if routerPort.task.MaxTokens != 0 {
+		t.Fatalf("routing max tokens = %d, want execution budget kept out of TaskSpec", routerPort.task.MaxTokens)
+	}
+	if runtime.options.MaxOutputTokens != 16 {
+		t.Fatalf("execution max output tokens = %d, want 16", runtime.options.MaxOutputTokens)
 	}
 	var kinds []string
 	for {
@@ -384,6 +396,24 @@ func TestControlServiceCancelStopsActiveAction(t *testing.T) {
 	}
 }
 
+func TestControlServiceRejectsDuplicateActiveActionID(t *testing.T) {
+	routerPort := &duplicateActionRouter{started: make(chan struct{}), release: make(chan struct{})}
+	service := NewControlService(Runner{}, routerPort)
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := service.Execute(context.Background(), controlplane.ActionRequest{ActionID: "route", Arguments: map[string]string{"objective": "first"}})
+		firstDone <- err
+	}()
+	<-routerPort.started
+
+	_, secondErr := service.Execute(context.Background(), controlplane.ActionRequest{ActionID: "route", Arguments: map[string]string{"objective": "second"}})
+	close(routerPort.release)
+	<-firstDone
+	if secondErr == nil || !strings.Contains(secondErr.Error(), "already active") {
+		t.Fatalf("duplicate action error = %v", secondErr)
+	}
+}
+
 type serviceRouter struct {
 	model  router.ModelCapabilities
 	called bool
@@ -409,6 +439,31 @@ func (r *blockingServiceRouter) Route(ctx context.Context, _ router.TaskSpec) (r
 }
 
 func (r *blockingServiceRouter) RecordExecution(router.TaskSpec, string, router.ExecutionMetrics) {}
+
+type duplicateActionRouter struct {
+	mu      sync.Mutex
+	calls   int
+	started chan struct{}
+	release chan struct{}
+}
+
+func (r *duplicateActionRouter) Route(ctx context.Context, _ router.TaskSpec) (router.ModelCapabilities, router.AdmissionDecision, error) {
+	r.mu.Lock()
+	r.calls++
+	call := r.calls
+	r.mu.Unlock()
+	if call == 1 {
+		close(r.started)
+		select {
+		case <-r.release:
+		case <-ctx.Done():
+			return router.ModelCapabilities{}, router.AdmissionDecision{}, ctx.Err()
+		}
+	}
+	return router.ModelCapabilities{Name: "test-model"}, router.AdmissionDecision{Accept: true}, nil
+}
+
+func (r *duplicateActionRouter) RecordExecution(router.TaskSpec, string, router.ExecutionMetrics) {}
 
 type serviceResolver struct {
 	runtime execution.RuntimeAdapter
@@ -437,3 +492,17 @@ func (serviceRuntime) Execute(context.Context, string, execution.ExecutionOption
 }
 func (serviceRuntime) EffectiveTools() []string { return []string{} }
 func (serviceRuntime) RuntimeID() string        { return "test" }
+
+type capturingServiceRuntime struct {
+	options execution.ExecutionOptions
+}
+
+func (*capturingServiceRuntime) Run(context.Context, string) execution.Result {
+	return execution.Result{Output: "accepted"}
+}
+func (r *capturingServiceRuntime) Execute(_ context.Context, _ string, options execution.ExecutionOptions) execution.Result {
+	r.options = options
+	return execution.Result{Output: "done"}
+}
+func (*capturingServiceRuntime) EffectiveTools() []string { return []string{} }
+func (*capturingServiceRuntime) RuntimeID() string        { return "test" }

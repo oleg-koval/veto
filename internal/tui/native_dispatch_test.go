@@ -27,6 +27,20 @@ func TestModelRendersNativeBillingUnknownAndTemporaryUnavailable(t *testing.T) {
 	}
 }
 
+func TestModelRendersNativeExecutableAndAvailabilityStates(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{NoColor: true})
+	model.snapshot.Providers = []controlplane.ProviderSnapshot{
+		{Name: "Claude", Installed: false},
+		{Name: "Codex", Installed: true, Unavailable: true},
+	}
+	status := model.renderNativeStatus(120)
+	for _, want := range []string{"executable missing", "temporarily unavailable"} {
+		if !strings.Contains(status, want) {
+			t.Fatalf("native status missing %q\n%s", want, status)
+		}
+	}
+}
+
 func TestModelReviewsNativeDecisionBeforeLaunch(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{NoColor: true})
 	request := controlplane.ActionRequest{ActionID: "start", Arguments: map[string]string{"objective": "fix parser"}}

@@ -30,7 +30,7 @@ func runUnavailable(args []string, output, diagnostics io.Writer, store *dispatc
 	if err := fs.Parse(flagArgs); err != nil {
 		return 2
 	}
-	if agentArg == "" && fs.NArg() == 0 {
+	if len(args) == 0 {
 		entries, err := store.List()
 		if err != nil {
 			fmt.Fprintln(diagnostics, "warning: availability state unreadable:", err)
@@ -48,6 +48,10 @@ func runUnavailable(args []string, output, diagnostics io.Writer, store *dispatc
 	agent := strings.ToLower(strings.TrimSpace(agentArg))
 	if agent == "" {
 		agent = strings.ToLower(strings.TrimSpace(fs.Arg(0)))
+	}
+	if agent == "" {
+		fmt.Fprintln(diagnostics, "error: agent is required")
+		return 2
 	}
 	if *clear {
 		if err := store.Clear(agent); err != nil {
@@ -72,10 +76,6 @@ func runUnavailable(args []string, output, diagnostics io.Writer, store *dispatc
 }
 
 func logNativeUnavailable(agent string, expires time.Time) {
-	setupExperimentLogger()
-	if experimentLedger == nil {
-		return
-	}
 	runID := currentRunID("availability")
-	_ = experimentLedger.Append(ledger.Event{RunID: runID, Type: ledger.EventUnavailableMarked, FinalAgent: agent, Detail: "temporary unavailability recorded"})
+	_ = appendExperimentEvent(ledger.Event{RunID: runID, Type: ledger.EventUnavailableMarked, FinalAgent: agent, Detail: "temporary unavailability recorded"})
 }

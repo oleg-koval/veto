@@ -165,7 +165,7 @@ func (s *AvailabilityStore) write(entries []Unavailability) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, s.path)
+	return replaceAvailabilityFile(tmpName, s.path)
 }
 
 func active(entries []Unavailability, now time.Time) []Unavailability {
