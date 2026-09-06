@@ -1,12 +1,14 @@
 package executor
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -34,6 +36,35 @@ func TestNativeLauncherReportsMissingExecutable(t *testing.T) {
 	launcher.lookup = func(string) (string, error) { return "", exec.ErrNotFound }
 	if _, err := launcher.Command(context.Background(), "claude", "", "task"); err == nil {
 		t.Fatal("expected missing executable error")
+	}
+}
+
+func TestNativeLauncherPreservesWorkingDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	script := filepath.Join(bin, "claude")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\npwd\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	launcher := NewNativeLauncher()
+	launcher.lookup = func(string) (string, error) { return script, nil }
+	cmd, err := launcher.Command(context.Background(), "claude", "", "task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(output.String()); got != workingDirectory {
+		t.Fatalf("native child cwd = %q, want %q", got, workingDirectory)
 	}
 }
 
