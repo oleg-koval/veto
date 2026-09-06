@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oleg-koval/veto/internal/controlplane"
@@ -193,6 +194,7 @@ func availabilityPath() string {
 }
 
 var experimentLedger *ledger.Writer
+var experimentLoggerMu sync.Mutex
 
 func experimentPath() string {
 	home, _ := os.UserHomeDir()
@@ -200,6 +202,8 @@ func experimentPath() string {
 }
 
 func setupExperimentLogger() {
+	experimentLoggerMu.Lock()
+	defer experimentLoggerMu.Unlock()
 	if experimentLedger != nil {
 		return
 	}
