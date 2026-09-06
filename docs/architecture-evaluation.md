@@ -83,7 +83,7 @@ the delivery edge.
 
 | Principle | Score | Evidence |
 |---|---:|---|
-| Dependency rule | 10/10 | `pkg/router` has no internal-module imports. `pkg/router/import_boundary_test.go` rejects dependencies on executor, command, and integration packages. `pkg/execution` contains contracts only; transports depend on it. |
+| Dependency rule | 10/10 | `pkg/router` imports only the stable `pkg/execution` result contract within the module. `pkg/router/import_boundary_test.go` rejects dependencies on concrete executors, adapters, integrations, and delivery packages. `pkg/execution` contains contracts only; transports depend on it. |
 | Entities and use cases | 9/10 | Routing policy uses plain structs and pure functions. Route-and-execute and fail-closed acceptance review now use plain request/response contracts in `internal/application`. Some independent command policy remains in `cmd/veto`. |
 | Adapters and frameworks | 9/10 | Provider HTTP/CLI transports, OpenCode, catalog discovery, routing-history persistence, and host integrations are separate adapters. Compatibility aliases remain in `pkg/executor`, while ownership is in `pkg/execution`. |
 | Component principles | 8/10 | The component graph is acyclic and the new packages have single change reasons. `cmd/veto` remains an 8,000+ line component spanning onboarding, diagnostics, updates, integrations, and terminal UX. |
@@ -94,12 +94,16 @@ the delivery edge.
 
 ### 1. Admission dependency inverted
 
-`pkg/router` now owns `AdmissionResult`, `ToolCapabilities`, `Executor`, and
-`ExecutorFactory`. `cmd/veto` adapts a concrete runtime to that admission port.
-Known-empty and not-yet-discovered tool states remain distinct.
+`pkg/router` owns `ToolCapabilities`, `Executor`, and `ExecutorFactory`.
+`AdmissionResult` is a compatibility alias of the stable `pkg/execution.Result`
+contract, so existing executors keep satisfying the public admission interface
+without restoring a dependency on concrete transports. `cmd/veto` adapts tool
+capabilities at the composition edge. Known-empty and not-yet-discovered tool
+states remain distinct.
 
-The router package no longer imports `pkg/executor`; an automated boundary test
-prevents that edge from returning.
+The router package imports only the stable execution result from within the
+module; an automated allowlist test prevents dependencies on concrete
+executors, adapters, integrations, or delivery packages.
 
 ### 2. Filesystem history moved outward
 
@@ -136,9 +140,9 @@ inward execution contracts directly.
    package graph gains more contributors or adapters.
 2. Track change frequency and merge conflicts in `cmd/veto`. Extract the next
    command workflow only when CLI coupling blocks reuse or makes changes unsafe.
-3. Decide whether Veto promises a public Go library API. If it does, provide a
-   public routing-history adapter or a versioned migration path before the next
-   stable release.
+3. Decide whether Veto promises a broader public Go library API beyond the
+   maintained executor contracts. If it does, provide a public routing-history
+   adapter or a versioned migration path before the next stable release.
 
 The goal is enforceable inward dependencies, not a fixed number of folders or
 layers. Diagnostics, updates, login, and integration installers already have
