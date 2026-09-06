@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -74,7 +75,9 @@ func TestNativeLauncherCancellationTerminatesChild(t *testing.T) {
 	}
 	bin := t.TempDir()
 	script := filepath.Join(bin, "claude")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 30\n"), 0700); err != nil {
+	childPIDPath := filepath.Join(t.TempDir(), "child.pid")
+	t.Setenv("VETO_TEST_CHILD_PID", childPIDPath)
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 30 &\necho $! > \"$VETO_TEST_CHILD_PID\"\nwait\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	launcher := NewNativeLauncher()
@@ -88,10 +91,33 @@ func TestNativeLauncherCancellationTerminatesChild(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	var childPID int
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		data, readErr := os.ReadFile(childPIDPath)
+		if readErr == nil {
+			childPID, readErr = strconv.Atoi(strings.TrimSpace(string(data)))
+			if readErr == nil {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if childPID == 0 {
+		t.Fatal("native descendant PID was not recorded")
+	}
 	started := time.Now()
 	cancel()
 	err = cmd.Wait()
 	if err == nil || time.Since(started) > 5*time.Second {
 		t.Fatalf("cancelled native command err=%v duration=%s", err, time.Since(started))
 	}
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !nativeProcessAlive(childPID) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("native descendant %d still running after cancellation", childPID)
 }

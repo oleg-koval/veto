@@ -424,7 +424,7 @@ func removeTUILocalModel(name string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(localModelsPath(), data, 0600)
+	return writeLocalModelsAtomic(localModelsPath(), data)
 }
 
 func runTUIDisable(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
@@ -773,7 +773,9 @@ func runTUIExec(ctx context.Context, request controlplane.ActionRequest, service
 			continue
 		}
 		spec := router.TaskSpec{ID: taskHash(step.Task, step.Kind, step.Risk, 0), Kind: router.TaskKind(step.Kind), Complexity: router.InferComplexity(step.Task, router.TaskKind(step.Kind)), Objective: step.Task, Risk: router.Risk(step.Risk), SuccessCriteria: criteria}
-		review, reviewErr := reviewOutput(ctx, reg, mgr, spec, result.Output, result.Model)
+		reviewCtx, reviewCancel := context.WithTimeout(ctx, stepTimeout)
+		review, reviewErr := reviewOutput(reviewCtx, reg, mgr, spec, result.Output, result.Model)
+		reviewCancel()
 		if reviewErr != nil || !review.Passed {
 			failed = append(failed, index+1)
 			if failureMode != "continue" {
@@ -794,7 +796,9 @@ func runTUIExec(ctx context.Context, request controlplane.ActionRequest, service
 			SuccessCriteria: allCriteria,
 		}
 		combinedOutput := strings.Join(outputs, "\n\n---\n\n")
-		finalReview, reviewErr := reviewOutput(ctx, reg, mgr, finalSpec, combinedOutput, "")
+		reviewCtx, reviewCancel := context.WithTimeout(ctx, stepTimeout)
+		finalReview, reviewErr := reviewOutput(reviewCtx, reg, mgr, finalSpec, combinedOutput, "")
+		reviewCancel()
 		if reviewErr != nil {
 			return controlplane.ActionResult{ActionID: "exec", Output: combinedOutput}, fmt.Errorf("final plan review failed: %w", reviewErr)
 		}

@@ -907,11 +907,15 @@ const (
 )
 
 func codexCLIAuthentication() codexAuthMode {
+	return codexCLIAuthenticationContext(context.Background())
+}
+
+func codexCLIAuthenticationContext(parent context.Context) codexAuthMode {
 	path, err := osexec.LookPath("codex")
 	if err != nil {
 		return codexAuthNone
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 	cmd := osexec.CommandContext(ctx, path, "login", "status")
 	out, err := cmd.CombinedOutput()

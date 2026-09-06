@@ -218,6 +218,10 @@ func TestRunTUISetupDiscoversWithoutChangingConfig(t *testing.T) {
 }
 
 func TestRunTUIDoctorJSONReturnsDiagnosticReport(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("PATH", t.TempDir())
 	result, err := runTUIDoctor(t.Context(), controlplane.ActionRequest{ActionID: "doctor", Arguments: map[string]string{
 		"offline": "true", "json": "true",
 	}})
@@ -342,6 +346,7 @@ func TestRunTUIFeedbackStdinUsesFormPayload(t *testing.T) {
 }
 
 func TestResolveTUIPlanPathUsesVetoPlanDirectoryForNames(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
