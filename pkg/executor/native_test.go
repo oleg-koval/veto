@@ -26,7 +26,7 @@ func TestNativeLauncherBuildsArgumentArrays(t *testing.T) {
 	if _, err := launcher.Command(context.Background(), "codex", "gpt-5-codex", "fix; do not shell expand"); err != nil {
 		t.Fatal(err)
 	}
-	if gotName != "/tmp/codex" || !reflect.DeepEqual(gotArgs, []string{"exec", "--model", "gpt-5-codex", "fix; do not shell expand"}) {
+	if gotName != "/tmp/codex" || !reflect.DeepEqual(gotArgs, []string{"exec", "--model", "gpt-5-codex", "--", "fix; do not shell expand"}) {
 		t.Fatalf("command = %s %#v", gotName, gotArgs)
 	}
 }

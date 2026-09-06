@@ -91,6 +91,17 @@ func TestMemoryStore_UnknownEvaluationScoreRemainsNeutral(t *testing.T) {
 	assert.False(t, sig.EvalScoreKnown)
 }
 
+func TestMemoryStore_UnknownExecutionOutcomeDoesNotLowerSuccessRate(t *testing.T) {
+	s := NewMemoryStore()
+	s.RecordExecution("task-1", "model", KindCodeChange, ExecutionMetrics{Status: "completed"})
+	sig := s.Signal("model", KindCodeChange)
+	assert.InDelta(t, 0.5, sig.HistoricalSuccessRate, 0.001)
+
+	s.RecordExecution("task-2", "model", KindCodeChange, ExecutionMetrics{Status: "success"})
+	sig = s.Signal("model", KindCodeChange)
+	assert.InDelta(t, 1.0, sig.HistoricalSuccessRate, 0.001)
+}
+
 func TestMemoryStore_IsolatedByModel(t *testing.T) {
 	s := NewMemoryStore()
 	s.LogResult("task-1", "haiku", 1.0, "success")

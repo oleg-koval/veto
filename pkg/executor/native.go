@@ -39,7 +39,7 @@ func nativeArgs(agent, model, prompt string) []string {
 		if strings.TrimSpace(model) != "" {
 			args = append(args, "--model", strings.TrimSpace(model))
 		}
-		return append(args, prompt)
+		return append(args, "--", prompt)
 	}
 	args := make([]string, 0, 3)
 	if strings.TrimSpace(model) != "" {

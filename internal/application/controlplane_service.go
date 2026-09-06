@@ -21,12 +21,14 @@ import (
 // control-plane contract. It is in-process by design; no daemon or HTTP hop is
 // introduced between the shell and the Runner.
 type ControlService struct {
-	runner       Runner
-	router       Router
-	source       func(context.Context) (controlplane.Snapshot, error)
-	handlers     map[string]func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error)
-	reviewer     func(context.Context, router.TaskSpec, string, string) (bool, error)
-	outputWriter func(string, string, bool) error
+	runner        Runner
+	router        Router
+	source        func(context.Context) (controlplane.Snapshot, error)
+	handlers      map[string]func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error)
+	reviewer      func(context.Context, router.TaskSpec, string, string) (bool, error)
+	skillResolver func(context.Context, router.TaskSpec) []string
+	outputWriter  func(string, string, bool) error
+	historySaver  func() error
 
 	mu       sync.RWMutex
 	snapshot controlplane.Snapshot
@@ -45,6 +47,16 @@ func (s *ControlService) SetReviewer(reviewer func(context.Context, router.TaskS
 // The callback receives only the user-selected path, output, and force flag.
 func (s *ControlService) SetOutputWriter(writer func(string, string, bool) error) {
 	s.outputWriter = writer
+}
+
+// SetSkillResolver supplies the approved skill bodies for TUI executions.
+func (s *ControlService) SetSkillResolver(resolver func(context.Context, router.TaskSpec) []string) {
+	s.skillResolver = resolver
+}
+
+// SetHistorySaver persists routing history after a completed control-plane action.
+func (s *ControlService) SetHistorySaver(saver func() error) {
+	s.historySaver = saver
 }
 
 // NewControlService creates a service over an existing Runner and Router.
@@ -87,7 +99,9 @@ func (s *ControlService) RegisterHandler(actionID string, handler func(context.C
 	if strings.TrimSpace(actionID) == "" || handler == nil {
 		return
 	}
+	s.mu.Lock()
 	s.handlers[actionID] = handler
+	s.mu.Unlock()
 }
 
 func (s *ControlService) Snapshot(ctx context.Context) (controlplane.Snapshot, error) {
@@ -220,9 +234,10 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 	if (request.ActionID == "route" || request.ActionID == "run") && objective == "" {
 		return controlplane.ActionResult{}, errors.New("control plane: objective is required")
 	}
-	requestCtx := ctx
-	cancel := func() {}
-	if (request.ActionID == "route" || request.ActionID == "run") && strings.TrimSpace(request.Arguments["timeout"]) != "" {
+	var requestCtx context.Context
+	var cancel context.CancelFunc
+	var admissionTimeout time.Duration
+	if request.ActionID == "run" && strings.TrimSpace(request.Arguments["timeout"]) != "" {
 		rawTimeout := strings.TrimSpace(request.Arguments["timeout"])
 		timeout, err := time.ParseDuration(rawTimeout)
 		if err != nil || timeout <= 0 {
@@ -232,16 +247,21 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 	} else {
 		requestCtx, cancel = context.WithCancel(ctx)
 	}
-	if (request.ActionID == "route" || request.ActionID == "run") && strings.TrimSpace(request.Arguments["admission-timeout"]) != "" {
-		rawAdmissionTimeout := strings.TrimSpace(request.Arguments["admission-timeout"])
-		admissionTimeout, err := time.ParseDuration(rawAdmissionTimeout)
-		if err != nil || admissionTimeout <= 0 {
+	admissionTimeoutValue := strings.TrimSpace(request.Arguments["admission-timeout"])
+	if request.ActionID == "route" && admissionTimeoutValue == "" {
+		// The CLI route command calls this flag timeout; in the TUI it must retain
+		// the same per-model admission semantics rather than becoming a whole
+		// request deadline.
+		admissionTimeoutValue = strings.TrimSpace(request.Arguments["timeout"])
+	}
+	if (request.ActionID == "route" || request.ActionID == "run") && admissionTimeoutValue != "" {
+		rawAdmissionTimeout := admissionTimeoutValue
+		parsedTimeout, err := time.ParseDuration(rawAdmissionTimeout)
+		if err != nil || parsedTimeout <= 0 {
 			cancel()
 			return controlplane.ActionResult{}, fmt.Errorf("control plane: invalid admission-timeout %q", rawAdmissionTimeout)
 		}
-		if setter, ok := s.router.(interface{ SetAdmissionTimeout(time.Duration) }); ok {
-			setter.SetAdmissionTimeout(admissionTimeout)
-		}
+		admissionTimeout = parsedTimeout
 	}
 	s.mu.Lock()
 	s.active[request.ActionID] = cancel
@@ -251,6 +271,9 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		s.mu.Lock()
 		delete(s.active, request.ActionID)
 		s.mu.Unlock()
+		if s.historySaver != nil {
+			_ = s.historySaver()
+		}
 	}()
 	s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "running"})
 
@@ -260,7 +283,7 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 			return controlplane.ActionResult{}, errors.New("control plane: router is nil")
 		}
 		task := taskFromRequest(request, objective)
-		model, decision, err := s.router.Route(requestCtx, task)
+		model, decision, err := routeWithTimeout(s.router, requestCtx, task, admissionTimeout)
 		if err != nil {
 			s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "error"})
 			return controlplane.ActionResult{ActionID: request.ActionID}, err
@@ -273,7 +296,11 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 			return controlplane.ActionResult{}, errors.New("control plane: router is nil")
 		}
 		task := taskFromRequest(request, objective)
-		response, err := s.runner.Execute(requestCtx, Request{Task: task, Options: executionOptions(request), Writer: outputWriter{s: s, actionID: request.ActionID}})
+		skills := []string(nil)
+		if s.skillResolver != nil {
+			skills = s.skillResolver(requestCtx, task)
+		}
+		response, err := s.runner.Execute(requestCtx, Request{Task: task, Skills: skills, AdmissionTimeout: admissionTimeout, Options: executionOptions(request), Writer: outputWriter{s: s, actionID: request.ActionID}})
 		status := "ready"
 		if err != nil {
 			status = "error"
@@ -313,7 +340,10 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "run.completed", Message: "task completed"})
 		return controlplane.ActionResult{ActionID: request.ActionID, Summary: "task completed", Model: response.Model.Name, Output: response.Output}, nil
 	default:
-		if handler, ok := s.handlers[request.ActionID]; ok {
+		s.mu.RLock()
+		handler, ok := s.handlers[request.ActionID]
+		s.mu.RUnlock()
+		if ok {
 			result, err := handler(requestCtx, request)
 			status := "ready"
 			if err != nil {
@@ -344,7 +374,16 @@ func taskFromRequest(request controlplane.ActionRequest, objective string) route
 	}
 	maxCost, _ := strconv.ParseFloat(request.Arguments["max-cost"], 64)
 	maxTokens, _ := strconv.Atoi(request.Arguments["max-output-tokens"])
-	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, MaxTokens: maxTokens, RequiredTools: splitRequestList(request.Arguments["required-tools"]), RequiresExecutableTools: request.Arguments["requires-executable-tools"] == "true", SuccessCriteria: splitRequestList(request.Arguments["criteria"]), RuntimeFilter: request.Arguments["runtime"], ProviderFilter: request.Arguments["provider"], Source: "tui"}
+	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, MaxTokens: maxTokens, RequiredTools: splitRequestList(request.Arguments["required-tools"]), RequiresExecutableTools: request.Arguments["requires-executable-tools"] == "true" || router.RequiresExecutableRuntime(objective), SuccessCriteria: splitRequestList(request.Arguments["criteria"]), RuntimeFilter: request.Arguments["runtime"], ProviderFilter: request.Arguments["provider"], Source: "tui"}
+}
+
+func routeWithTimeout(port Router, ctx context.Context, task router.TaskSpec, timeout time.Duration) (router.ModelCapabilities, router.AdmissionDecision, error) {
+	if timeout > 0 {
+		if timed, ok := port.(timedRouter); ok {
+			return timed.RouteWithAdmissionTimeout(ctx, task, timeout)
+		}
+	}
+	return port.Route(ctx, task)
 }
 
 func splitRequestList(value string) []string {
@@ -472,6 +511,18 @@ func (s *ControlService) setSnapshot(snapshot controlplane.Snapshot) {
 	}
 	if len(snapshot.Plans) == 0 {
 		snapshot.Plans = s.snapshot.Plans
+	}
+	if len(snapshot.History) == 0 {
+		snapshot.History = s.snapshot.History
+	}
+	if len(snapshot.Health) == 0 {
+		snapshot.Health = s.snapshot.Health
+	}
+	if snapshot.Analytics == (controlplane.AnalyticsSnapshot{}) {
+		snapshot.Analytics = s.snapshot.Analytics
+	}
+	if len(snapshot.Integrations) == 0 {
+		snapshot.Integrations = s.snapshot.Integrations
 	}
 	s.snapshot = snapshot
 	s.mu.Unlock()

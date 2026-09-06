@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -38,7 +40,26 @@ func (cp *Checkpoint) add(model string, accepted bool, reasons []string) {
 }
 
 func taskHash(objective, kind, risk string, maxCost float64) string {
-	h := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%.6f", objective, kind, risk, maxCost)))
+	return taskHashWithTools(objective, kind, risk, maxCost, nil, false)
+}
+
+func taskHashWithTools(objective, kind, risk string, maxCost float64, requiredTools []string, requiresExecutableTools bool) string {
+	normalizedTools := make([]string, 0, len(requiredTools))
+	seen := make(map[string]struct{}, len(requiredTools))
+	for _, tool := range requiredTools {
+		tool = strings.TrimSpace(tool)
+		if tool == "" {
+			continue
+		}
+		if _, ok := seen[tool]; ok {
+			continue
+		}
+		seen[tool] = struct{}{}
+		normalizedTools = append(normalizedTools, tool)
+	}
+	sort.Strings(normalizedTools)
+	payload := fmt.Sprintf("%s|%s|%s|%.6f|tools=%s|exec=%t", objective, kind, risk, maxCost, strings.Join(normalizedTools, "\x00"), requiresExecutableTools)
+	h := sha256.Sum256([]byte(payload))
 	return fmt.Sprintf("%x", h[:8]) // 16 hex chars — short, collision-resistant enough for a temp file
 }
 

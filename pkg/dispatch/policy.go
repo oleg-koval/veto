@@ -150,7 +150,7 @@ func Decide(request Request, agents []AgentStatus, models []Model) (Decision, er
 	} else {
 		preferred := preferredAgent(request.Kind)
 		for _, candidate := range eligible {
-			if candidate.Name == preferred {
+			if strings.EqualFold(candidate.Name, preferred) {
 				selected = candidate
 				break
 			}

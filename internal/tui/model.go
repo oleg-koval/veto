@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -161,8 +162,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if message.event.Version != 0 && message.event.Version != controlplane.SchemaVersion {
 			m.status = fmt.Sprintf("Error · unsupported event schema %d", message.event.Version)
-			return m, nil
+			return m, waitForEvent(m.events)
 		}
+		message.event.Message = sanitizeProviderText(message.event.Message)
 		m.eventHistory = append(m.eventHistory, message.event)
 		if len(m.eventHistory) > 64 {
 			m.eventHistory = m.eventHistory[len(m.eventHistory)-64:]
@@ -188,19 +190,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if message.err != nil {
 			if message.result.Output != "" && m.output.Len() == 0 {
-				m.output.WriteString(message.result.Output)
+				m.output.WriteString(sanitizeProviderText(message.result.Output))
 			}
 			if errors.Is(message.err, context.Canceled) {
 				m.status = "Ready · action cancelled"
 				return m, nil
 			}
-			m.status = "Error · " + message.err.Error()
+			m.status = "Error · " + sanitizeProviderText(message.err.Error())
 			return m, nil
 		}
 		m.activeAction = message.result.ActionID
 		m.status = "Ready · " + message.result.Summary
 		if m.output.Len() == 0 {
-			m.output.WriteString(message.result.Output)
+			m.output.WriteString(sanitizeProviderText(message.result.Output))
 		}
 		if m.options.Service != nil {
 			return m, m.loadSnapshot()
@@ -280,7 +282,11 @@ func (m *Model) commandIndexAt(x, y int) int {
 		// The hovered command owns one extra tooltip row in the rail.
 		index--
 	}
-	if index < 0 || index >= len(commands) {
+	maxVisible := len(commands)
+	if width < 30 {
+		maxVisible = min(maxVisible, 9)
+	}
+	if index < 0 || index >= maxVisible {
 		return -1
 	}
 	return index
@@ -305,6 +311,9 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			action = m.activeAction
 		}
 		m.status = "Cancelling · " + action
+		return m, nil
+	}
+	if m.running {
 		return m, nil
 	}
 	if m.confirmOpen {
@@ -643,6 +652,9 @@ func (m *Model) startExecution() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) beginExecution(request controlplane.ActionRequest) (tea.Model, tea.Cmd) {
+	if m.running {
+		return m, nil
+	}
 	m.running = true
 	m.activeAction = request.ActionID
 	m.output.Reset()
@@ -682,6 +694,9 @@ func requiresConfirmation(request controlplane.ActionRequest) bool {
 }
 
 func (m *Model) startAction(actionID string) (tea.Model, tea.Cmd) {
+	if m.running {
+		return m, nil
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancelRun = cancel
 	m.events = m.options.Service.Subscribe(ctx)
@@ -1037,7 +1052,7 @@ func (m *Model) renderMain(width int) string {
 	if m.output.Len() > 0 {
 		b.WriteString(headerStyle.Render("OUTPUT"))
 		b.WriteString("\n")
-		b.WriteString(panelStyle.Render(truncate(strings.TrimSpace(m.output.String()), width-4)))
+		b.WriteString(panelStyle.Render(truncateBlock(strings.TrimSpace(m.output.String()), width-4)))
 		b.WriteString("\n\n")
 	} else {
 		b.WriteString(panelStyle.Render(truncate("⌘  Run a task   /  Find command   ?  Help", width-4)))
@@ -1141,7 +1156,7 @@ func (m *Model) renderConfirmation(width int) string {
 	b.WriteString(headerStyle.Render(title))
 	b.WriteString("\n")
 	if m.pendingNative != nil && m.output.Len() > 0 {
-		b.WriteString(panelStyle.Render(truncate(strings.TrimSpace(m.output.String()), width-4)))
+		b.WriteString(panelStyle.Render(truncateBlock(strings.TrimSpace(m.output.String()), width-4)))
 	} else {
 		b.WriteString(panelStyle.Render("Run veto " + m.pendingRequest.ActionID + "?"))
 	}
@@ -1541,18 +1556,22 @@ func truncate(value string, width int) string {
 	return ansi.Truncate(value, width, "…")
 }
 
-func min(left, right int) int {
-	if left < right {
-		return left
+func truncateBlock(value string, width int) string {
+	lines := strings.Split(value, "\n")
+	for index, line := range lines {
+		lines[index] = truncate(line, width)
 	}
-	return right
+	return strings.Join(lines, "\n")
 }
 
-func max(left, right int) int {
-	if left > right {
-		return left
-	}
-	return right
+func sanitizeProviderText(value string) string {
+	value = ansi.Strip(value)
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return -1
+		}
+		return r
+	}, value)
 }
 
 var (

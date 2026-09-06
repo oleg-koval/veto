@@ -56,6 +56,7 @@ type modelStats struct {
 	decisionTotal float64
 	accepted      float64
 	resultTotal   float64
+	knownResults  float64
 	completed     float64
 	scoreSum      float64
 	scoreCount    float64
@@ -115,6 +116,9 @@ func (s *MemoryStore) accumulate(e routingEvent) {
 	}
 
 	st.resultTotal++
+	if e.status != "" && e.status != "completed" {
+		st.knownResults++
+	}
 	if e.status == "success" {
 		st.completed++
 	}
@@ -216,9 +220,9 @@ func (s *MemoryStore) Signal(modelName string, kind TaskKind) RoutingSignal {
 	if st.decisionTotal > 0 {
 		rejectRate = (st.decisionTotal - st.accepted) / st.decisionTotal
 	}
-	successRate := 0.0
-	if st.resultTotal > 0 {
-		successRate = st.completed / st.resultTotal
+	successRate := 0.5
+	if st.knownResults > 0 {
+		successRate = st.completed / st.knownResults
 	}
 	// Unknown evaluation scores remain neutral rather than being interpreted as
 	// a zero-quality result.

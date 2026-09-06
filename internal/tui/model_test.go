@@ -12,6 +12,17 @@ import (
 	"github.com/oleg-koval/veto/internal/controlplane"
 )
 
+func selectActionForTest(t *testing.T, model *Model, actionID string) {
+	t.Helper()
+	for index, action := range model.catalog.Commands() {
+		if action.ID == actionID {
+			model.selected = index
+			return
+		}
+	}
+	t.Fatalf("action %q is missing from catalog", actionID)
+}
+
 func TestModelRendersAccessibleShellAndStatusline(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -157,7 +168,7 @@ func TestModelSupportsMouseSelectionInNarrowLayout(t *testing.T) {
 
 func TestModelTogglesBooleanFormFlagsWithSpace(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
-	model.selected = 18 // install-git-hook
+	selectActionForTest(t, model, "install-git-hook")
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(*Model)
 	if !model.composerEditing || model.composerFields[0].Value != "bool" {
@@ -492,10 +503,7 @@ func TestTruncatePreservesUnicodeAndTerminalWidth(t *testing.T) {
 
 func TestModelDoctorEnterRunsThroughService(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Service: staticService{}})
-	for range 8 {
-		updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
-		model = updated.(*Model)
-	}
+	selectActionForTest(t, model, "doctor")
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(*Model)
 	if model.activeAction != "doctor" || !model.running || cmd == nil {
@@ -505,10 +513,7 @@ func TestModelDoctorEnterRunsThroughService(t *testing.T) {
 
 func TestModelProvidersEnterRunsThroughService(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Service: staticService{}})
-	for range 14 { // providers
-		updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
-		model = updated.(*Model)
-	}
+	selectActionForTest(t, model, "providers")
 	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(*Model)
 	if model.activeAction != "providers" || !model.running || cmd == nil {
@@ -533,12 +538,8 @@ func TestModelComposerCapturesObjectiveForRun(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	var updated tea.Model = model
-	for range 3 {
-		updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
-		model = updated.(*Model)
-	}
-	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
+	selectActionForTest(t, model, "run")
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "r", Code: 'r'}))
 	model = updated.(*Model)
 	if !model.composerOpen || model.composerAction != "run" {
 		t.Fatalf("composer state = open:%v action:%q", model.composerOpen, model.composerAction)
@@ -560,10 +561,7 @@ func TestModelComposerCapturesObjectiveForRun(t *testing.T) {
 func TestModelOpensFlagFormForNonRoutingActionWithEnter(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
 	model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
-	for range 9 { // feedback
-		updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
-		model = updated.(*Model)
-	}
+	selectActionForTest(t, model, "feedback")
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(*Model)
 	if !model.composerOpen || !model.composerEditing || model.composerAction != "feedback" {
@@ -576,10 +574,7 @@ func TestModelOpensFlagFormForNonRoutingActionWithEnter(t *testing.T) {
 
 func TestModelKeepsOperationalScreensOnEnterAndUsesSafeSubcommandDefaults(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
-	for range 10 { // analytics
-		updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: "j", Code: 'j'}))
-		model = updated.(*Model)
-	}
+	selectActionForTest(t, model, "analytics")
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(*Model)
 	if model.activeAction != "analytics" || model.composerOpen {
@@ -594,7 +589,7 @@ func TestModelKeepsOperationalScreensOnEnterAndUsesSafeSubcommandDefaults(t *tes
 
 func TestModelConfirmsStateChangingActionAndMasksSecretFields(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
-	model.selected = 0 // login
+	selectActionForTest(t, model, "login")
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	model = updated.(*Model)
 	if !model.composerOpen || model.composerAction != "login" {
@@ -735,6 +730,26 @@ func TestModelRejectsUnknownEventSchema(t *testing.T) {
 	model = updated.(*Model)
 	if len(model.eventHistory) != 0 || !strings.Contains(model.status, "unsupported event schema") {
 		t.Fatalf("unknown event state = history:%#v status:%q", model.eventHistory, model.status)
+	}
+}
+
+func TestModelSanitizesProviderEventText(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	updated, _ := model.Update(eventMsg{event: controlplane.Event{
+		Version: controlplane.SchemaVersion,
+		Kind:    "output",
+		Message: "\x1b[31mred\x1b[0m\x00\nnormal",
+	}, ok: true})
+	model = updated.(*Model)
+	if got := model.output.String(); got != "red\nnormal" {
+		t.Fatalf("sanitized output = %q, want %q", got, "red\nnormal")
+	}
+}
+
+func TestTruncateBlockPreservesLaterLines(t *testing.T) {
+	got := truncateBlock("first line that is long\nsecond line", 8)
+	if !strings.Contains(got, "second") {
+		t.Fatalf("block truncation dropped later line: %q", got)
 	}
 }
 

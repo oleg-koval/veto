@@ -289,7 +289,9 @@ func cmdRoute(args []string) {
 	if *providerFilter != "" {
 		hashObjective += "\x00provider=" + *providerFilter
 	}
-	hash := taskHash(hashObjective, kind, *risk, *maxCost)
+	requiredToolsForHash := splitTaskList(*requiredTools)
+	requiresExecutableForHash := *requiresExecutableTools || requiresExecutableRuntime(objective)
+	hash := taskHashWithTools(hashObjective, kind, *risk, *maxCost, requiredToolsForHash, requiresExecutableForHash)
 	cp := &Checkpoint{Hash: hash, Objective: objective}
 	if !*noResume {
 		if saved, ok := loadCheckpoint(hash); ok {
@@ -368,8 +370,8 @@ func cmdRoute(args []string) {
 		Kind:                    router.TaskKind(kind),
 		Complexity:              router.Complexity(complexity),
 		Objective:               objective,
-		RequiredTools:           splitTaskList(*requiredTools),
-		RequiresExecutableTools: *requiresExecutableTools || requiresExecutableRuntime(objective),
+		RequiredTools:           requiredToolsForHash,
+		RequiresExecutableTools: requiresExecutableForHash,
 		Risk:                    router.Risk(*risk),
 		MaxCostUSD:              *maxCost,
 		SkipModels:              cp.triedNames(),
@@ -510,17 +512,7 @@ func inferKind(objective string) string {
 // requiresExecutableRuntime recognizes explicit requests to mutate repository
 // state. Content-only code generation remains eligible for text transports.
 func requiresExecutableRuntime(objective string) bool {
-	s := strings.ToLower(objective)
-	if containsAny(s,
-		"git push", "commit and push", "push when", "push once",
-		"modify the repository", "edit the repository", "update the repository",
-		"modify the repo", "edit the repo", "commit the changes",
-	) {
-		return true
-	}
-
-	prTarget, _, mutation := pullRequestMutationSignals(s)
-	return prTarget && mutation
+	return router.RequiresExecutableRuntime(objective)
 }
 
 func pullRequestMutationSignals(objective string) (prTarget, reviewTarget, mutation bool) {

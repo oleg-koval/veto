@@ -57,6 +57,11 @@ func (s *AvailabilityStore) Set(agent string, duration time.Duration) (Unavailab
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := acquireAvailabilityLock(s.path)
+	if err != nil {
+		return Unavailability{}, err
+	}
+	defer func() { _ = unlock() }()
 	now := s.now().UTC()
 	entries, err := s.read()
 	if err != nil && !os.IsNotExist(err) {
@@ -80,6 +85,11 @@ func (s *AvailabilityStore) Clear(agent string) error {
 	agent = strings.ToLower(strings.TrimSpace(agent))
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := acquireAvailabilityLock(s.path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = unlock() }()
 	entries, err := s.read()
 	if err != nil && !os.IsNotExist(err) {
 		return err

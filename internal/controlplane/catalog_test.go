@@ -74,10 +74,17 @@ func TestDefaultCatalogUsesBoundedExecutionTokenDefaults(t *testing.T) {
 		if !ok {
 			t.Fatalf("action %q missing", actionID)
 		}
+		found := false
 		for _, field := range action.Flags {
-			if field.Name == "max-output-tokens" && field.Default == "" {
-				t.Fatalf("%s max-output-tokens has no bounded default", actionID)
+			if field.Name == "max-output-tokens" {
+				found = true
+				if field.Default == "" {
+					t.Fatalf("%s max-output-tokens has no bounded default", actionID)
+				}
 			}
+		}
+		if !found {
+			t.Fatalf("%s is missing max-output-tokens", actionID)
 		}
 	}
 }

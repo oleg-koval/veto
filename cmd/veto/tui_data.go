@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	hermesintegration "github.com/oleg-koval/veto/integrations/hermes"
 	"github.com/oleg-koval/veto/internal/controlplane"
@@ -17,7 +19,18 @@ import (
 // loadTUISnapshot reads only bounded, redacted local metadata. It is a
 // composition-root adapter so the application service remains independent of
 // CLI-specific filesystem paths and doctor implementations.
-func loadTUISnapshot(_ context.Context) (controlplane.Snapshot, error) {
+var tuiDoctorCache struct {
+	sync.Mutex
+	report doctorReport
+	at     time.Time
+}
+
+const tuiDoctorCacheTTL = 30 * time.Second
+
+func loadTUISnapshot(ctx context.Context) (controlplane.Snapshot, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	snapshot := controlplane.Snapshot{Status: "ready"}
 	if status, err := currentAnalyticsStatus(); err == nil {
 		snapshot.Analytics = controlplane.AnalyticsSnapshot{
@@ -30,16 +43,54 @@ func loadTUISnapshot(_ context.Context) (controlplane.Snapshot, error) {
 	} else {
 		snapshot.Health = append(snapshot.Health, controlplane.HealthSnapshot{ID: "analytics.config", Status: "WARN", Message: "analytics preference could not be read"})
 	}
+	if err := ctx.Err(); err != nil {
+		return snapshot, err
+	}
 
-	report := runDoctor(doctorOptions{offline: true}, defaultDoctorDeps())
+	report := cachedTUIDoctor(ctx)
 	for _, check := range report.Checks {
 		snapshot.Health = append(snapshot.Health, controlplane.HealthSnapshot{ID: check.ID, Status: string(check.Status), Message: check.Message})
 	}
+	if err := ctx.Err(); err != nil {
+		return snapshot, err
+	}
 	snapshot.History = readTUIHistory()
+	if err := ctx.Err(); err != nil {
+		return snapshot, err
+	}
 	snapshot.Plans = readTUIPlans()
+	if err := ctx.Err(); err != nil {
+		return snapshot, err
+	}
 	snapshot.Providers = readTUIProviders()
+	if err := ctx.Err(); err != nil {
+		return snapshot, err
+	}
 	snapshot.Integrations = readTUIIntegrations()
 	return snapshot, nil
+}
+
+func cachedTUIDoctor(ctx context.Context) doctorReport {
+	now := time.Now()
+	tuiDoctorCache.Lock()
+	if !tuiDoctorCache.at.IsZero() && now.Sub(tuiDoctorCache.at) < tuiDoctorCacheTTL {
+		report := tuiDoctorCache.report
+		tuiDoctorCache.Unlock()
+		return report
+	}
+	tuiDoctorCache.Unlock()
+	if ctx.Err() != nil {
+		return doctorReport{}
+	}
+	report := runDoctor(doctorOptions{ctx: ctx, offline: true}, defaultDoctorDeps())
+	if ctx.Err() != nil {
+		return report
+	}
+	tuiDoctorCache.Lock()
+	tuiDoctorCache.report = report
+	tuiDoctorCache.at = time.Now()
+	tuiDoctorCache.Unlock()
+	return report
 }
 
 func readTUIProviders() []controlplane.ProviderSnapshot {
@@ -80,18 +131,11 @@ func readTUIPlans() []controlplane.PlanSnapshot {
 	}
 	sort.Strings(paths)
 	const maxPlans = 40
-	plans := make([]controlplane.PlanSnapshot, 0, minInt(len(paths), maxPlans))
+	plans := make([]controlplane.PlanSnapshot, 0, min(len(paths), maxPlans))
 	for index := 0; index < len(paths) && index < maxPlans; index++ {
 		plans = append(plans, controlplane.PlanSnapshot{Name: filepath.Base(paths[index])})
 	}
 	return plans
-}
-
-func minInt(left, right int) int {
-	if left < right {
-		return left
-	}
-	return right
 }
 
 func readTUIHistory() []controlplane.HistorySnapshot {

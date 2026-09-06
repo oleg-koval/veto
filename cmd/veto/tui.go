@@ -45,18 +45,23 @@ func cmdTUI(args []string) error {
 		Mouse:        !*noMouse && !*screenReader,
 		ScreenReader: *screenReader,
 		ServiceFactory: func() (controlplane.Service, error) {
-			reg, mgr, _, err := prepareTUIRouting()
+			reg, mgr, store, err := prepareTUIRouting()
 			if err != nil {
 				return nil, fmt.Errorf("prepare routing: %w", err)
 			}
 			service := application.NewControlServiceWithSnapshot(newApplicationRunner(reg, mgr), mgr, loadTUISnapshot)
 			service.SetOutputWriter(writeOutputFile)
+			service.SetHistorySaver(store.Save)
+			service.SetSkillResolver(func(ctx context.Context, task router.TaskSpec) []string {
+				_, bodies := resolveSkills(ctx, reg, mgr, task)
+				return bodies
+			})
 			service.SetReviewer(func(ctx context.Context, task router.TaskSpec, output, model string) (bool, error) {
 				result, err := reviewOutput(ctx, reg, mgr, task, output, model)
 				return result.Passed, err
 			})
-			service.RegisterHandler("doctor", func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
-				return runTUIDoctor(request)
+			service.RegisterHandler("doctor", func(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+				return runTUIDoctor(ctx, request)
 			})
 			service.RegisterHandler("benchmark", func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 				corpus := request.Arguments["corpus"]
@@ -203,9 +208,9 @@ func registerTUIActionHandlers(service *application.ControlService, refreshPrefe
 	})
 }
 
-func runTUIDoctor(request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+func runTUIDoctor(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 	offline := request.Arguments["offline"] != "false"
-	report := runDoctor(doctorOptions{fix: request.Arguments["fix"] == "true", offline: offline}, defaultDoctorDeps())
+	report := runDoctor(doctorOptions{ctx: ctx, fix: request.Arguments["fix"] == "true", offline: offline}, defaultDoctorDeps())
 	result := controlplane.ActionResult{ActionID: "doctor", Summary: fmt.Sprintf("%d pass, %d warn, %d fail, %d fixed", report.Summary.Pass, report.Summary.Warn, report.Summary.Fail, report.Summary.Fixed)}
 	if request.Arguments["json"] == "true" {
 		var output strings.Builder
@@ -340,8 +345,8 @@ func runTUILogin(ctx context.Context, request controlplane.ActionRequest) (contr
 		}
 		return controlplane.ActionResult{ActionID: "login", Summary: "OpenRouter connected via browser"}, nil
 	}
-	credential := tuiSecretArgument(request, "api-key")
-	if strings.TrimSpace(credential) == "" {
+	credential := strings.TrimSpace(tuiSecretArgument(request, "api-key"))
+	if credential == "" {
 		return controlplane.ActionResult{ActionID: "login"}, fmt.Errorf("api-key is required for %s", providerInfo.name)
 	}
 	if err := saveCredential(providerInfo.envKey, credential); err != nil {

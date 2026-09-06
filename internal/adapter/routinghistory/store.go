@@ -204,7 +204,7 @@ func (s *FileStore) Save() error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpName, s.path); err != nil {
+	if err := replaceFile(tmpName, s.path); err != nil {
 		return fmt.Errorf("replace routing history: %w", err)
 	}
 	return nil

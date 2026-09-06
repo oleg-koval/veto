@@ -15,6 +15,19 @@ func TestDecideAgentUsesDefaultAndNeverHistory(t *testing.T) {
 	}
 }
 
+func TestDecideAgentMatchesPreferredNameCaseInsensitively(t *testing.T) {
+	decision, err := Decide(Request{Mode: ModeChooseAgent, Kind: "code-change"}, []AgentStatus{
+		{Name: "Codex", Installed: true, Auth: AuthAuthenticated},
+		{Name: "Claude", Installed: true, Auth: AuthAuthenticated},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Agent != "Codex" {
+		t.Fatalf("preferred agent = %q, want Codex", decision.Agent)
+	}
+}
+
 func TestDecideAgentExcludesUnavailablePreferredAgent(t *testing.T) {
 	decision, err := Decide(Request{Mode: ModeChooseAgent, Kind: "code-change"}, []AgentStatus{
 		{Name: "claude", Installed: true, Auth: AuthAuthenticated},

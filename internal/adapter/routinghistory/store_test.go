@@ -67,7 +67,7 @@ func TestFileStore_LegacyHistoryFallsBackAcrossTaskKinds(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, legacy, 0600))
 
 	sig := NewFileStore(path).Signal("model", router.KindReview)
-	assert.InDelta(t, 0.0, sig.HistoricalSuccessRate, 0.001)
+	assert.InDelta(t, 0.5, sig.HistoricalSuccessRate, 0.001)
 	assert.InDelta(t, 0.7, sig.AvgEvalScore, 0.001)
 }
 
@@ -75,7 +75,7 @@ func TestFileStore_CompletedTransportDoesNotCountAsSuccess(t *testing.T) {
 	s := NewFileStore(filepath.Join(t.TempDir(), "history.json"))
 	s.RecordExecution("task", "model", router.KindCodeChange, router.ExecutionMetrics{Status: "completed"})
 	sig := s.Signal("model", router.KindCodeChange)
-	assert.Equal(t, 0.0, sig.HistoricalSuccessRate)
+	assert.Equal(t, 0.5, sig.HistoricalSuccessRate)
 	assert.False(t, sig.EvalScoreKnown)
 }
 

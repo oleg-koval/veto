@@ -218,7 +218,7 @@ func TestRunTUISetupDiscoversWithoutChangingConfig(t *testing.T) {
 }
 
 func TestRunTUIDoctorJSONReturnsDiagnosticReport(t *testing.T) {
-	result, err := runTUIDoctor(controlplane.ActionRequest{ActionID: "doctor", Arguments: map[string]string{
+	result, err := runTUIDoctor(t.Context(), controlplane.ActionRequest{ActionID: "doctor", Arguments: map[string]string{
 		"offline": "true", "json": "true",
 	}})
 	if err != nil {

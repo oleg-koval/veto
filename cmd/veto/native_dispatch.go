@@ -194,6 +194,7 @@ func availabilityPath() string {
 }
 
 var experimentLedger *ledger.Writer
+var experimentFile *os.File
 var experimentLoggerMu sync.Mutex
 
 func experimentPath() string {
@@ -206,6 +207,10 @@ func setupExperimentLogger() {
 	defer experimentLoggerMu.Unlock()
 	if experimentLedger != nil {
 		return
+	}
+	if experimentFile != nil {
+		_ = experimentFile.Close()
+		experimentFile = nil
 	}
 	path := experimentPath()
 	if info, err := os.Stat(path); err == nil && info.Size() > 256*1024 {
@@ -221,7 +226,20 @@ func setupExperimentLogger() {
 		return
 	}
 	_ = file.Chmod(0600)
+	experimentFile = file
 	experimentLedger = ledger.NewWriter(file)
+}
+
+func resetExperimentLogger() error {
+	experimentLoggerMu.Lock()
+	defer experimentLoggerMu.Unlock()
+	experimentLedger = nil
+	if experimentFile == nil {
+		return nil
+	}
+	err := experimentFile.Close()
+	experimentFile = nil
+	return err
 }
 
 func nativeAgentStatuses(availability *dispatch.AvailabilityStore) []dispatch.AgentStatus {

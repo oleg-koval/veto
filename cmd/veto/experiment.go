@@ -24,6 +24,10 @@ func runExperiment(args []string, output, diagnostics io.Writer) int {
 	}
 	path := experimentPath()
 	if *clear {
+		if err := resetExperimentLogger(); err != nil {
+			fmt.Fprintln(diagnostics, "error:", err)
+			return 1
+		}
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			fmt.Fprintln(diagnostics, "error:", err)
 			return 1
