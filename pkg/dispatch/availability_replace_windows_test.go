@@ -18,6 +18,7 @@ func TestAvailabilityStoreConcurrentReadsNeverObserveMissingReplacement(t *testi
 
 	var group sync.WaitGroup
 	group.Add(1)
+	defer group.Wait()
 	go func() {
 		defer group.Done()
 		for index := 0; index < 100; index++ {
@@ -37,5 +38,4 @@ func TestAvailabilityStoreConcurrentReadsNeverObserveMissingReplacement(t *testi
 			t.Fatalf("concurrent list: %v", err)
 		}
 	}
-	group.Wait()
 }

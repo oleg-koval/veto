@@ -112,13 +112,21 @@ func TestFileStoreBoundsPersistedHistory(t *testing.T) {
 func TestFileStoreSignalIsSafeDuringHistoryRebuild(t *testing.T) {
 	s := NewFileStore(filepath.Join(t.TempDir(), "history.json"))
 	var group sync.WaitGroup
+	trimWriteReady := make(chan struct{})
+	signalStarted := make(chan struct{})
 	group.Add(1)
 	go func() {
 		defer group.Done()
 		for index := 0; index < maxHistoryEvents+10; index++ {
+			if index == maxHistoryEvents {
+				close(trimWriteReady)
+				<-signalStarted
+			}
 			s.RecordExecution("task", "model", router.KindCodeChange, router.ExecutionMetrics{Status: "success"})
 		}
 	}()
+	<-trimWriteReady
+	close(signalStarted)
 	for index := 0; index < maxHistoryEvents+10; index++ {
 		_ = s.Signal("model", router.KindCodeChange)
 	}

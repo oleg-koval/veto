@@ -11,7 +11,9 @@ import (
 )
 
 func TestRunUnavailableAcceptsAgentBeforeFlagsAndCanClear(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	require.NoError(t, resetExperimentLogger())
 	t.Cleanup(func() { _ = resetExperimentLogger() })
 	store := dispatch.NewAvailabilityStore(filepath.Join(t.TempDir(), "unavailable.json"))

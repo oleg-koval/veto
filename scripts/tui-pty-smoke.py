@@ -13,11 +13,34 @@ import termios
 import time
 
 
-def exec_or_exit(binary: str, argv: list[str], env: dict[str, str]) -> None:
+def exec_or_exit(binary: str, argv: list[str], env: dict[str, str], error_fd: int) -> None:
     try:
         os.execve(binary, argv, env)
-    except OSError:
+    except OSError as error:
+        try:
+            os.write(error_fd, str(error).encode())
+        except OSError:
+            pass
         os._exit(127)
+
+
+def fork_and_exec(binary: str, argv: list[str], env: dict[str, str]) -> tuple[int, int]:
+    error_read, error_write = os.pipe()
+    pid, master = pty.fork()
+    if pid == 0:
+        os.close(error_read)
+        exec_or_exit(binary, argv, env, error_write)
+
+    os.close(error_write)
+    try:
+        exec_error = os.read(error_read, 4096)
+    finally:
+        os.close(error_read)
+    if exec_error:
+        status = wait_for_exit(pid, 1)
+        os.close(master)
+        raise SystemExit(f"failed to exec {binary}: {exec_error.decode(errors='replace')} (status={status})")
+    return pid, master
 
 
 def wait_for_exit(pid: int, timeout: float, drain=None) -> int:
@@ -43,6 +66,8 @@ def wait_for_exit(pid: int, timeout: float, drain=None) -> int:
             waited, candidate = os.waitpid(pid, os.WNOHANG)
             if waited == pid:
                 status = candidate
+                if drain is not None:
+                    drain()
                 break
             time.sleep(0.05)
         if status is None:
@@ -51,6 +76,8 @@ def wait_for_exit(pid: int, timeout: float, drain=None) -> int:
             except ProcessLookupError:
                 pass
             _, status = os.waitpid(pid, 0)
+            if drain is not None:
+                drain()
     return status
 
 
@@ -58,14 +85,12 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
     home_context = tempfile.TemporaryDirectory(prefix="veto-tui-pty-") if home is None else None
     selected_home = home if home is not None else home_context.name
     try:
-        pid, master = pty.fork()
-        if pid == 0:
-            env = os.environ.copy()
-            env.update({"HOME": selected_home, "NO_COLOR": "1"})
-            if term is not None:
-                env["TERM"] = term
-            argv = [binary, "tui", *args] if command is None else [binary, *command]
-            exec_or_exit(binary, argv, env)
+        env = os.environ.copy()
+        env.update({"HOME": selected_home, "NO_COLOR": "1"})
+        if term is not None:
+            env["TERM"] = term
+        argv = [binary, "tui", *args] if command is None else [binary, *command]
+        pid, master = fork_and_exec(binary, argv, env)
 
         try:
             termios.tcsetwinsize(master, (rows, columns))
@@ -137,11 +162,9 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
 
 
 def run_execution(binary: str, home: str) -> None:
-    pid, master = pty.fork()
-    if pid == 0:
-        env = os.environ.copy()
-        env.update({"HOME": home, "NO_COLOR": "1"})
-        exec_or_exit(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
+    env = os.environ.copy()
+    env.update({"HOME": home, "NO_COLOR": "1"})
+    pid, master = fork_and_exec(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
 
     output = bytearray()
     try:
@@ -196,11 +219,9 @@ def run_execution(binary: str, home: str) -> None:
 
 
 def run_cancellation(binary: str, home: str) -> None:
-    pid, master = pty.fork()
-    if pid == 0:
-        env = os.environ.copy()
-        env.update({"HOME": home, "NO_COLOR": "1"})
-        exec_or_exit(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
+    env = os.environ.copy()
+    env.update({"HOME": home, "NO_COLOR": "1"})
+    pid, master = fork_and_exec(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
 
     output = bytearray()
     try:
@@ -263,11 +284,9 @@ def run_cancellation(binary: str, home: str) -> None:
 
 
 def run_route(binary: str, home: str) -> None:
-    pid, master = pty.fork()
-    if pid == 0:
-        env = os.environ.copy()
-        env.update({"HOME": home, "NO_COLOR": "1"})
-        exec_or_exit(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
+    env = os.environ.copy()
+    env.update({"HOME": home, "NO_COLOR": "1"})
+    pid, master = fork_and_exec(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
 
     output = bytearray()
     try:
@@ -323,11 +342,9 @@ def run_resize(binary: str, home: str | None = None) -> None:
     home_context = tempfile.TemporaryDirectory(prefix="veto-tui-resize-") if home is None else None
     selected_home = home if home is not None else home_context.name
     try:
-        pid, master = pty.fork()
-        if pid == 0:
-            env = os.environ.copy()
-            env.update({"HOME": selected_home, "NO_COLOR": "1"})
-            exec_or_exit(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
+        env = os.environ.copy()
+        env.update({"HOME": selected_home, "NO_COLOR": "1"})
+        pid, master = fork_and_exec(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
 
         output = bytearray()
         try:
@@ -372,11 +389,9 @@ def run_resize(binary: str, home: str | None = None) -> None:
 
 
 def run_plan(binary: str, home: str) -> None:
-    pid, master = pty.fork()
-    if pid == 0:
-        env = os.environ.copy()
-        env.update({"HOME": home, "NO_COLOR": "1"})
-        exec_or_exit(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
+    env = os.environ.copy()
+    env.update({"HOME": home, "NO_COLOR": "1"})
+    pid, master = fork_and_exec(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
 
     output = bytearray()
     try:
