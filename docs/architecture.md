@@ -176,7 +176,7 @@ runtime ports and result DTOs live in `pkg/execution/`. The admission
 `ExecutorFactory` interface and its narrow result/tool contracts live in
 `pkg/router/`; the composition root adapts concrete runtimes to that port.
 
-```
+```text
 pkg/router/admission.go   admission ports and DTOs
                               ↑
 cmd/veto/main.go          providerRegistry + admission adapter
@@ -312,7 +312,7 @@ network-free.
 | `opencode.Runtime` | OpenCode session SSE or JSON CLI subprocess | `veto opencode connect` |
 | `OpenAICompatibleExecutor` | any OpenAI-compatible endpoint (HTTP) | local model configured via `veto login` |
 
-**Subscription mode** (`CLIExecutor`) shells out to the `claude` CLI with `-p` (print mode) and `--output-format text`. This bypasses the Anthropic API entirely — cost is $0 per route because it runs under the user's flat Claude Max / Pro subscription. Subscription takes precedence over API key when both are configured.
+**Subscription mode** (`CLIExecutor`) shells out to the `claude` CLI with `-p` (print mode) and `--output-format text`. When only `CLAUDE_SUBSCRIPTION=true` is configured, this bypasses the Anthropic API entirely and cost is $0 per route because it runs under the user's flat Claude Max / Pro subscription. If `ANTHROPIC_API_KEY` is also set, the CLI may use the API key instead, so cost is unknown rather than guaranteed $0. Subscription takes precedence over API key when routing decides which executor to use.
 
 **Codex subscription mode** (`CodexCLIExecutor`) is registered automatically
 when `codex login status` succeeds. Admission runs ephemerally in a temporary
@@ -512,7 +512,7 @@ When `--criteria "..."` is supplied to `veto run`, a second routing call runs af
 }
 ```
 
-5. `render.PrintReview` displays the per-criterion table. If `passed` is false, `veto run` exits with code 1.
+1. `render.PrintReview` displays the per-criterion table. If `passed` is false, `veto run` exits with code 1.
 
 If criteria were requested and no review-capable model is available, routing
 fails, the reviewer returns malformed JSON, or the result is incomplete or

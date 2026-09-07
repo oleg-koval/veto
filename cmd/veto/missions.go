@@ -59,6 +59,12 @@ func saveTUIMission(record tuiMissionRecord) error {
 	missionStoreMu.Lock()
 	defer missionStoreMu.Unlock()
 
+	lockFile, err := lockMissionStoreFile(path + ".lock")
+	if err != nil {
+		return fmt.Errorf("lock mission index: %w", err)
+	}
+	defer lockFile.Close()
+
 	records := make([]tuiMissionRecord, 0, maxMissionRecords)
 	if data, readErr := os.ReadFile(path); readErr == nil && len(data) > 0 {
 		if err := json.Unmarshal(data, &records); err != nil {

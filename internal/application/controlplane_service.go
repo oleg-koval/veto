@@ -113,7 +113,9 @@ func (s *ControlService) RegisterHandler(actionID string, handler func(context.C
 	if strings.TrimSpace(actionID) == "" || handler == nil {
 		return
 	}
+	s.mu.Lock()
 	s.handlers[actionID] = handler
+	s.mu.Unlock()
 }
 
 func (s *ControlService) Snapshot(ctx context.Context) (controlplane.Snapshot, error) {
@@ -256,8 +258,8 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 	if (request.ActionID == "route" || request.ActionID == "run") && objective == "" {
 		return controlplane.ActionResult{}, errors.New("control plane: objective is required")
 	}
-	requestCtx := ctx
-	cancel := func() {}
+	var requestCtx context.Context
+	var cancel context.CancelFunc
 	var admissionTimeout time.Duration
 	if request.ActionID == "run" && strings.TrimSpace(request.Arguments["timeout"]) != "" {
 		rawTimeout := strings.TrimSpace(request.Arguments["timeout"])
@@ -331,7 +333,7 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		}
 		s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "ready", Provider: model.Provider, Model: model.Name})
 		reasons := routeDecisionReasons(decision)
-		s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "route.completed", Message: fmt.Sprintf("%s accepted (%.0f%% confidence)", model.Name, decision.Confidence*100), Model: model.Name, Confidence: decision.Confidence, ConfidenceKnown: true, Reasons: reasons})
+		s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "route.completed", Message: fmt.Sprintf("%s accepted (%.0f%% confidence)", model.Name, decision.Confidence*100), Model: model.Name, Confidence: decision.Confidence, ConfidenceKnown: decision.Confidence > 0, Reasons: reasons})
 		return controlplane.ActionResult{ActionID: request.ActionID, Summary: "model selected", Model: model.Name}, nil
 	case "run":
 		if s.router == nil {
@@ -386,7 +388,10 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "run.completed", Message: "task completed"})
 		return controlplane.ActionResult{ActionID: request.ActionID, Summary: "task completed", Model: response.Model.Name, Output: response.Output}, nil
 	default:
-		if handler, ok := s.handlers[request.ActionID]; ok {
+		s.mu.RLock()
+		handler, ok := s.handlers[request.ActionID]
+		s.mu.RUnlock()
+		if ok {
 			result, err := handler(requestCtx, request)
 			status := "ready"
 			if err != nil {

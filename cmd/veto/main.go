@@ -43,7 +43,7 @@ func main() {
 		return
 	}
 	// Notify once if new skills are pending approval (non-blocking).
-	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" && os.Args[1] != "feedback" && os.Args[1] != "analytics" && os.Args[1] != "opencode" && os.Args[1] != "hermes" && os.Args[1] != "models" && os.Args[1] != "tui" {
+	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" && os.Args[1] != "feedback" && os.Args[1] != "analytics" && os.Args[1] != "opencode" && os.Args[1] != "hermes" && os.Args[1] != "models" && os.Args[1] != "tui" && os.Args[1] != "start" && os.Args[1] != "unavailable" && os.Args[1] != "experiment" {
 		checkPendingSkills()
 	}
 	switch os.Args[1] {
@@ -505,7 +505,7 @@ func requiresExecutableRuntime(objective string) bool {
 		"git push", "commit and push", "push when", "push once",
 		"modify the repository", "edit the repository", "update the repository",
 		"modify the repo", "edit the repo", "commit the changes",
-	) {
+	) || containsWord(s, "commit") {
 		return true
 	}
 

@@ -114,11 +114,17 @@ type tuiRunLoggingService struct {
 }
 
 func (s tuiRunLoggingService) Execute(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
-	if request.ActionID == "run" || request.ActionID == "route" {
+	if request.ActionID == "run" || request.ActionID == "route" || request.ActionID == "exec" {
 		runID := beginLoggedRun()
+		kind := request.Arguments["kind"]
+		objective := request.Arguments["objective"]
+		if request.ActionID == "exec" {
+			kind = "exec"
+			objective = "Plan: " + request.Arguments["plan"]
+		}
 		_ = saveTUIMission(tuiMissionRecord{
-			RunID: runID, TaskID: request.Arguments["task-id"], Kind: request.Arguments["kind"],
-			Risk: request.Arguments["risk"], CreatedAt: time.Now(), Objective: request.Arguments["objective"],
+			RunID: runID, TaskID: request.Arguments["task-id"], Kind: kind,
+			Risk: request.Arguments["risk"], CreatedAt: time.Now(), Objective: objective,
 		})
 	}
 	return s.Service.Execute(ctx, request)
