@@ -100,7 +100,7 @@ func TestTaskFromRequestKeepsOutputBudgetOutOfRoutingCapabilities(t *testing.T) 
 	t.Parallel()
 
 	task, err := taskFromRequest(controlplane.ActionRequest{Arguments: map[string]string{
-		"kind": "review", "risk": "high", "required-tools": "read, browser-dom", "requires-executable-tools": "true", "criteria": "tests pass; no regression", "max-cost": "0.25", "max-output-tokens": "120",
+		"kind": "review", "risk": "high", "required-tools": "read, browser-dom", "requires-executable-tools": "true", "criteria": "tests pass; no regression", "max-cost": " 0.25 ", "max-output-tokens": "120",
 	}}, "inspect the change")
 	if err != nil {
 		t.Fatalf("taskFromRequest returned error: %v", err)

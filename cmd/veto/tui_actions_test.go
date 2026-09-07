@@ -83,22 +83,19 @@ func TestTUIImpeccableInstallUsesAvailableCLI(t *testing.T) {
 	}
 }
 
-func TestTUIImpeccableInstallFallsBackToNonInteractiveNPX(t *testing.T) {
-	var arguments []string
-	_, err := runTUIImpeccableInstall(context.Background(), func(name string) (string, error) {
-		if name == "npx" {
-			return "/safe/bin/npx", nil
-		}
+func TestTUIImpeccableInstallRejectsImplicitNPXDownload(t *testing.T) {
+	run := false
+	_, err := runTUIImpeccableInstall(context.Background(), func(string) (string, error) {
 		return "", os.ErrNotExist
-	}, func(_ context.Context, _ string, args ...string) ([]byte, error) {
-		arguments = append([]string(nil), args...)
+	}, func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+		run = true
 		return nil, nil
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || !strings.Contains(err.Error(), "explicitly installed impeccable CLI") {
+		t.Fatalf("error = %v", err)
 	}
-	if strings.Join(arguments, " ") != "--yes impeccable@4.0.4 install --providers=veto --scope=global" {
-		t.Fatalf("npx invocation = %#v", arguments)
+	if run {
+		t.Fatal("implicit npx download was executed")
 	}
 }
 

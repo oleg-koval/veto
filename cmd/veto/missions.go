@@ -59,6 +59,9 @@ func saveTUIMission(record tuiMissionRecord) error {
 	missionStoreMu.Lock()
 	defer missionStoreMu.Unlock()
 
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return fmt.Errorf("create mission index directory: %w", err)
+	}
 	lockFile, err := lockMissionStoreFile(path + ".lock")
 	if err != nil {
 		return fmt.Errorf("lock mission index: %w", err)
@@ -89,9 +92,6 @@ func saveTUIMission(record tuiMissionRecord) error {
 	data, err := json.MarshalIndent(records, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode mission index: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return fmt.Errorf("create mission index directory: %w", err)
 	}
 	temporary, err := os.CreateTemp(filepath.Dir(path), ".missions-*.tmp")
 	if err != nil {

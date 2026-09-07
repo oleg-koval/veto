@@ -55,6 +55,7 @@ func (r Runner) Review(ctx context.Context, request ReviewRequest) (ReviewResult
 	response, err := r.Execute(ctx, Request{Task: router.TaskSpec{
 		ID: taskID, Kind: router.KindReview, Objective: prompt,
 		AdmissionObjective: buildReviewAdmissionObjective(request.Original, request.Output),
+		MaxTokens:          (len(prompt) + 3) / 4,
 		Risk:               router.RiskLow, SkipModels: skip,
 	}})
 	if err != nil {

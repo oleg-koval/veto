@@ -69,7 +69,7 @@ func TestModelPaletteKeepsSelectedCommandVisible(t *testing.T) {
 	model.paletteOpen = true
 	model.paletteCursor = len(model.filteredActions()) - 1
 	view := model.View().Content
-	if !strings.Contains(view, "19 commands") {
+	if want := fmt.Sprintf("%d commands", len(model.catalog.Commands())); !strings.Contains(view, want) {
 		t.Fatalf("palette count missing:\n%s", view)
 	}
 	if !strings.Contains(view, "install-git-hook") {

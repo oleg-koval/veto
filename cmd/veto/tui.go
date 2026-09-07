@@ -255,14 +255,7 @@ func runTUIImpeccableInstall(ctx context.Context, lookPath func(string) (string,
 	executable, err := lookPath("impeccable")
 	args := []string{"install", "--providers=veto", "--scope=global"}
 	if err != nil {
-		executable, err = lookPath("npx")
-		if err != nil {
-			return controlplane.ActionResult{ActionID: "impeccable"}, errors.New("Impeccable installation requires the impeccable CLI or npx")
-		}
-		// Pin the npx fallback so content installed into the always-trusted
-		// ~/.veto/skills scope comes from a known, reviewed release rather
-		// than whatever "latest" resolves to at install time.
-		args = append([]string{"--yes", "impeccable@4.0.4"}, args...)
+		return controlplane.ActionResult{ActionID: "impeccable"}, errors.New("Impeccable installation requires the explicitly installed impeccable CLI")
 	}
 	installCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
@@ -432,8 +425,12 @@ func localModelFromTUIRequest(request controlplane.ActionRequest) LocalModel {
 		Endpoint: strings.TrimSpace(request.Arguments["endpoint"]),
 		Model:    strings.TrimSpace(request.Arguments["model"]),
 	}
-	model.APIKey = tuiSecretArgument(request, "api-key")
+	setTUISecret(&model, tuiSecretArgument(request, "api-key"))
 	return model
+}
+
+func setTUISecret(model *LocalModel, value string) {
+	model.APIKey = value
 }
 
 func runTUILogout(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {

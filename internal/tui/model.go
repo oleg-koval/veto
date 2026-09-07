@@ -238,6 +238,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Error · unsupported event schema %d", message.event.Version)
 			return m, nil
 		}
+		message.event.Message = ansi.Strip(message.event.Message)
+		message.event.Model = ansi.Strip(message.event.Model)
+		for index := range message.event.Reasons {
+			message.event.Reasons[index] = ansi.Strip(message.event.Reasons[index])
+		}
 		if m.activeAction == "" && message.event.ActionID != "" {
 			m.activeAction = message.event.ActionID
 		}
@@ -294,7 +299,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if message.err != nil {
 			m.healthLoading = false
 			if message.result.Output != "" && m.output.Len() == 0 {
-				m.output.WriteString(message.result.Output)
+				m.output.WriteString(ansi.Strip(message.result.Output))
 			}
 			if errors.Is(message.err, context.Canceled) {
 				m.status = "Ready · action cancelled"
@@ -304,13 +309,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.output.Len() == 0 {
-				m.output.WriteString(message.err.Error())
+				m.output.WriteString(ansi.Strip(message.err.Error()))
 			}
 			if errors.Is(message.err, router.ErrNoCandidate) {
 				m.decisionModel = ""
 				m.decisionWhy = "No candidate accepted the task. Review Live Routing for each rejection reason."
 			}
-			m.status = "Error · " + message.err.Error()
+			m.status = "Error · " + ansi.Strip(message.err.Error())
 			if returnToProviders {
 				m.activeAction = "providers"
 			}
@@ -327,7 +332,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.status = "Ready · " + message.result.Summary
 		if m.output.Len() == 0 {
-			m.output.WriteString(message.result.Output)
+			m.output.WriteString(ansi.Strip(message.result.Output))
 		}
 		if verifyHealth {
 			m.verifyHealthFix = true
@@ -341,7 +346,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.running = false
 		m.pendingNative = nil
 		if message.err != nil {
-			m.status = "Native agent exited with error · " + message.err.Error()
+			m.status = "Native agent exited with error · " + ansi.Strip(message.err.Error())
 		} else {
 			m.status = "Native agent returned · dispatch outcome is not task correctness"
 		}
@@ -537,6 +542,10 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			action = m.activeAction
 		}
 		m.status = "Cancelling · " + action
+		return m, nil
+	}
+	if m.running && key.String() != "q" {
+		m.status = "Busy · " + m.activeAction + " is still running"
 		return m, nil
 	}
 	if m.confirmOpen {
@@ -1145,7 +1154,8 @@ func (m *Model) updateComposer(key tea.Key) (tea.Model, tea.Cmd) {
 		m.returnToProviders = false
 	case "backspace":
 		if len(m.composerInput) > 0 {
-			m.composerInput = m.composerInput[:len(m.composerInput)-1]
+			runes := []rune(m.composerInput)
+			m.composerInput = string(runes[:len(runes)-1])
 		}
 	case "enter", "tab", "down":
 		if m.composerNeedsObjective() && strings.TrimSpace(m.composerInput) == "" {
@@ -1324,7 +1334,8 @@ func (m *Model) updateComposerField(key tea.Key) (tea.Model, tea.Cmd) {
 	case "backspace":
 		value := m.composerValues[field.Name]
 		if len(value) > 0 {
-			m.composerValues[field.Name] = value[:len(value)-1]
+			runes := []rune(value)
+			m.composerValues[field.Name] = string(runes[:len(runes)-1])
 		}
 	case "enter":
 		if m.composerField < len(m.composerFields)-1 {
@@ -3592,6 +3603,35 @@ func (m *Model) renderProviderHealth() string {
 		return ""
 	}
 	return headerStyle.Render("PROVIDER HEALTH") + "\n" + strings.Join(lines, "\n")
+}
+
+func (m *Model) renderNativeStatus(width int) string {
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("NATIVE DISPATCH STATUS"))
+	b.WriteByte('\n')
+	b.WriteString("default agent: not configured (task-kind policy)\n")
+	for _, provider := range m.snapshot.Providers {
+		if provider.Name != "Claude" && provider.Name != "Codex" {
+			continue
+		}
+		state := "available"
+		if !provider.Installed {
+			state = "executable missing"
+		} else if provider.Unavailable {
+			state = "temporarily unavailable"
+		}
+		auth := provider.Auth
+		if auth == "" {
+			auth = "unknown"
+		}
+		billing := provider.Billing
+		if billing == "" {
+			billing = "unknown"
+		}
+		b.WriteString(truncate(fmt.Sprintf("%-7s %-24s auth=%s billing=%s", provider.Name, state, auth, billing), width-2))
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 func (m *Model) renderHistory(width int) string {

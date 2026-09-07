@@ -505,7 +505,8 @@ func requiresExecutableRuntime(objective string) bool {
 		"git push", "commit and push", "push when", "push once",
 		"modify the repository", "edit the repository", "update the repository",
 		"modify the repo", "edit the repo", "commit the changes",
-	) || containsWord(s, "commit") {
+		"commit this", "commit these", "commit my",
+	) {
 		return true
 	}
 
@@ -829,6 +830,11 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 					// both present we cannot prove which billing path is used.
 					model.CostPer1kInputUnknown = true
 					model.CostPer1kOutputUnknown = true
+				} else {
+					model.CostPer1kInputUSD = 0
+					model.CostPer1kOutputUSD = 0
+					model.CostPer1kInputUnknown = false
+					model.CostPer1kOutputUnknown = false
 				}
 				modelExecutor = executor.NewClaudeCLIExecutor(model.APIModel)
 			} else if key := providerKeys[model.Provider]; key != "" {

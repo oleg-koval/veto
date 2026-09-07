@@ -117,9 +117,6 @@ func readTUIProviders(ctx context.Context) []controlplane.ProviderSnapshot {
 		}
 		providers = append(providers, controlplane.ProviderSnapshot{Name: provider.name, Configured: configured})
 	}
-	if auth := codexCLIAuthenticationContext(ctx); auth != codexAuthNone {
-		providers = append(providers, controlplane.ProviderSnapshot{Name: "Codex", Configured: true})
-	}
 	if _, configured, err := loadOpenCodeConfig(vetoCfgPath()); err == nil && configured {
 		providers = append(providers, controlplane.ProviderSnapshot{Name: "OpenCode", Configured: true})
 	}

@@ -421,7 +421,7 @@ func taskFromRequest(request controlplane.ActionRequest, objective string) (rout
 		risk = router.RiskMedium
 	}
 	var maxCost float64
-	if raw := request.Arguments["max-cost"]; raw != "" {
+	if raw := strings.TrimSpace(request.Arguments["max-cost"]); raw != "" {
 		parsed, err := strconv.ParseFloat(raw, 64)
 		if err != nil || parsed < 0 || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
 			return router.TaskSpec{}, fmt.Errorf("invalid max-cost %q", raw)
@@ -544,14 +544,27 @@ func (s *ControlService) recordExecutionMonitor(event ExecutionEvent) {
 			monitor.OutputTokens = event.Metrics.OutputTokens
 			monitor.TotalTokens = event.Metrics.TotalTokens
 			monitor.TokensKnown = true
+		} else {
+			monitor.InputTokens = 0
+			monitor.CachedInputTokens = 0
+			monitor.CachedInputKnown = false
+			monitor.OutputTokens = 0
+			monitor.TotalTokens = 0
+			monitor.TokensKnown = false
 		}
 		if event.Metrics.CostKnown {
 			monitor.CostUSD = event.Metrics.CostUSD
 			monitor.CostKnown = true
+		} else {
+			monitor.CostUSD = 0
+			monitor.CostKnown = false
 		}
 		if event.Metrics.LatencyKnown {
 			monitor.LatencyMs = event.Metrics.LatencyMs
 			monitor.LatencyKnown = true
+		} else {
+			monitor.LatencyMs = 0
+			monitor.LatencyKnown = false
 		}
 	}
 	s.snapshot.Monitor = monitor
