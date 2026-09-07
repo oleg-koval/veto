@@ -97,7 +97,7 @@ func TestTUIImpeccableInstallFallsBackToNonInteractiveNPX(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(arguments, " ") != "--yes impeccable install --providers=veto --scope=global" {
+	if strings.Join(arguments, " ") != "--yes impeccable@4.0.4 install --providers=veto --scope=global" {
 		t.Fatalf("npx invocation = %#v", arguments)
 	}
 }

@@ -230,6 +230,9 @@ func registerTUIActionHandlers(service *application.ControlService, refreshPrefe
 	service.RegisterHandler("impeccable", func(ctx context.Context, _ controlplane.ActionRequest) (controlplane.ActionResult, error) {
 		return runTUIImpeccableInstall(ctx, exec.LookPath, runTUIExternalCommand)
 	})
+	service.RegisterHandler("start", runTUIStart)
+	service.RegisterHandler("unavailable", runTUIUnavailable)
+	service.RegisterHandler("experiment", runTUIExperiment)
 	service.RegisterHandler("feedback", runTUIFeedback)
 	service.RegisterHandler("verify-models", runTUIVerifyModels)
 	service.RegisterHandler("models", runTUIModels)
@@ -256,7 +259,10 @@ func runTUIImpeccableInstall(ctx context.Context, lookPath func(string) (string,
 		if err != nil {
 			return controlplane.ActionResult{ActionID: "impeccable"}, errors.New("Impeccable installation requires the impeccable CLI or npx")
 		}
-		args = append([]string{"--yes", "impeccable"}, args...)
+		// Pin the npx fallback so content installed into the always-trusted
+		// ~/.veto/skills scope comes from a known, reviewed release rather
+		// than whatever "latest" resolves to at install time.
+		args = append([]string{"--yes", "impeccable@4.0.4"}, args...)
 	}
 	installCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()

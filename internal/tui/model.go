@@ -548,6 +548,10 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.returnToProviders = false
 			m.status = "Ready · action cancelled"
 		case "enter", "y":
+			if m.running {
+				m.status = "Busy · " + m.activeAction + " is still running"
+				return m, nil
+			}
 			if m.pendingNative != nil {
 				command := m.pendingNative
 				m.pendingNative = nil
@@ -732,6 +736,11 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.activeAction = "providers"
 		m.resetDataNavigation()
 		m.status = "Ready · providers"
+	case "s":
+		if action, ok := m.catalog.Find("start"); ok {
+			m.openComposer(action)
+		}
+		return m, nil
 	case "a":
 		if m.activeTab() == "FLEET" {
 			m.openProviderLogin("")
@@ -1271,7 +1280,7 @@ func defaultSubcommand(actionID, fallback string) string {
 }
 
 func (m *Model) composerNeedsObjective() bool {
-	return m.composerAction == "run" || m.composerAction == "route"
+	return m.composerAction == "run" || m.composerAction == "route" || m.composerAction == "start"
 }
 
 func (m *Model) updateComposerField(key tea.Key) (tea.Model, tea.Cmd) {
@@ -1368,6 +1377,10 @@ func (m *Model) requestExecution(request controlplane.ActionRequest) (tea.Model,
 }
 
 func (m *Model) beginExecution(request controlplane.ActionRequest) (tea.Model, tea.Cmd) {
+	if m.running {
+		m.status = "Busy · " + m.activeAction + " is still running"
+		return m, nil
+	}
 	if request.ActionID == "run" || request.ActionID == "route" {
 		if request.Arguments == nil {
 			request.Arguments = make(map[string]string)
@@ -1426,6 +1439,10 @@ func requiresConfirmation(request controlplane.ActionRequest) bool {
 }
 
 func (m *Model) startAction(actionID string) (tea.Model, tea.Cmd) {
+	if m.running {
+		m.status = "Busy · " + m.activeAction + " is still running"
+		return m, nil
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancelRun = cancel
 	m.events = m.options.Service.Subscribe(ctx)
@@ -3444,7 +3461,10 @@ func (m *Model) selectedDataLabel() string {
 }
 
 func formatMultiline(value string, width, limit int) string {
-	value = strings.TrimSpace(value)
+	// Provider/model text is untrusted: strip escape sequences before it
+	// reaches the terminal so a malicious response can't spoof the screen
+	// or trigger clipboard/OSC side effects.
+	value = strings.TrimSpace(ansi.Strip(value))
 	if value == "" {
 		return mutedStyle.Render("No output returned.")
 	}

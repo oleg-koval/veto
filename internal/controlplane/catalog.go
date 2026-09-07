@@ -22,6 +22,9 @@ func DefaultCatalog() Catalog {
 		{ID: "run", Label: "Run", Command: "run", Category: "Execution", Description: "Route a task and execute the response.", Flags: runFlags()},
 		{ID: "exec", Label: "Execute plan", Command: "exec", Category: "Execution", Description: "Execute a veto plan step by step.", Flags: append([]FlagSpec{{Name: "plan", Value: "path", Required: true, Description: "Path to a veto plan markdown file."}}, execFlags()...)},
 		{ID: "route", Label: "Route", Command: "route", Category: "Routing", Description: "Choose the best available model without execution.", Flags: routeFlags()},
+		{ID: "start", Label: "Start native task", Command: "start", Category: "Execution", Description: "Hand a task to a native coding agent (Claude Code or Codex).", Flags: startFlags()},
+		{ID: "unavailable", Label: "Unavailable", Command: "unavailable", Category: "Execution", Description: "Temporarily exclude a native agent from dispatch.", Flags: []FlagSpec{{Name: "agent", Value: "string", Description: "Native agent name; omit to list current exclusions."}, {Name: "for", Value: "duration", Description: "Exclusion duration, e.g. 2h or 30m."}, {Name: "clear", Value: "bool", Description: "Remove the exclusion for the given agent."}}},
+		{ID: "experiment", Label: "Experiment log", Command: "experiment", Category: "Execution", Description: "Inspect or clear the local native-dispatch experiment log.", Flags: []FlagSpec{{Name: "clear", Value: "bool", Description: "Delete the local experiment log."}}},
 		{ID: "benchmark", Label: "Benchmark", Command: "benchmark", Category: "Diagnostics", Description: "Replay an offline routing corpus and emit metrics.", Flags: []FlagSpec{{Name: "corpus", Value: "path", Default: "internal/eval/testdata/routing_corpus.json", Description: "Offline routing corpus JSON file."}}},
 		{ID: "verify-models", Label: "Verify models", Command: "verify-models", Category: "Diagnostics", Description: "Verify catalog IDs against a provider account.", Flags: []FlagSpec{{Name: "provider", Value: "string", Default: "openai", Description: "Provider to verify."}, {Name: "endpoint", Value: "url", Description: "Override the provider model-list URL."}, {Name: "artifacts-dir", Value: "path", Default: "artifacts/http", Description: "Directory for raw response artifacts."}, {Name: "timeout", Value: "duration", Default: "20s", Description: "HTTP request timeout."}, {Name: "json", Value: "bool", Description: "Emit one JSON result line."}}},
 		{ID: "doctor", Label: "Doctor", Command: "doctor", Category: "Diagnostics", Description: "Diagnose installation and ~/.veto integrity.", Flags: []FlagSpec{{Name: "fix", Value: "bool", Description: "Repair only safe filesystem and official-binary integrity findings."}, {Name: "offline", Value: "bool", Default: "true", Description: "Skip release-integrity network checks."}, {Name: "json", Value: "bool", Description: "Emit a machine-readable diagnostic report."}}},
@@ -70,6 +73,20 @@ func (c Catalog) Find(id string) (ActionSpec, bool) {
 		}
 	}
 	return ActionSpec{}, false
+}
+
+func startFlags() []FlagSpec {
+	return []FlagSpec{
+		{Name: "task", Value: "string", Description: "Task objective (or positional argument)."},
+		{Name: "agent", Value: "string", Description: "Native agent: claude or codex."},
+		{Name: "choose", Value: "string", Description: "Experimental choice: agent or model."},
+		{Name: "model", Value: "string", Description: "Explicit model where supported."},
+		{Name: "kind", Value: "string", Description: "Task kind; inferred when omitted."},
+		{Name: "risk", Value: "string", Default: "medium", Description: "Risk level: low, medium, or high."},
+		{Name: "override-agent", Value: "string", Description: "Override an automatic agent proposal."},
+		{Name: "override-model", Value: "string", Description: "Override an automatic model proposal."},
+		{Name: "no-feedback", Value: "bool", Description: "Skip the post-run usefulness prompt."},
+	}
 }
 
 func routeFlags() []FlagSpec {

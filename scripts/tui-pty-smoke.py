@@ -306,7 +306,7 @@ def run_route(binary: str, home: str) -> None:
         os.write(master, b"jjjjjr")
         time.sleep(0.15)
         os.write(master, b"route this example\r")
-        for _ in range(12):
+        for _ in range(13):
             time.sleep(0.03)
             os.write(master, b"\r")
 
