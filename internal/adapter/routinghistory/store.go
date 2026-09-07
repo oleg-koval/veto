@@ -166,6 +166,8 @@ func (s *FileStore) trimAndRebuild() {
 
 // Signal returns the aggregate signal maintained by the inner policy store.
 func (s *FileStore) Signal(modelName string, kind router.TaskKind) router.RoutingSignal {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.store.Signal(modelName, kind)
 }
 

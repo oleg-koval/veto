@@ -24,7 +24,13 @@ func loadCredentials() (credentials, error) {
 		return nil, err
 	}
 	var c credentials
-	return c, json.Unmarshal(data, &c)
+	if err := json.Unmarshal(data, &c); err != nil {
+		return nil, err
+	}
+	if c == nil {
+		c = credentials{}
+	}
+	return c, nil
 }
 
 func saveCredential(envKey, value string) error {
@@ -83,7 +89,7 @@ func writeCredentialsAtomic(path string, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, path)
+	return replacePrivateFile(tmpName, path)
 }
 
 // getKey returns the API key for envKey — env var wins, then credentials file.

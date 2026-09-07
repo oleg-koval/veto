@@ -7,16 +7,30 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	hermesintegration "github.com/oleg-koval/veto/integrations/hermes"
 	"github.com/oleg-koval/veto/internal/controlplane"
+	"github.com/oleg-koval/veto/pkg/dispatch"
 	"github.com/oleg-koval/veto/pkg/ledger"
 )
 
 // loadTUISnapshot reads only bounded, redacted local metadata. It is a
 // composition-root adapter so the application service remains independent of
 // CLI-specific filesystem paths and doctor implementations.
-func loadTUISnapshot(_ context.Context) (controlplane.Snapshot, error) {
+var tuiDoctorCache struct {
+	sync.Mutex
+	report doctorReport
+	at     time.Time
+}
+
+const tuiDoctorCacheTTL = 30 * time.Second
+
+func loadTUISnapshot(ctx context.Context) (controlplane.Snapshot, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	snapshot := controlplane.Snapshot{Status: "ready"}
 	if status, err := currentAnalyticsStatus(); err == nil {
 		snapshot.Analytics = controlplane.AnalyticsSnapshot{
@@ -29,21 +43,73 @@ func loadTUISnapshot(_ context.Context) (controlplane.Snapshot, error) {
 	} else {
 		snapshot.Health = append(snapshot.Health, controlplane.HealthSnapshot{ID: "analytics.config", Status: "WARN", Message: "analytics preference could not be read"})
 	}
+	if err := ctx.Err(); err != nil {
+		return snapshot, err
+	}
 
-	report := runDoctor(doctorOptions{offline: true}, defaultDoctorDeps())
+	report := cachedTUIDoctor(ctx)
 	for _, check := range report.Checks {
 		snapshot.Health = append(snapshot.Health, controlplane.HealthSnapshot{ID: check.ID, Status: string(check.Status), Message: check.Message})
 	}
+	if err := ctx.Err(); err != nil {
+		return snapshot, err
+	}
 	snapshot.History = readTUIHistory()
+	if err := ctx.Err(); err != nil {
+		return snapshot, err
+	}
 	snapshot.Plans = readTUIPlans()
-	snapshot.Providers = readTUIProviders()
+	if err := ctx.Err(); err != nil {
+		return snapshot, err
+	}
+	snapshot.Providers = readTUIProviders(ctx)
+	if err := ctx.Err(); err != nil {
+		return snapshot, err
+	}
 	snapshot.Integrations = readTUIIntegrations()
+	if err := ctx.Err(); err != nil {
+		return snapshot, err
+	}
 	return snapshot, nil
 }
 
-func readTUIProviders() []controlplane.ProviderSnapshot {
+func cachedTUIDoctor(ctx context.Context) doctorReport {
+	now := time.Now()
+	tuiDoctorCache.Lock()
+	if !tuiDoctorCache.at.IsZero() && now.Sub(tuiDoctorCache.at) < tuiDoctorCacheTTL {
+		report := tuiDoctorCache.report
+		tuiDoctorCache.Unlock()
+		return report
+	}
+	tuiDoctorCache.Unlock()
+	if ctx.Err() != nil {
+		return doctorReport{}
+	}
+	report := runDoctor(doctorOptions{ctx: ctx, offline: true}, defaultDoctorDeps())
+	if ctx.Err() != nil {
+		return report
+	}
+	tuiDoctorCache.Lock()
+	tuiDoctorCache.report = report
+	tuiDoctorCache.at = time.Now()
+	tuiDoctorCache.Unlock()
+	return report
+}
+
+func readTUIProviders(ctx context.Context) []controlplane.ProviderSnapshot {
 	creds, _ := loadCredentials()
 	providers := make([]controlplane.ProviderSnapshot, 0, len(knownProviders)+2)
+	for _, native := range nativeAgentStatuses(ctx, dispatch.NewAvailabilityStore(availabilityPath())) {
+		name := native.Name
+		if len(name) > 0 {
+			name = strings.ToUpper(name[:1]) + name[1:]
+		}
+		models := []string{"native default"}
+		if native.Name == "claude" {
+			models = []string{"haiku", "sonnet", "opus"}
+		}
+		providers = append(providers, controlplane.ProviderSnapshot{Name: name, Configured: native.Auth == dispatch.AuthAuthenticated, Installed: native.Installed, Auth: string(native.Auth), Billing: string(native.Billing), Unavailable: native.Unavailable, Warning: native.Warning, Models: models})
+	}
 	for _, provider := range knownProviders {
 		configured := os.Getenv(provider.envKey) != "" || creds[provider.envKey] != ""
 		if provider.provider == "anthropic" && (os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true") {
@@ -86,6 +152,7 @@ func readTUIHistory() []controlplane.HistorySnapshot {
 	if err != nil {
 		return nil
 	}
+	paths = append(paths, experimentPath())
 	sort.Strings(paths)
 	result := make([]controlplane.HistorySnapshot, 0, 128)
 	missions := readTUIMissions()

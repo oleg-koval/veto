@@ -95,7 +95,7 @@ func saveLocalModel(lm LocalModel) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0600)
+	return writeLocalModelsAtomic(path, data)
 }
 
 func removeLocalModel(name string) error {
@@ -120,7 +120,35 @@ func removeLocalModel(name string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(localModelsPath(), data, 0600)
+	return writeLocalModelsAtomic(localModelsPath(), data)
+}
+
+func writeLocalModelsAtomic(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".models-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return replacePrivateFile(tmpName, path)
 }
 
 // capabilities converts a LocalModel to the router type, applying defaults.

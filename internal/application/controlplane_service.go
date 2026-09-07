@@ -285,6 +285,11 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		admissionTimeout = parsedTimeout
 	}
 	s.mu.Lock()
+	if _, exists := s.active[request.ActionID]; exists {
+		s.mu.Unlock()
+		cancel()
+		return controlplane.ActionResult{}, fmt.Errorf("control plane: action %q is already active", request.ActionID)
+	}
 	s.active[request.ActionID] = cancel
 	s.mu.Unlock()
 	defer func() {
@@ -341,7 +346,7 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		if s.skillResolver != nil {
 			skills = s.skillResolver(requestCtx, task)
 		}
-		response, err := s.runner.Execute(requestCtx, Request{Task: task, Skills: skills, AdmissionTimeout: admissionTimeout, Options: execution.ExecutionOptions{MaxOutputTokens: task.MaxTokens}, Writer: outputWriter{s: s, actionID: request.ActionID}})
+		response, err := s.runner.Execute(requestCtx, Request{Task: task, Skills: skills, AdmissionTimeout: admissionTimeout, Options: executionOptions(request), Writer: outputWriter{s: s, actionID: request.ActionID}})
 		status := "ready"
 		if err != nil {
 			status = "error"
@@ -413,22 +418,21 @@ func taskFromRequest(request controlplane.ActionRequest, objective string) (rout
 	var maxCost float64
 	if raw := request.Arguments["max-cost"]; raw != "" {
 		parsed, err := strconv.ParseFloat(raw, 64)
-		if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+		if err != nil || parsed < 0 || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
 			return router.TaskSpec{}, fmt.Errorf("invalid max-cost %q", raw)
 		}
 		maxCost = parsed
 	}
-	var maxTokens int
 	if raw := request.Arguments["max-output-tokens"]; raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed <= 0 {
 			return router.TaskSpec{}, fmt.Errorf("invalid max-output-tokens %q", raw)
 		}
-		maxTokens = parsed
 	}
-	// max-output-tokens is retained in TaskSpec for the execution boundary; the
-	// router only applies it when a concrete context limit is known.
-	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, MaxTokens: maxTokens, RequiredTools: splitRequestList(request.Arguments["required-tools"]), RequiresExecutableTools: request.Arguments["requires-executable-tools"] == "true" || router.RequiresExecutableRuntime(objective), SuccessCriteria: splitRequestList(request.Arguments["criteria"]), RuntimeFilter: request.Arguments["runtime"], ProviderFilter: request.Arguments["provider"], Source: "tui"}, nil
+	// max-output-tokens is an execution-only budget (see executionOptions); it is
+	// validated here but deliberately kept out of TaskSpec so it cannot influence
+	// routing/admission decisions.
+	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, RequiredTools: splitRequestList(request.Arguments["required-tools"]), RequiresExecutableTools: request.Arguments["requires-executable-tools"] == "true" || router.RequiresExecutableRuntime(objective), SuccessCriteria: splitRequestList(request.Arguments["criteria"]), RuntimeFilter: request.Arguments["runtime"], ProviderFilter: request.Arguments["provider"], Source: "tui"}, nil
 }
 
 func routeWithTimeout(port Router, ctx context.Context, task router.TaskSpec, timeout time.Duration) (router.ModelCapabilities, router.AdmissionDecision, error) {

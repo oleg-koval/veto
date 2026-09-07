@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oleg-koval/veto/pkg/dispatch"
 	"github.com/oleg-koval/veto/pkg/executor"
@@ -26,7 +28,7 @@ func TestRunStartForwardsPromptAndEnvironmentWithoutLoggingPrompt(t *testing.T) 
 	experimentLedger = nil
 	eventRunID = ""
 	var output, diagnostics bytes.Buffer
-	code := runStart([]string{"--agent", "claude", "--no-feedback", "fix parser; keep prompt one arg"}, strings.NewReader(""), &output, &diagnostics, executor.NewNativeLauncher(), dispatch.NewAvailabilityStore(filepath.Join(home, ".veto", "unavailable.json")))
+	code := runStart(context.Background(), []string{"--agent", "claude", "--no-feedback", "fix parser; keep prompt one arg"}, strings.NewReader(""), &output, &diagnostics, executor.NewNativeLauncher(), dispatch.NewAvailabilityStore(filepath.Join(home, ".veto", "unavailable.json")))
 	require.Equal(t, 0, code, diagnostics.String())
 	require.Contains(t, output.String(), "native-output")
 	args, err := os.ReadFile(argsPath)
@@ -46,6 +48,48 @@ func TestRunStartPropagatesNativeExitCode(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", bin)
 	var output, diagnostics bytes.Buffer
-	code := runStart([]string{"--agent", "claude", "task"}, strings.NewReader(""), &output, &diagnostics, executor.NewNativeLauncher(), dispatch.NewAvailabilityStore(filepath.Join(t.TempDir(), "unavailable.json")))
+	code := runStart(context.Background(), []string{"--agent", "claude", "task"}, strings.NewReader(""), &output, &diagnostics, executor.NewNativeLauncher(), dispatch.NewAvailabilityStore(filepath.Join(t.TempDir(), "unavailable.json")))
 	require.Equal(t, 23, code)
+}
+
+func TestRunStartCancellationStopsNativeProcess(t *testing.T) {
+	bin := t.TempDir()
+	home := t.TempDir()
+	startedPath := filepath.Join(t.TempDir(), "started")
+	script := filepath.Join(bin, "claude")
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\n: > \"$VETO_TEST_STARTED\"\n/bin/sleep 30\n"), 0700))
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", bin)
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("VETO_TEST_STARTED", startedPath)
+	require.NoError(t, resetExperimentLogger())
+	t.Cleanup(func() { _ = resetExperimentLogger() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() {
+		done <- runStart(ctx, []string{"--agent", "claude", "--no-feedback", "task"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, executor.NewNativeLauncher(), dispatch.NewAvailabilityStore(filepath.Join(home, ".veto", "unavailable.json")))
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(startedPath); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	_, err := os.Stat(startedPath)
+	require.NoError(t, err, "native process did not start")
+	cancel()
+	select {
+	case code := <-done:
+		require.NotZero(t, code)
+	case <-time.After(5 * time.Second):
+		t.Fatal("native process did not stop after cancellation")
+	}
+}
+
+func TestNativeProposalRejectsUnsupportedOverrideModel(t *testing.T) {
+	statuses := []dispatch.AgentStatus{{Name: "claude", Installed: true, Auth: dispatch.AuthAuthenticated}, {Name: "codex", Installed: true, Auth: dispatch.AuthAuthenticated}}
+	_, _, err := nativeProposal(map[string]string{"choose": "agent", "objective": "fix code", "override-agent": "claude", "override-model": "gpt-5-codex"}, statuses)
+	require.ErrorContains(t, err, `model "gpt-5-codex" is not known to be supported by claude`)
 }
