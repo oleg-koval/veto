@@ -255,7 +255,7 @@ func runTUIImpeccableInstall(ctx context.Context, lookPath func(string) (string,
 	executable, err := lookPath("impeccable")
 	args := []string{"install", "--providers=veto", "--scope=global"}
 	if err != nil {
-		return controlplane.ActionResult{ActionID: "impeccable"}, errors.New("Impeccable installation requires the explicitly installed impeccable CLI")
+		return controlplane.ActionResult{ActionID: "impeccable"}, errors.New("impeccable installation requires the explicitly installed impeccable CLI")
 	}
 	installCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()

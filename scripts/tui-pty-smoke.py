@@ -250,13 +250,27 @@ def run_cancellation(binary: str, home: str) -> None:
 
         # Select Run, submit a task that only the delayed fake model accepts,
         # then cancel while the admission request is still in flight.
+        request_signal = os.path.join(home, ".veto", "fake-provider-request.received")
+        try:
+            os.unlink(request_signal)
+        except FileNotFoundError:
+            pass
         os.write(master, b"jjjr")
         time.sleep(0.15)
         os.write(master, b"debug this example\r")
         for _ in range(13):
             time.sleep(0.03)
             os.write(master, b"\r")
-        time.sleep(0.35)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not os.path.exists(request_signal):
+            ready, _, _ = select.select([master], [], [], 0.1)
+            if ready:
+                try:
+                    output.extend(os.read(master, 8192))
+                except OSError:
+                    break
+        if not os.path.exists(request_signal):
+            raise SystemExit(f"fake provider did not receive cancellation request: output={bytes(output)!r}")
         os.write(master, b"\x1b")
 
         deadline = time.monotonic() + 10

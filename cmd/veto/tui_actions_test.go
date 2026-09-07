@@ -91,7 +91,7 @@ func TestTUIImpeccableInstallRejectsImplicitNPXDownload(t *testing.T) {
 		run = true
 		return nil, nil
 	})
-	if err == nil || !strings.Contains(err.Error(), "explicitly installed impeccable CLI") {
+	if err == nil || !strings.Contains(err.Error(), "impeccable installation requires the explicitly installed impeccable CLI") {
 		t.Fatalf("error = %v", err)
 	}
 	if run {

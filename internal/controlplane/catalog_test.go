@@ -1,6 +1,11 @@
 package controlplane
 
-import "testing"
+import (
+	"strconv"
+	"testing"
+
+	"github.com/oleg-koval/veto/pkg/execution"
+)
 
 func TestDefaultCatalogCoversCLICommands(t *testing.T) {
 	t.Parallel()
@@ -79,8 +84,12 @@ func TestDefaultCatalogUsesBoundedExecutionTokenDefaults(t *testing.T) {
 		for _, field := range action.Flags {
 			if field.Name == "max-output-tokens" {
 				found = true
-				if field.Default == "" {
-					t.Fatalf("%s max-output-tokens has no bounded default", actionID)
+				value, err := strconv.Atoi(field.Default)
+				if err != nil {
+					t.Fatalf("%s max-output-tokens default %q is not an integer: %v", actionID, field.Default, err)
+				}
+				if value <= 0 || value > execution.DefaultExecutionMaxTokens {
+					t.Fatalf("%s max-output-tokens default = %d, want 1..%d", actionID, value, execution.DefaultExecutionMaxTokens)
 				}
 			}
 		}

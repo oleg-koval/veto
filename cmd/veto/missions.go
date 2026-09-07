@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/oleg-koval/veto/pkg/ledger"
 )
@@ -69,7 +70,11 @@ func saveTUIMission(record tuiMissionRecord) error {
 	defer lockFile.Close()
 
 	records := make([]tuiMissionRecord, 0, maxMissionRecords)
-	if data, readErr := os.ReadFile(path); readErr == nil && len(data) > 0 {
+	data, readErr := os.ReadFile(path)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return fmt.Errorf("read mission index: %w", readErr)
+	}
+	if readErr == nil && len(data) > 0 {
 		if err := json.Unmarshal(data, &records); err != nil {
 			return fmt.Errorf("read mission index: %w", err)
 		}
@@ -89,7 +94,7 @@ func saveTUIMission(record tuiMissionRecord) error {
 	if len(records) > maxMissionRecords {
 		records = records[len(records)-maxMissionRecords:]
 	}
-	data, err := json.MarshalIndent(records, "", "  ")
+	data, err = json.MarshalIndent(records, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode mission index: %w", err)
 	}
@@ -142,14 +147,22 @@ func boundMissionPrompt(value string) string {
 	if len(value) <= maxMissionPrompt {
 		return value
 	}
-	return value[:maxMissionPrompt] + "\n[initial prompt truncated at 64 KiB]"
+	limit := maxMissionPrompt
+	for limit > 0 && !utf8.RuneStart(value[limit]) {
+		limit--
+	}
+	return value[:limit] + "\n[initial prompt truncated at 64 KiB]"
 }
 
 func missionTitle(objective string) string {
 	line := strings.TrimSpace(strings.SplitN(objective, "\n", 2)[0])
 	line = strings.Join(strings.Fields(line), " ")
 	if len(line) > 96 {
-		return line[:93] + "..."
+		limit := 93
+		for limit > 0 && !utf8.RuneStart(line[limit]) {
+			limit--
+		}
+		return line[:limit] + "..."
 	}
 	return line
 }
