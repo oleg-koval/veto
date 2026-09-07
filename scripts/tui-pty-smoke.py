@@ -206,6 +206,8 @@ def run_execution(binary: str, home: str) -> None:
             time.sleep(0.05)
             os.write(master, b"\r")
 
+        execution_output_seen = False
+        execution_completed = False
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
             ready, _, _ = select.select([master], [], [], 0.2)
@@ -217,10 +219,12 @@ def run_execution(binary: str, home: str) -> None:
                 if not chunk:
                     break
                 output.extend(chunk)
-                if b"SMOKE EXECUTION OK" in output:
+                execution_output_seen = b"SMOKE EXECUTION OK" in output
+                execution_completed = b"task completed" in output and (
+                    b"exec output  4" in output or b"4 out" in output
+                )
+                if execution_output_seen or execution_completed:
                     break
-        execution_output_seen = b"SMOKE EXECUTION OK" in output
-        execution_completed = b"task completed" in output and b"4 out" in output
         if not execution_output_seen and not execution_completed:
             raise SystemExit(f"TUI Run did not reach fake-provider output: output={bytes(output)!r}")
         if not (b"LIVE ROUTING" in output or b"route." in output or b"winner" in output):
