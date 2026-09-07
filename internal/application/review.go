@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/oleg-koval/veto/pkg/router"
 )
 
@@ -54,7 +55,11 @@ func (r Runner) Review(ctx context.Context, request ReviewRequest) (ReviewResult
 	}
 	response, err := r.Execute(ctx, Request{Task: router.TaskSpec{
 		ID: taskID, Kind: router.KindReview, Objective: prompt,
-		Risk: router.RiskLow, SkipModels: skip,
+		AdmissionObjective: buildReviewAdmissionObjective(request.Original, request.Output),
+		// Context admission must leave room for the bounded review response
+		// requested by Runner.Execute, not just the input prompt.
+		MaxTokens: (len(prompt)+3)/4 + execution.DefaultExecutionMaxTokens,
+		Risk:      router.RiskLow, SkipModels: skip,
 	}})
 	if err != nil {
 		return ReviewResult{}, fmt.Errorf("review unavailable: %w", err)
@@ -67,6 +72,23 @@ func (r Runner) Review(ctx context.Context, request ReviewRequest) (ReviewResult
 		return ReviewResult{}, err
 	}
 	return result, nil
+}
+
+func buildReviewAdmissionObjective(spec router.TaskSpec, output string) string {
+	// Routing needs the work shape and payload size, not the payload itself.
+	// The selected reviewer receives the complete prompt exactly once during
+	// execution. Four bytes per token is an intentionally rough preflight
+	// estimate; providers remain authoritative for actual usage.
+	estimatedTokens := (len(spec.Objective) + len(output) + 3) / 4
+	return fmt.Sprintf("Evaluate a completed %s task against %d acceptance criteria. The full review payload is approximately %d tokens and will be supplied after admission.",
+		valueOrReviewKind(spec.Kind), len(spec.SuccessCriteria), estimatedTokens)
+}
+
+func valueOrReviewKind(kind router.TaskKind) router.TaskKind {
+	if kind == "" {
+		return router.KindReview
+	}
+	return kind
 }
 
 func reviewTaskID(prompt string) string {

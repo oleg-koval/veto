@@ -143,6 +143,19 @@ func TestBuildAdmissionPrompt(t *testing.T) {
 	assert.NotContains(t, unknownContextPrompt, "max context tokens: 0")
 }
 
+func TestAdmissionPromptUsesCompactObjectiveWithoutLeakingExecutionPayload(t *testing.T) {
+	task := TaskSpec{
+		Kind:               KindReview,
+		Objective:          "review private full output that is intentionally large",
+		AdmissionObjective: "review one completed task with a 1200-token payload",
+		Risk:               RiskLow,
+	}
+	prompt := buildAdmissionPrompt(task, ModelCapabilities{Name: "reviewer", Tier: "mid"}, nil)
+
+	assert.Contains(t, prompt, task.AdmissionObjective)
+	assert.NotContains(t, prompt, task.Objective)
+}
+
 func TestParseAdmissionJSON(t *testing.T) {
 	tests := []struct {
 		name   string

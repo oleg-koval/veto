@@ -32,6 +32,6 @@ func TestReadTUIHistoryKeepsNewestEventsAcrossFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(experimentPath(), append(newest, '\n'), 0600))
 
 	history := readTUIHistory()
-	require.Len(t, history, 40)
+	require.Len(t, history, 41)
 	require.Equal(t, string(ledger.EventNativeExited), history[0].Type)
 }

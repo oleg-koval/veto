@@ -26,6 +26,11 @@ var _ EventTaskExecutor = (*CodexCLIExecutor)(nil)
 const (
 	maxCodexEventLine  = 8 << 20
 	maxCodexEventBytes = 64 << 20
+	// Agent loops otherwise inherit the model's very large context window and
+	// can replay hundreds of thousands of tokens before compaction. A 64k
+	// ceiling retains enough working context for repository tasks while keeping
+	// repeated tool turns bounded.
+	codexAutoCompactTokenLimit = 64 * 1024
 )
 
 func NewCodexCLIExecutor() *CodexCLIExecutor {
@@ -90,7 +95,16 @@ func (e *CodexCLIExecutor) Stream(ctx context.Context, prompt string, w io.Write
 }
 
 func (*CodexCLIExecutor) executionArgs(prompt string) []string {
-	return []string{"exec", "--ephemeral", "--json", "--color", "never", prompt}
+	// Keep Veto runs independent from the operator's interactive Codex session.
+	// Global config can load plugins, hooks, and unrelated history into every
+	// turn, making a small task resend an unexpectedly large context. Project
+	// instructions are still loaded from the caller's repository, while
+	// authentication continues to come from CODEX_HOME.
+	return []string{
+		"exec", "--ephemeral", "--ignore-user-config",
+		"--config", fmt.Sprintf("model_auto_compact_token_limit=%d", codexAutoCompactTokenLimit),
+		"--json", "--color", "never", prompt,
+	}
 }
 
 // ExecuteWithEvents consumes Codex's JSONL stream so long-running agent work
@@ -179,13 +193,15 @@ func (s *codexExecutionState) process(line []byte) error {
 	var event struct {
 		Type string `json:"type"`
 		Item struct {
-			Type   string `json:"type"`
-			Text   string `json:"text"`
-			Status string `json:"status"`
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			Status   string `json:"status"`
+			ExitCode *int   `json:"exit_code"`
 		} `json:"item"`
 		Usage struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
+			InputTokens       int  `json:"input_tokens"`
+			CachedInputTokens *int `json:"cached_input_tokens"`
+			OutputTokens      int  `json:"output_tokens"`
 		} `json:"usage"`
 		Error struct {
 			Message string `json:"message"`
@@ -209,11 +225,16 @@ func (s *codexExecutionState) process(line []byte) error {
 			s.output = message
 			return nil
 		}
-		s.emitToolEvent(event.Type, event.Item.Type, event.Item.Status)
+		s.emitToolEvent(event.Type, event.Item.Type, event.Item.Status, event.Item.ExitCode)
 	case "turn.completed":
 		input := nonNegativeCodexTokens(event.Usage.InputTokens)
 		output := nonNegativeCodexTokens(event.Usage.OutputTokens)
-		s.usage = Usage{InputTokens: input, OutputTokens: output, TotalTokens: input + output, Known: true}
+		usage := Usage{InputTokens: input, OutputTokens: output, TotalTokens: input + output, Known: true}
+		if event.Usage.CachedInputTokens != nil {
+			usage.CachedInputTokens = min(nonNegativeCodexTokens(*event.Usage.CachedInputTokens), input)
+			usage.CachedInputKnown = true
+		}
+		s.usage = usage
 	case "turn.failed", "error":
 		message := strings.TrimSpace(event.Error.Message)
 		if message == "" {
@@ -227,7 +248,7 @@ func (s *codexExecutionState) process(line []byte) error {
 	return nil
 }
 
-func (s *codexExecutionState) emitToolEvent(eventType, itemType, status string) {
+func (s *codexExecutionState) emitToolEvent(eventType, itemType, status string, exitCode *int) {
 	if s.emit == nil {
 		return
 	}
@@ -248,7 +269,10 @@ func (s *codexExecutionState) emitToolEvent(eventType, itemType, status string) 
 	if eventType == "item.started" {
 		event.Kind, event.Status = RuntimeToolStarted, "running"
 	} else if status == "failed" {
-		event.Kind, event.Status = RuntimeToolError, "error"
+		event.Kind, event.Status = RuntimeToolError, "failed"
+		if exitCode != nil {
+			event.Status = fmt.Sprintf("failed (exit %d)", *exitCode)
+		}
 	} else {
 		event.Kind, event.Status = RuntimeToolCompleted, "completed"
 	}

@@ -88,9 +88,11 @@ type Event struct {
 
 // Usage holds token consumption metrics for a model invocation.
 type Usage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	InputTokens       int  `json:"input_tokens"`
+	CachedInputTokens int  `json:"cached_input_tokens,omitempty"`
+	CachedInputKnown  bool `json:"cached_input_known,omitempty"`
+	OutputTokens      int  `json:"output_tokens"`
+	TotalTokens       int  `json:"total_tokens"`
 }
 
 // Writer appends versioned events to a line-delimited JSON stream.

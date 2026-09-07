@@ -78,6 +78,16 @@ func TestRequiresExecutableRuntime(t *testing.T) {
 			objective: "summarize https://github.com/oleg-koval/roazon/pull/1513",
 			want:      false,
 		},
+		{
+			name:      "read-only commit history",
+			objective: "explain the commit history",
+			want:      false,
+		},
+		{
+			name:      "commit a change",
+			objective: "commit this change",
+			want:      true,
+		},
 	}
 
 	for _, tt := range tests {

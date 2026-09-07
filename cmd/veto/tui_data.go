@@ -133,10 +133,9 @@ func readTUIPlans() []controlplane.PlanSnapshot {
 		return nil
 	}
 	sort.Strings(paths)
-	const maxPlans = 40
-	plans := make([]controlplane.PlanSnapshot, 0, min(len(paths), maxPlans))
-	for index := 0; index < len(paths) && index < maxPlans; index++ {
-		plans = append(plans, controlplane.PlanSnapshot{Name: filepath.Base(paths[index])})
+	plans := make([]controlplane.PlanSnapshot, 0, len(paths))
+	for _, path := range paths {
+		plans = append(plans, controlplane.PlanSnapshot{Name: filepath.Base(path)})
 	}
 	return plans
 }
@@ -152,8 +151,8 @@ func readTUIHistory() []controlplane.HistorySnapshot {
 	}
 	paths = append(paths, experimentPath())
 	sort.Strings(paths)
-	const maxHistory = 40
-	result := make([]controlplane.HistorySnapshot, 0, len(paths)*maxHistory)
+	result := make([]controlplane.HistorySnapshot, 0, 128)
+	missions := readTUIMissions()
 	for index := len(paths) - 1; index >= 0; index-- {
 		file, openErr := os.Open(paths[index])
 		if openErr != nil {
@@ -164,36 +163,99 @@ func readTUIHistory() []controlplane.HistorySnapshot {
 		if readErr != nil {
 			continue
 		}
-		first := max(0, len(events)-maxHistory)
-		for eventIndex := len(events) - 1; eventIndex >= first; eventIndex-- {
+		for eventIndex := len(events) - 1; eventIndex >= 0; eventIndex-- {
 			event := events[eventIndex]
-			result = append(result, controlplane.HistorySnapshot{Timestamp: event.Timestamp, Type: string(event.Type), Model: event.Model, Runtime: event.Runtime, Status: event.Status})
+			model, harness := tuiHistoryIdentity(event)
+			snapshot := controlplane.HistorySnapshot{
+				Timestamp: event.Timestamp, EventID: event.EventID, RunID: event.RunID, TaskID: event.TaskID,
+				TaskKind: event.TaskKind, Risk: event.Risk, Type: string(event.Type), Model: model,
+				Runtime: harness, Status: event.Status, Reasons: append([]string(nil), event.Reasons...), Detail: event.Detail,
+			}
+			if mission, ok := missions[event.RunID]; ok {
+				snapshot.MissionTitle = mission.Title
+				snapshot.Objective = mission.Objective
+			}
+			if event.Confidence != nil {
+				snapshot.Confidence, snapshot.ConfidenceKnown = *event.Confidence, true
+			}
+			if event.EstimatedTokens != nil {
+				snapshot.EstimatedTokens, snapshot.EstimatedTokensKnown = *event.EstimatedTokens, true
+			}
+			if event.EstimatedCostUSD != nil {
+				snapshot.EstimatedCostUSD, snapshot.EstimatedCostKnown = *event.EstimatedCostUSD, true
+			}
+			if event.Usage != nil {
+				snapshot.InputTokens = event.Usage.InputTokens
+				snapshot.CachedInputTokens = event.Usage.CachedInputTokens
+				// A positive value predates the explicit presence bit; keep those
+				// records readable while preserving a reported zero going forward.
+				snapshot.CachedInputKnown = event.Usage.CachedInputKnown || event.Usage.CachedInputTokens > 0
+				snapshot.OutputTokens = event.Usage.OutputTokens
+				snapshot.TotalTokens = event.Usage.TotalTokens
+				snapshot.UsageKnown = true
+			}
+			if event.CostUSD != nil {
+				snapshot.CostUSD, snapshot.CostKnown = *event.CostUSD, true
+			}
+			if event.LatencyMS != nil {
+				snapshot.LatencyMS, snapshot.LatencyKnown = *event.LatencyMS, true
+			}
+			result = append(result, snapshot)
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Timestamp.After(result[j].Timestamp) })
-	if len(result) > maxHistory {
-		result = result[:maxHistory]
-	}
 	return result
 }
 
+func tuiHistoryIdentity(event ledger.Event) (string, string) {
+	if strings.EqualFold(event.Model, "codex") || event.Runtime == "codex-cli" {
+		return "", "Codex CLI"
+	}
+	return event.Model, displayHarness(event.Runtime)
+}
+
+func displayHarness(runtime string) string {
+	switch runtime {
+	case "claude-cli":
+		return "Claude CLI"
+	case "openai-api":
+		return "OpenAI API"
+	case "openrouter-api":
+		return "OpenRouter API"
+	case "opencode":
+		return "OpenCode"
+	case "openai-compatible":
+		return "Local API"
+	default:
+		return runtime
+	}
+}
+
 func readTUIIntegrations() []controlplane.IntegrationSnapshot {
-	integrations := make([]controlplane.IntegrationSnapshot, 0, 2)
+	integrations := make([]controlplane.IntegrationSnapshot, 0, 3)
 	if config, configured, err := loadOpenCodeConfig(vetoCfgPath()); err == nil && configured {
-		integrations = append(integrations, controlplane.IntegrationSnapshot{Name: "OpenCode", Status: "configured", Detail: string(config.Mode)})
+		integrations = append(integrations, controlplane.IntegrationSnapshot{Name: "OpenCode", Status: "configured", Detail: "mode: " + string(config.Mode), PrimaryAction: "status"})
 	} else {
-		integrations = append(integrations, controlplane.IntegrationSnapshot{Name: "OpenCode", Status: "not configured", Detail: "run veto opencode connect"})
+		integrations = append(integrations, controlplane.IntegrationSnapshot{Name: "OpenCode", Status: "not configured", Detail: "Connect Veto to the installed OpenCode runtime", PrimaryAction: "connect"})
 	}
 	if home, err := hermesHome(""); err == nil {
 		if state, statusErr := hermesintegration.Status(home); statusErr == nil {
 			status := "current"
+			action := "status"
 			if state.Missing > 0 || state.Modified > 0 {
 				status = "needs attention"
+				action = "repair"
 			}
-			integrations = append(integrations, controlplane.IntegrationSnapshot{Name: "Hermes", Status: status, Detail: fmt.Sprintf("installed=%d missing=%d modified=%d", state.Installed, state.Missing, state.Modified)})
+			integrations = append(integrations, controlplane.IntegrationSnapshot{Name: "Hermes", Status: status, Detail: fmt.Sprintf("installed=%d missing=%d modified=%d", state.Installed, state.Missing, state.Modified), PrimaryAction: action})
 		} else {
-			integrations = append(integrations, controlplane.IntegrationSnapshot{Name: "Hermes", Status: "unavailable", Detail: strings.TrimSpace(statusErr.Error())})
+			integrations = append(integrations, controlplane.IntegrationSnapshot{Name: "Hermes", Status: "unavailable", Detail: strings.TrimSpace(statusErr.Error()), PrimaryAction: "install"})
 		}
 	}
+	integrations = append(integrations, controlplane.IntegrationSnapshot{
+		Name:          "Impeccable",
+		Status:        "available",
+		Detail:        "Install curated design skills directly into Veto",
+		PrimaryAction: "install",
+	})
 	return integrations
 }

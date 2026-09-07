@@ -128,7 +128,10 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
                 time.sleep(0.15)
                 os.write(master, b"openai\r\rsmoke-secret")
                 time.sleep(0.2)
-                os.write(master, b"\x1b")
+                # The first escape leaves the focused field; the second
+                # cancels the form. Keep the final quit outside the modal so
+                # the smoke test exercises the normal cleanup path.
+                os.write(master, b"\x1b\x1b")
             else:
                 os.write(master, b"/")
                 time.sleep(0.15)
@@ -143,14 +146,22 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
                 if mouse:
                     os.write(master, b"\x1b[<35;3;2M")
             time.sleep(0.15)
-            os.write(master, b"q")
+            # Ctrl-C is the documented emergency escape hatch and remains
+            # valid even if the form cancellation above is still settling.
+            os.write(master, b"\x03")
 
             status = wait_for_exit(pid, 8, drain)
             if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
                 raise SystemExit(f"TUI exited unsuccessfully: status={status} output={bytes(output)!r}")
             if b"\x1b[?1049h" not in output or b"\x1b[?1049l" not in output:
                 raise SystemExit(f"TUI did not enter/leave alternate screen: output={bytes(output)!r}")
-            if b"VETO" not in output or not (b"COMMANDS" in output or b"COMPOSER" in output):
+            # A terminal too short to fit the full command list (e.g. the
+            # 12-row onboarding check) renders a condensed home view instead;
+            # its "Enter compose" / "Tab views" hint line is the equivalent
+            # evidence that the shell rendered rather than crashing.
+            has_shell = b"COMMANDS" in output or b"COMMAND CENTER" in output or b"COMPOSER" in output
+            has_condensed_shell = b"Enter compose" in output and b"Tab views" in output
+            if not (b"VETO" in output or b"LOCAL AI CONTROL PLANE" in output) or not (has_shell or has_condensed_shell):
                 raise SystemExit(f"TUI did not render its command shell: output={bytes(output)!r}")
             if secret_probe and b"smoke-secret" in output:
                 raise SystemExit("TUI login form leaked the probe secret into terminal output")
@@ -186,10 +197,10 @@ def run_execution(binary: str, home: str) -> None:
         # Select Run, open its composer, enter an objective, then accept the
         # default CLI-compatible flag values through the final field.
         os.write(master, b"jjjr")
-        time.sleep(0.15)
+        time.sleep(0.5)
         os.write(master, b"summarize this example\r")
         for _ in range(13):
-            time.sleep(0.03)
+            time.sleep(0.05)
             os.write(master, b"\r")
 
         deadline = time.monotonic() + 20
@@ -209,7 +220,7 @@ def run_execution(binary: str, home: str) -> None:
             raise SystemExit(f"TUI Run did not reach fake-provider output: output={bytes(output)!r}")
         if not (b"LIVE ROUTING" in output or b"route." in output or b"winner" in output):
             raise SystemExit(f"TUI Run did not render live routing evidence: output={bytes(output)!r}")
-        os.write(master, b"q")
+        os.write(master, b"\x03")
 
         status = wait_for_exit(pid, 8)
         if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
@@ -274,7 +285,7 @@ def run_cancellation(binary: str, home: str) -> None:
                     break
         if b"action cancelled" not in output:
             raise SystemExit(f"TUI Run cancellation was not rendered: output={bytes(output)!r}")
-        os.write(master, b"q")
+        os.write(master, b"\x03")
 
         status = wait_for_exit(pid, 8)
         if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
@@ -305,12 +316,11 @@ def run_route(binary: str, home: str) -> None:
                 if b"VETO" in output:
                     break
 
-        # Select Route, open the selected action, submit an objective, and
-        # accept every default flag. The global r shortcut opens Run.
-        os.write(master, b"jjjjj\r")
+        # Select Route, submit an objective, and accept every default flag.
+        os.write(master, b"jjjjjr")
         time.sleep(0.15)
         os.write(master, b"route this example\r")
-        for _ in range(12):
+        for _ in range(13):
             time.sleep(0.03)
             os.write(master, b"\r")
 
@@ -329,7 +339,7 @@ def run_route(binary: str, home: str) -> None:
                     break
         if b"LIVE ROUTING" not in output or not (b"winner" in output or b"completed" in output):
             raise SystemExit(f"TUI Route did not render completion evidence: output={bytes(output)!r}")
-        os.write(master, b"q")
+        os.write(master, b"\x03")
 
         status = wait_for_exit(pid, 8)
         if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
@@ -409,7 +419,7 @@ def run_plan(binary: str, home: str) -> None:
 
         # Open Execute plan through the palette, choose the safe plan name,
         # accept default flags, and verify the step reaches the Runner.
-        os.write(master, b"jjjj\r")
+        os.write(master, b"jjjjr")
         time.sleep(0.2)
         os.write(master, b"smoke-plan.md\r")
         for _ in range(6):
@@ -431,7 +441,7 @@ def run_plan(binary: str, home: str) -> None:
                     break
         if b"SMOKE EXECUTION OK" not in output or b"OUTPUT" not in output:
             raise SystemExit(f"TUI Execute plan did not reach visible Runner output: output={bytes(output)!r}")
-        os.write(master, b"q")
+        os.write(master, b"\x03")
 
         status = wait_for_exit(pid, 8)
         if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:

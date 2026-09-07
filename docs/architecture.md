@@ -173,18 +173,18 @@ On the next run with the same task spec, veto loads the checkpoint, skips alread
 
 Each provider has a concrete transport in `pkg/executor/`. Stable full-task
 runtime ports and result DTOs live in `pkg/execution/`. The admission
-`ExecutorFactory` interface and tool-capability DTO live in `pkg/router/`;
-`router.AdmissionResult` aliases the stable execution result for public source
-compatibility. The composition root adapts concrete runtimes to the admission
-port without exposing provider transports to the router.
+`ExecutorFactory` interface and its narrow result/tool contracts live in
+`pkg/router/`; the composition root adapts concrete runtimes to that port.
 
 ```text
-cmd/veto/main.go ───────▶ pkg/router/admission.go ───────▶ pkg/execution/
-       │                  admission ports + tool DTO       stable result +
-       │                                                   full-task ports
-       │                                                         ▲
-       └────────────────▶ pkg/executor/ ──────────────────────────┘
-                          concrete provider transports
+pkg/router/admission.go   admission ports and DTOs
+                              ↑
+cmd/veto/main.go          providerRegistry + admission adapter
+                              ↓
+pkg/execution/            full-task runtime ports and DTOs
+                              ↑
+pkg/executor/             AnthropicExecutor, OpenAIExecutor, OpenRouterExecutor, CLIExecutor,
+                          CodexCLIExecutor, OpenAICompatibleExecutor (local/self-hosted)
 ```
 
 `providerRegistry` exposes two views of the model set: `For(name)` (executor lookup, used by admission and execution) and `modelCaps()` (capability slice, used to build the `router.Registry`). `modelCaps()` intersects catalog metadata with the active transport's effective tools before hard filtering. This allows local models added via `veto login` to participate in scoring and filtering alongside built-ins without claiming capabilities their transport cannot provide.
@@ -312,17 +312,21 @@ network-free.
 | `opencode.Runtime` | OpenCode session SSE or JSON CLI subprocess | `veto opencode connect` |
 | `OpenAICompatibleExecutor` | any OpenAI-compatible endpoint (HTTP) | local model configured via `veto login` |
 
-**Subscription mode** (`CLIExecutor`) shells out to the `claude` CLI with `-p` (print mode) and `--output-format text`. This bypasses the Anthropic API transport, but Veto does not claim a zero cost unless the native billing mode is directly verifiable. When a subscription marker and `ANTHROPIC_API_KEY` coexist, billing remains UNKNOWN because inherited environment state can affect native CLI behavior.
+**Subscription mode** (`CLIExecutor`) shells out to the `claude` CLI with `-p` (print mode) and `--output-format text`. When only `CLAUDE_SUBSCRIPTION=true` is configured, this bypasses the Anthropic API entirely and cost is $0 per route because it runs under the user's flat Claude Max / Pro subscription. If `ANTHROPIC_API_KEY` is also set, the CLI may use the API key instead, so cost is unknown rather than guaranteed $0. Subscription takes precedence over API key when routing decides which executor to use.
 
 **Codex subscription mode** (`CodexCLIExecutor`) is registered automatically
 when `codex login status` succeeds. Admission runs ephemerally in a temporary
 read-only workspace, ignores user config and exec-policy rules, and writes the
-schema-constrained decision to a dedicated output file. Full execution runs a
-normal ephemeral Codex agent in the caller's working directory so repository
-instructions, tools, hooks, and the user's approval policy remain effective.
-Authentication comes from the existing Codex CLI login. Veto keeps ChatGPT-plan
-billing and capacity UNKNOWN because login success is not cost evidence; API-key
-or unrecognized CLI authentication is also not treated as free.
+schema-constrained decision to a dedicated output file. Full execution runs an
+ephemeral Codex agent in the caller's working directory with user config
+disabled. This prevents global plugins, hooks, and unrelated session history
+from being injected into every Veto task while preserving repository
+instructions and the CLI's normal execution controls. A 65,536-token automatic
+compaction ceiling bounds the active Codex working context; it does not cap the
+gross tokens processed across multiple internal turns. Authentication comes
+from the user's `CODEX_HOME`. Veto distinguishes a
+ChatGPT subscription login (known zero marginal provider cost) from API-key or
+unrecognized CLI authentication, whose cost remains unknown.
 
 All concrete transports implement the short `Run` admission path and the
 separate `Execute` task path. HTTP executors send the provider-specific bounded
@@ -417,7 +421,10 @@ type streamer interface {
 The Claude subscription CLI implements the legacy path. Other executors use
 their buffered `Execute` method. Codex consumes its bounded JSONL event stream,
 prints completed agent messages, records only allowlisted tool lifecycle names,
-and reports CLI token usage while keeping subscription billing and capacity UNKNOWN. OpenCode exposes provider-reported usage and
+and reports CLI token usage with known zero marginal subscription cost. Gross
+input and cached/reused input are recorded separately when Codex provides both,
+so the UI can derive fresh input without presenting replayed context as wholly
+new. OpenCode exposes provider-reported usage and
 cost when present; unknown pricing is not recomputed as a known zero. Its API
 does not expose a portable per-prompt output-token field, so Veto still enforces
 the command timeout and bounded 8 MiB event/text safety limit, while reporting
@@ -479,7 +486,7 @@ Approval state is stored in `~/.veto/config.json` under the `"skills"` key as `a
 
 **Resolution flow** for each `veto run` call:
 
-1. `loadSkills()` reads `.md` files from `~/.veto/skills/`, user-approved directories, and the parent directories of individually approved files. External files are loaded only when their directory or exact path is approved.
+1. `loadSkills()` reads all `.md` files from `skillSourceDirs()` (the union of `~/.veto/skills/` and user-approved dirs), filtering to only approved files in unapproved dirs.
 2. `matchSkills(spec)` separates matches into kind-specific (skill has `kinds` list that includes the task kind) and generic (empty `kinds`). Kind-specific are preferred; combined list capped at 2.
 3. `withSkills(objective, bodies)` prepends matched skill bodies under `## Relevant skills` before the task objective. Internal/meta routes (review, plan conversion) pass `nil` to avoid recursion.
 
@@ -490,8 +497,9 @@ Skills are **never auto-generated during a routing call**. `resolveSkills` only 
 When `--criteria "..."` is supplied to `veto run`, a second routing call runs after execution:
 
 1. `buildReviewPrompt` constructs a JSON-response prompt that includes the original objective, the acceptance criteria, and the model's output.
-2. `reviewOutput` routes this as a `review/low` task using `TaskSpec.SkipModels = [executorModel]` — the model that produced the output is excluded to prevent self-grading bias.
-3. The reviewer must respond with JSON only:
+2. Review admission receives a compact routing objective containing the task kind, criterion count, and approximate payload size. The full prompt is withheld until execution, preventing the generated output from being sent once for admission and again for review.
+3. `reviewOutput` routes this as a `review/low` task using `TaskSpec.SkipModels = [executorModel]` — the model that produced the output is excluded to prevent self-grading bias.
+4. The reviewer must respond with JSON only:
 
 ```json
 {
@@ -504,7 +512,7 @@ When `--criteria "..."` is supplied to `veto run`, a second routing call runs af
 }
 ```
 
-4. `render.PrintReview` displays the per-criterion table. If `passed` is false, `veto run` exits with code 1.
+1. `render.PrintReview` displays the per-criterion table. If `passed` is false, `veto run` exits with code 1.
 
 If criteria were requested and no review-capable model is available, routing
 fails, the reviewer returns malformed JSON, or the result is incomplete or
@@ -599,28 +607,12 @@ a versioned, allowlisted lifecycle envelope defined in
 [`docs/event-ledger.md`](event-ledger.md). Run and task IDs correlate routing,
 execution, artifact, and review events without persisting objectives, prompts,
 or responses. Sensitive error detail is redacted and bounded before writing.
+Each TUI submission receives a new run ID; its routing, execution, and nested
+review events retain that shared ID. This prevents unrelated missions from a
+single long-lived TUI process being grouped as one apparent token-heavy run.
 Files older than 7 days are pruned on each routing invocation. If the log file
 cannot be created, routing continues with the ledger discarded.
 
 `history.json` remains separate: it preserves backward-compatible admission
 and execution aggregates used by the scorer. Corrupt or legacy history falls
 back conservatively and is not rewritten by the event ledger.
-
-## Native dispatch experiment
-
-`veto start` is a thin composition-root path over `pkg/dispatch` and
-`pkg/executor.NativeLauncher`. The policy is deterministic and explainable:
-manual mode selects the requested agent, agent-choice uses task kind plus
-availability, and model-choice uses a fixed model mapping where local metadata
-is safe. The launcher uses direct argument arrays and leaves native environment,
-working directory, permissions, configuration, sessions, and terminal streams
-untouched. The TUI uses Bubble Tea's terminal-release/restore handoff around
-the same child command.
-
-Native status keeps authentication, billing mode, capacity, and cost separate.
-Claude subscription/API ambiguity is UNKNOWN when Veto cannot verify the native
-CLI's actual path. `~/.veto/unavailable.json` stores only bounded, expiring
-manual exclusions. `~/.veto/experiment.log` stores bounded, local, allowlisted
-choice/process/usefulness events; it never stores task text, source,
-transcripts, responses, or credentials and can be deleted with
-`veto experiment --clear`.

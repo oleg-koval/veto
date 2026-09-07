@@ -19,10 +19,9 @@ Implemented:
   analytics, and integration views;
 - plan selection opens the Execute-plan form with safe `~/.veto/plans` name
   resolution; doctor JSON and feedback JSON-input modes are available;
-- plan validation, dry-run, step execution, deterministic `abort` or `continue`
-  failure policy, per-step criteria review, and a final cross-step regression
-  review through the same control service used by route/run; interactive
-  `abort-ask` remains available in the normal CLI;
+- plan validation, dry-run, step execution, failure policy, per-step criteria
+  review, and a final cross-step regression review through the same control
+  service used by route/run;
 - animated running status with reduced-motion and no-color text fallbacks.
 - live model disable/enable updates the active router without restarting the TUI.
 - fresh installs open the shell without providers; login/logout reloads the

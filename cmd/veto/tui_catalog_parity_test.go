@@ -31,8 +31,20 @@ func TestTUICatalogMatchesRootCLICommandInventory(t *testing.T) {
 		cliCommands[fields[0]] = struct{}{}
 	}
 
+	// Commands dispatched by main.go but intentionally omitted from the
+	// printed COMMANDS usage text (they're advanced native-dispatch
+	// controls, not primary entry points) still belong in the TUI catalog.
+	hiddenFromUsage := map[string]struct{}{
+		"start":       {},
+		"unavailable": {},
+		"experiment":  {},
+	}
+
 	tuiCommands := make(map[string]struct{})
 	for _, action := range controlplane.DefaultCatalog().Commands() {
+		if _, hidden := hiddenFromUsage[action.Command]; hidden {
+			continue
+		}
 		tuiCommands[action.Command] = struct{}{}
 	}
 	if len(cliCommands) != len(tuiCommands) {

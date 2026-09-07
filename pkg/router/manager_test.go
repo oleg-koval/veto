@@ -121,6 +121,50 @@ func TestManager_Route_AdmissionCallsNeverExceedLimit(t *testing.T) {
 	assert.Equal(t, 3, calls)
 }
 
+func TestManager_RouteAttemptsSiblingModelsAfterRuntimeFailure(t *testing.T) {
+	calls := 0
+	exec := runtimeExecutor{
+		id: "openai-api",
+		run: func(context.Context, string) AdmissionResult {
+			calls++
+			if calls == 1 {
+				return AdmissionResult{Error: errors.New("model-specific error")}
+			}
+			return AdmissionResult{Output: acceptJSON()}
+		},
+	}
+	gate := NewAdmissionGateWithFactory(runtimeFactory{"gpt-4.1": exec, "gpt-4.1-mini": exec})
+	models := []ModelCapabilities{
+		{Name: "gpt-4.1", Provider: "openai", Runtime: "openai-api", Tier: tierMid, CostPer1kInputUSD: 0.001},
+		{Name: "gpt-4.1-mini", Provider: "openai", Runtime: "openai-api", Tier: tierSmall, CostPer1kInputUSD: 0.002},
+	}
+	mgr := NewManager(NewRegistryFromModels(models), gate, NewMemoryStore())
+
+	model, decision, err := mgr.Route(t.Context(), TaskSpec{ID: "fallback", Kind: KindCodeChange})
+	require.NoError(t, err)
+	assert.True(t, decision.Accept)
+	assert.Equal(t, "gpt-4.1-mini", model.Name)
+	assert.Equal(t, 2, calls, "a sibling model must still be admitted after a model-specific failure")
+}
+
+type runtimeFactory map[string]Executor
+
+func (f runtimeFactory) For(modelName string) (Executor, bool) {
+	exec, ok := f[modelName]
+	return exec, ok
+}
+
+type runtimeExecutor struct {
+	id  string
+	run func(context.Context, string) AdmissionResult
+}
+
+func (e runtimeExecutor) Run(ctx context.Context, prompt string) AdmissionResult {
+	return e.run(ctx, prompt)
+}
+
+func (e runtimeExecutor) AdmissionRuntimeID() string { return e.id }
+
 func TestManager_Route_LargeCatalogIsShortlistedLocally(t *testing.T) {
 	models := make([]ModelCapabilities, 500)
 	for i := range models {

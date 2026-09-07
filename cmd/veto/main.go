@@ -52,18 +52,6 @@ func main() {
 			fmt.Fprintln(os.Stderr, "tui:", err)
 			os.Exit(1)
 		}
-	case "start":
-		if code := cmdStart(os.Args[2:]); code != 0 {
-			os.Exit(code)
-		}
-	case "unavailable":
-		if code := cmdUnavailable(os.Args[2:]); code != 0 {
-			os.Exit(code)
-		}
-	case "experiment":
-		if code := cmdExperiment(os.Args[2:]); code != 0 {
-			os.Exit(code)
-		}
 	case "route":
 		cmdRoute(os.Args[2:])
 	case "benchmark":
@@ -106,6 +94,12 @@ func main() {
 		fmt.Println("veto " + resolvedVersion())
 	case "install-git-hook":
 		cmdInstallGitHook(os.Args[2:])
+	case "start":
+		os.Exit(cmdStart(os.Args[2:]))
+	case "unavailable":
+		os.Exit(cmdUnavailable(os.Args[2:]))
+	case "experiment":
+		os.Exit(cmdExperiment(os.Args[2:]))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
 		printUsage(os.Stderr)
@@ -150,9 +144,6 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "COMMANDS")
 	fmt.Fprintln(o, "  tui                open the keyboard-first full-screen interface")
-	fmt.Fprintln(o, "  start              launch Claude Code or Codex manually or experimentally")
-	fmt.Fprintln(o, "  unavailable        temporarily exclude a native agent from dispatch")
-	fmt.Fprintln(o, "  experiment         inspect or delete local native-dispatch events")
 	fmt.Fprintln(o, "  login              connect a provider (opens browser, masked key input)")
 	fmt.Fprintln(o, "  logout             remove a configured provider or local model")
 	fmt.Fprintln(o, "  setup              discover and approve skills from your skill directories")
@@ -289,9 +280,7 @@ func cmdRoute(args []string) {
 	if *providerFilter != "" {
 		hashObjective += "\x00provider=" + *providerFilter
 	}
-	requiredToolsForHash := splitTaskList(*requiredTools)
-	requiresExecutableForHash := *requiresExecutableTools || requiresExecutableRuntime(objective)
-	hash := taskHashWithTools(hashObjective, kind, *risk, *maxCost, requiredToolsForHash, requiresExecutableForHash)
+	hash := taskHashWithTools(hashObjective, kind, *risk, *maxCost, splitTaskList(*requiredTools), *requiresExecutableTools || requiresExecutableRuntime(objective))
 	cp := &Checkpoint{Hash: hash, Objective: objective}
 	if !*noResume {
 		if saved, ok := loadCheckpoint(hash); ok {
@@ -370,15 +359,14 @@ func cmdRoute(args []string) {
 		Kind:                    router.TaskKind(kind),
 		Complexity:              router.Complexity(complexity),
 		Objective:               objective,
-		RequiredTools:           requiredToolsForHash,
-		RequiresExecutableTools: requiresExecutableForHash,
+		RequiredTools:           splitTaskList(*requiredTools),
+		RequiresExecutableTools: *requiresExecutableTools || requiresExecutableRuntime(objective),
 		Risk:                    router.Risk(*risk),
 		MaxCostUSD:              *maxCost,
 		SkipModels:              cp.triedNames(),
 		RuntimeFilter:           *runtimeFilter,
 		ProviderFilter:          *providerFilter,
 	}
-
 	model, decision, err := mgr.Route(ctx, spec)
 	// persist history regardless of outcome — os.Exit below skips defers
 	_ = store.Save()
@@ -512,7 +500,18 @@ func inferKind(objective string) string {
 // requiresExecutableRuntime recognizes explicit requests to mutate repository
 // state. Content-only code generation remains eligible for text transports.
 func requiresExecutableRuntime(objective string) bool {
-	return router.RequiresExecutableRuntime(objective)
+	s := strings.ToLower(objective)
+	if containsAny(s,
+		"git push", "commit and push", "push when", "push once",
+		"modify the repository", "edit the repository", "update the repository",
+		"modify the repo", "edit the repo", "commit the changes",
+		"commit this", "commit these", "commit my",
+	) {
+		return true
+	}
+
+	prTarget, _, mutation := pullRequestMutationSignals(s)
+	return prTarget && mutation
 }
 
 func pullRequestMutationSignals(objective string) (prTarget, reviewTarget, mutation bool) {
@@ -601,21 +600,20 @@ func runProvidersCommand(stdout io.Writer) int {
 	if auth := codexCLIAuthentication(); auth != codexAuthNone {
 		status := "authenticated (cli)"
 		if auth == codexAuthChatGPT {
-			status = "ChatGPT (cli; billing UNKNOWN)"
+			status = "ChatGPT (cli)"
 		} else if auth == codexAuthAPIKey {
-			status = "API key (cli; cost UNKNOWN)"
+			status = "API key (cli)"
 		}
 		providerRows = append(providerRows, []string{"Codex", status, "codex"})
 		configured++
 	}
 	for _, p := range knownProviders {
 		models := catalogModelDescription(p.provider)
-		// Claude's marker is configuration, not proof of the billing path used by
-		// the native CLI. Keep API-key ambiguity visible instead of claiming free use.
+		// Anthropic: check subscription mode before API key
 		if p.envKey == "ANTHROPIC_API_KEY" {
 			switch {
 			case os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true":
-				providerRows = append(providerRows, []string{p.name, "UNKNOWN billing (Claude CLI)", "subscription/API selection is not verifiable"})
+				providerRows = append(providerRows, []string{p.name, "subscription (cli)", "Claude Haiku, Sonnet, Opus"})
 				configured++
 			case os.Getenv(p.envKey) != "":
 				providerRows = append(providerRows, []string{p.name, "env var", models})
@@ -701,13 +699,15 @@ type admissionExecutorAdapter struct {
 }
 
 var (
-	_ router.Executor        = admissionExecutorAdapter{}
-	_ router.ToolProvider    = admissionExecutorAdapter{}
-	_ router.ExecutorFactory = (*providerRegistry)(nil)
+	_ router.Executor                = admissionExecutorAdapter{}
+	_ router.ToolProvider            = admissionExecutorAdapter{}
+	_ router.RuntimeIdentityProvider = admissionExecutorAdapter{}
+	_ router.ExecutorFactory         = (*providerRegistry)(nil)
 )
 
 func (a admissionExecutorAdapter) Run(ctx context.Context, prompt string) router.AdmissionResult {
-	return a.runtime.Run(ctx, prompt)
+	result := a.runtime.Run(ctx, prompt)
+	return router.AdmissionResult{Output: result.Output, Error: result.Error}
 }
 
 func (a admissionExecutorAdapter) AdmissionTools() router.ToolCapabilities {
@@ -722,6 +722,13 @@ func (a admissionExecutorAdapter) AdmissionTools() router.ToolCapabilities {
 		capabilities.Tools = nil
 	}
 	return capabilities
+}
+
+func (a admissionExecutorAdapter) AdmissionRuntimeID() string {
+	if a.runtime == nil {
+		return ""
+	}
+	return a.runtime.RuntimeID()
 }
 
 func (r *providerRegistry) For(name string) (router.Executor, bool) {
@@ -804,20 +811,35 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 		reg.caps[model.Name] = model
 	}
 
-	// Subscription mode uses claude CLI, but billing remains unknown. The native
-	// CLI can be affected by inherited ANTHROPIC_API_KEY and its billing choice
-	// is not observable from this boundary.
+	// Subscription mode: use claude CLI (flat-fee, $0 marginal) instead of API key.
+	// Subscription takes precedence over API key when both are present.
 	subscription := creds["CLAUDE_SUBSCRIPTION"] == "true" || os.Getenv("CLAUDE_SUBSCRIPTION") == "true"
 	providerKeys := map[string]string{
 		"anthropic":  getKey("ANTHROPIC_API_KEY", creds),
 		"openai":     getKey("OPENAI_API_KEY", creds),
 		"openrouter": getKey("OPENROUTER_API_KEY", creds),
 	}
+	// Claude CLI inherits credentials from the process environment, not from
+	// Veto's stored credentials file. A stored API key therefore does not make
+	// subscription billing ambiguous unless the CLI can actually inherit it.
+	claudeAPIKeyInherited := os.Getenv("ANTHROPIC_API_KEY") != ""
 	for _, model := range catalog.All() {
 		var modelExecutor execution.RuntimeAdapter
 		switch model.Provider {
 		case "anthropic":
 			if subscription {
+				if claudeAPIKeyInherited {
+					// The claude CLI inherits ANTHROPIC_API_KEY from the process
+					// environment and prefers it over subscription auth, so with
+					// both present we cannot prove which billing path is used.
+					model.CostPer1kInputUnknown = true
+					model.CostPer1kOutputUnknown = true
+				} else {
+					model.CostPer1kInputUSD = 0
+					model.CostPer1kOutputUSD = 0
+					model.CostPer1kInputUnknown = false
+					model.CostPer1kOutputUnknown = false
+				}
 				modelExecutor = executor.NewClaudeCLIExecutor(model.APIModel)
 			} else if key := providerKeys[model.Provider]; key != "" {
 				modelExecutor = executor.NewAnthropicExecutor(key, model.APIModel)
@@ -832,10 +854,6 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 			}
 		}
 		if modelExecutor != nil {
-			if model.Provider == "anthropic" && subscription {
-				model.CostPer1kInputUnknown = true
-				model.CostPer1kOutputUnknown = true
-			}
 			addBuiltin(model, modelExecutor)
 		}
 	}

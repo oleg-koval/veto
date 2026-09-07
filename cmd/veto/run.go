@@ -96,14 +96,14 @@ func cmdRun(args []string) {
 	}
 
 	requiredToolList := splitTaskList(*requiredTools)
-	requiresExecutable := *requiresExecutableTools || requiresExecutableRuntime(objective)
+	needsExecutableTools := *requiresExecutableTools || requiresExecutableRuntime(objective)
 	spec := router.TaskSpec{
-		ID:                      taskHashWithTools(objective, kind, *risk, *maxCost, requiredToolList, requiresExecutable),
+		ID:                      taskHashWithTools(objective, kind, *risk, *maxCost, requiredToolList, needsExecutableTools),
 		Kind:                    router.TaskKind(kind),
 		Complexity:              complexity,
 		Objective:               objective,
 		RequiredTools:           requiredToolList,
-		RequiresExecutableTools: requiresExecutable,
+		RequiresExecutableTools: needsExecutableTools,
 		Risk:                    router.Risk(*risk),
 		MaxCostUSD:              *maxCost,
 		SuccessCriteria:         criteria,
@@ -142,10 +142,11 @@ func cmdRun(args []string) {
 			OnRuntimeEvent: logRuntimeEvent,
 		},
 	}
+	var outputBuffer strings.Builder
 	response, err := runner.Execute(ctx, application.Request{
 		Task: spec, Skills: skillBodies,
 		Options: execution.ExecutionOptions{MaxOutputTokens: *maxOutputTokens},
-		Writer:  os.Stdout,
+		Writer:  io.MultiWriter(os.Stdout, &outputBuffer),
 	})
 	_ = store.Save()
 
@@ -168,6 +169,9 @@ func cmdRun(args []string) {
 
 	model := response.Model
 	output := response.Output
+	if output == "" {
+		output = outputBuffer.String()
+	}
 	if response.OutputWritten {
 		fmt.Println()
 	} else {

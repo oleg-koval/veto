@@ -3,9 +3,16 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"unicode/utf8"
 )
+
+// printCLITable renders a terminal table with widths based on its content.
+// Provider and local-model values are not bounded by their column headers.
+func printCLITable(headers []string, rows [][]string) {
+	writeCLITable(os.Stdout, headers, rows)
+}
 
 func writeCLITable(writer io.Writer, headers []string, rows [][]string) {
 	if len(headers) == 0 {

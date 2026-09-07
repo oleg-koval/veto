@@ -38,13 +38,20 @@ func cmdTUI(args []string) error {
 	if fs.NArg() > 0 {
 		return fmt.Errorf("tui does not accept positional arguments")
 	}
+	// The TUI runs the same router and executor as the CLI, so it must also
+	// initialize the local ledger. Without this, a failed interactive mission
+	// leaves no attributable routing or execution evidence to diagnose.
+	setupLogger()
+	runningExecutable, _ := os.Executable()
+
 	model := tui.NewModel(controlplane.DefaultCatalog(), tui.Options{
 		Motion:       !*reduceMotion && !*screenReader,
 		NoColor:      *noColor || *screenReader || os.Getenv("NO_COLOR") != "",
 		Mouse:        !*noMouse && !*screenReader,
 		ScreenReader: *screenReader,
+		Version:      resolvedVersion(),
+		Executable:   runningExecutable,
 		ServiceFactory: func() (controlplane.Service, error) {
-			setupLogger()
 			reg, mgr, store, err := prepareTUIRouting()
 			if err != nil {
 				return nil, fmt.Errorf("prepare routing: %w", err)
@@ -85,9 +92,9 @@ func cmdTUI(args []string) error {
 				summary := "veto " + resolvedVersion()
 				return controlplane.ActionResult{ActionID: "version", Summary: summary, Output: summary}, nil
 			})
-			service.RegisterHandler("start", runTUIStart)
-			service.RegisterHandler("unavailable", runTUIUnavailable)
-			service.RegisterHandler("experiment", runTUIExperiment)
+			service.SetRoutingRefresher(func() error {
+				return refreshTUIRouting(reg, mgr)
+			})
 			registerTUIActionHandlers(service, func() error {
 				return refreshTUIRouting(reg, mgr)
 			})
@@ -95,11 +102,32 @@ func cmdTUI(args []string) error {
 			service.RegisterHandler("exec", func(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 				return runTUIExec(ctx, request, service, reg, mgr)
 			})
-			return service, nil
+			return tuiRunLoggingService{Service: service}, nil
 		},
 	})
 	_, err := tea.NewProgram(model).Run()
 	return err
+}
+
+type tuiRunLoggingService struct {
+	controlplane.Service
+}
+
+func (s tuiRunLoggingService) Execute(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+	if request.ActionID == "run" || request.ActionID == "route" || request.ActionID == "exec" {
+		runID := beginLoggedRun()
+		kind := request.Arguments["kind"]
+		objective := request.Arguments["objective"]
+		if request.ActionID == "exec" {
+			kind = "exec"
+			objective = "Plan: " + request.Arguments["plan"]
+		}
+		_ = saveTUIMission(tuiMissionRecord{
+			RunID: runID, TaskID: request.Arguments["task-id"], Kind: kind,
+			Risk: request.Arguments["risk"], CreatedAt: time.Now(), Objective: objective,
+		})
+	}
+	return s.Service.Execute(ctx, request)
 }
 
 // registerTUIActionHandlers keeps command-specific parsing in the existing
@@ -199,6 +227,12 @@ func registerTUIActionHandlers(service *application.ControlService, refreshPrefe
 			return runHermesCommand(arguments, output, diagnostics)
 		})
 	})
+	service.RegisterHandler("impeccable", func(ctx context.Context, _ controlplane.ActionRequest) (controlplane.ActionResult, error) {
+		return runTUIImpeccableInstall(ctx, exec.LookPath, runTUIExternalCommand)
+	})
+	service.RegisterHandler("start", runTUIStart)
+	service.RegisterHandler("unavailable", runTUIUnavailable)
+	service.RegisterHandler("experiment", runTUIExperiment)
 	service.RegisterHandler("feedback", runTUIFeedback)
 	service.RegisterHandler("verify-models", runTUIVerifyModels)
 	service.RegisterHandler("models", runTUIModels)
@@ -209,6 +243,29 @@ func registerTUIActionHandlers(service *application.ControlService, refreshPrefe
 		}
 		return controlplane.ActionResult{ActionID: "providers", Summary: "providers inspected", Output: output.String()}, nil
 	})
+}
+
+type tuiExternalCommand func(context.Context, string, ...string) ([]byte, error)
+
+func runTUIExternalCommand(ctx context.Context, executable string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, executable, args...).CombinedOutput()
+}
+
+func runTUIImpeccableInstall(ctx context.Context, lookPath func(string) (string, error), run tuiExternalCommand) (controlplane.ActionResult, error) {
+	executable, err := lookPath("impeccable")
+	args := []string{"install", "--providers=veto", "--scope=global"}
+	if err != nil {
+		return controlplane.ActionResult{ActionID: "impeccable"}, errors.New("impeccable installation requires the explicitly installed impeccable CLI")
+	}
+	installCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	output, runErr := run(installCtx, executable, args...)
+	result := controlplane.ActionResult{ActionID: "impeccable", Output: strings.TrimSpace(string(output))}
+	if runErr != nil {
+		return result, fmt.Errorf("install Impeccable integration: %w", runErr)
+	}
+	result.Summary = "Impeccable installed for Veto"
+	return result, nil
 }
 
 func runTUIDoctor(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
@@ -334,7 +391,7 @@ func runTUILogin(ctx context.Context, request controlplane.ActionRequest) (contr
 		if err := saveCredential("CLAUDE_SUBSCRIPTION", "true"); err != nil {
 			return controlplane.ActionResult{ActionID: "login"}, err
 		}
-		return controlplane.ActionResult{ActionID: "login", Summary: "Claude CLI configured; billing remains UNKNOWN to Veto"}, nil
+		return controlplane.ActionResult{ActionID: "login", Summary: "Claude subscription connected"}, nil
 	}
 	if provider == "openrouter" && (mode == "browser" || mode == "oauth") {
 		oauthCtx, cancel := context.WithTimeout(ctx, openRouterOAuthWait+5*time.Second)
@@ -348,8 +405,8 @@ func runTUILogin(ctx context.Context, request controlplane.ActionRequest) (contr
 		}
 		return controlplane.ActionResult{ActionID: "login", Summary: "OpenRouter connected via browser"}, nil
 	}
-	credential := strings.TrimSpace(tuiSecretArgument(request, "api-key"))
-	if credential == "" {
+	credential := tuiSecretArgument(request, "api-key")
+	if strings.TrimSpace(credential) == "" {
 		return controlplane.ActionResult{ActionID: "login"}, fmt.Errorf("api-key is required for %s", providerInfo.name)
 	}
 	if err := saveCredential(providerInfo.envKey, credential); err != nil {
@@ -368,8 +425,12 @@ func localModelFromTUIRequest(request controlplane.ActionRequest) LocalModel {
 		Endpoint: strings.TrimSpace(request.Arguments["endpoint"]),
 		Model:    strings.TrimSpace(request.Arguments["model"]),
 	}
-	model.APIKey = tuiSecretArgument(request, "api-key")
+	setTUISecret(&model, tuiSecretArgument(request, "api-key"))
 	return model
+}
+
+func setTUISecret(model *LocalModel, value string) {
+	model.APIKey = value
 }
 
 func runTUILogout(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
@@ -722,19 +783,17 @@ func runTUIExec(ctx context.Context, request controlplane.ActionRequest, service
 		}
 		return controlplane.ActionResult{ActionID: "exec", Summary: "plan validated", Output: strings.Join(lines, "\n")}, nil
 	}
-	requestedFailureMode := strings.TrimSpace(request.Arguments["on-failure"])
-	if requestedFailureMode == "abort-ask" {
-		return controlplane.ActionResult{ActionID: "exec"}, errors.New("on-failure mode abort-ask is not supported in the TUI; choose abort or continue")
-	}
-	failureMode := requestedFailureMode
+	failureMode := request.Arguments["on-failure"]
 	if failureMode == "" {
 		failureMode = resolveOnFailure("")
-		if failureMode == "abort-ask" {
-			failureMode = "abort"
-		}
 	}
-	if failureMode != "abort" && failureMode != "continue" {
+	if failureMode != "abort" && failureMode != "continue" && failureMode != "abort-ask" {
 		return controlplane.ActionResult{ActionID: "exec"}, fmt.Errorf("invalid on-failure mode %q", failureMode)
+	}
+	if failureMode == "abort-ask" {
+		// No interactive confirmation is wired up yet; fail visibly rather than
+		// silently behaving like "abort" while claiming to have asked.
+		return controlplane.ActionResult{ActionID: "exec"}, fmt.Errorf("on-failure mode %q is not yet supported (no confirmation flow implemented); use \"abort\" or \"continue\"", failureMode)
 	}
 	stepTimeout := 60 * time.Second
 	if raw := request.Arguments["timeout"]; raw != "" {

@@ -133,7 +133,9 @@ func (m *Manager) route(ctx context.Context, task TaskSpec, admissionTimeout tim
 	}
 
 	// Every admission call consumes the per-run budget, including transport
-	// failures. Resume can continue with untried candidates in a later run.
+	// failures. Do not suppress sibling models that share a runtime identity:
+	// provider APIs can return model-specific failures, and another alias may
+	// still be viable.
 	attempts := 0
 	for _, model := range ranked {
 		if skipSet[model.Name] {
