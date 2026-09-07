@@ -94,6 +94,12 @@ func main() {
 		fmt.Println("veto " + resolvedVersion())
 	case "install-git-hook":
 		cmdInstallGitHook(os.Args[2:])
+	case "start":
+		os.Exit(cmdStart(os.Args[2:]))
+	case "unavailable":
+		os.Exit(cmdUnavailable(os.Args[2:]))
+	case "experiment":
+		os.Exit(cmdExperiment(os.Args[2:]))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
 		printUsage(os.Stderr)
@@ -274,7 +280,7 @@ func cmdRoute(args []string) {
 	if *providerFilter != "" {
 		hashObjective += "\x00provider=" + *providerFilter
 	}
-	hash := taskHash(hashObjective, kind, *risk, *maxCost)
+	hash := taskHashWithTools(hashObjective, kind, *risk, *maxCost, splitTaskList(*requiredTools), *requiresExecutableTools || requiresExecutableRuntime(objective))
 	cp := &Checkpoint{Hash: hash, Objective: objective}
 	if !*noResume {
 		if saved, ok := loadCheckpoint(hash); ok {
@@ -817,6 +823,13 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 		switch model.Provider {
 		case "anthropic":
 			if subscription {
+				if providerKeys[model.Provider] != "" {
+					// The claude CLI inherits ANTHROPIC_API_KEY from the process
+					// environment and prefers it over subscription auth, so with
+					// both present we cannot prove which billing path is used.
+					model.CostPer1kInputUnknown = true
+					model.CostPer1kOutputUnknown = true
+				}
 				modelExecutor = executor.NewClaudeCLIExecutor(model.APIModel)
 			} else if key := providerKeys[model.Provider]; key != "" {
 				modelExecutor = executor.NewAnthropicExecutor(key, model.APIModel)

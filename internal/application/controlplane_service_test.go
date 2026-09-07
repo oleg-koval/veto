@@ -98,9 +98,12 @@ func TestControlServiceRejectsUnsupportedRequestSchema(t *testing.T) {
 func TestTaskFromRequestKeepsOutputBudgetOutOfRoutingCapabilities(t *testing.T) {
 	t.Parallel()
 
-	task := taskFromRequest(controlplane.ActionRequest{Arguments: map[string]string{
+	task, err := taskFromRequest(controlplane.ActionRequest{Arguments: map[string]string{
 		"kind": "review", "risk": "high", "required-tools": "read, browser-dom", "requires-executable-tools": "true", "criteria": "tests pass; no regression", "max-cost": "0.25", "max-output-tokens": "120",
 	}}, "inspect the change")
+	if err != nil {
+		t.Fatalf("taskFromRequest returned error: %v", err)
+	}
 	if task.Kind != router.KindReview || task.Risk != router.RiskHigh || !task.RequiresExecutableTools || task.MaxCostUSD != 0.25 || task.MaxTokens != 120 {
 		t.Fatalf("task = %#v", task)
 	}
@@ -115,7 +118,10 @@ func TestTaskFromRequestKeepsOutputBudgetOutOfRoutingCapabilities(t *testing.T) 
 func TestTaskFromRequestInfersKindWhenComposerLeavesKindEmpty(t *testing.T) {
 	t.Parallel()
 
-	task := taskFromRequest(controlplane.ActionRequest{}, "summarize this incident")
+	task, err := taskFromRequest(controlplane.ActionRequest{}, "summarize this incident")
+	if err != nil {
+		t.Fatalf("taskFromRequest returned error: %v", err)
+	}
 	if task.Kind != router.KindSummarize {
 		t.Fatalf("inferred kind = %q, want %q", task.Kind, router.KindSummarize)
 	}
@@ -124,9 +130,22 @@ func TestTaskFromRequestInfersKindWhenComposerLeavesKindEmpty(t *testing.T) {
 func TestTaskFromRequestInfersExecutableRequirement(t *testing.T) {
 	t.Parallel()
 
-	task := taskFromRequest(controlplane.ActionRequest{}, "commit and push the repository changes")
+	task, err := taskFromRequest(controlplane.ActionRequest{}, "commit and push the repository changes")
+	if err != nil {
+		t.Fatalf("taskFromRequest returned error: %v", err)
+	}
 	if !task.RequiresExecutableTools {
 		t.Fatalf("task should require executable tools: %#v", task)
+	}
+}
+
+func TestTaskFromRequestRejectsMalformedMaxCost(t *testing.T) {
+	t.Parallel()
+
+	for _, raw := range []string{"0.1x", "NaN", "Inf"} {
+		if _, err := taskFromRequest(controlplane.ActionRequest{Arguments: map[string]string{"max-cost": raw}}, "do the task"); err == nil {
+			t.Fatalf("max-cost %q should be rejected", raw)
+		}
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"slices"
 	"sort"
 	"strconv"
@@ -313,7 +314,11 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		if s.router == nil {
 			return controlplane.ActionResult{}, errors.New("control plane: router is nil")
 		}
-		task := taskFromRequest(request, objective)
+		task, err := taskFromRequest(request, objective)
+		if err != nil {
+			s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "error"})
+			return controlplane.ActionResult{ActionID: request.ActionID}, err
+		}
 		model, decision, err := routeWithTimeout(s.router, requestCtx, task, admissionTimeout)
 		if err != nil {
 			s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "error"})
@@ -327,7 +332,11 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		if s.router == nil {
 			return controlplane.ActionResult{}, errors.New("control plane: router is nil")
 		}
-		task := taskFromRequest(request, objective)
+		task, err := taskFromRequest(request, objective)
+		if err != nil {
+			s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "error"})
+			return controlplane.ActionResult{ActionID: request.ActionID}, err
+		}
 		skills := []string(nil)
 		if s.skillResolver != nil {
 			skills = s.skillResolver(requestCtx, task)
@@ -392,7 +401,7 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 	}
 }
 
-func taskFromRequest(request controlplane.ActionRequest, objective string) router.TaskSpec {
+func taskFromRequest(request controlplane.ActionRequest, objective string) (router.TaskSpec, error) {
 	kind := router.TaskKind(request.Arguments["kind"])
 	if kind == "" {
 		kind = router.InferKind(objective)
@@ -401,11 +410,18 @@ func taskFromRequest(request controlplane.ActionRequest, objective string) route
 	if risk == "" {
 		risk = router.RiskMedium
 	}
-	maxCost, _ := strconv.ParseFloat(request.Arguments["max-cost"], 64)
+	var maxCost float64
+	if raw := request.Arguments["max-cost"]; raw != "" {
+		parsed, err := strconv.ParseFloat(raw, 64)
+		if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+			return router.TaskSpec{}, fmt.Errorf("invalid max-cost %q", raw)
+		}
+		maxCost = parsed
+	}
 	maxTokens, _ := strconv.Atoi(request.Arguments["max-output-tokens"])
 	// max-output-tokens is retained in TaskSpec for the execution boundary; the
 	// router only applies it when a concrete context limit is known.
-	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, MaxTokens: maxTokens, RequiredTools: splitRequestList(request.Arguments["required-tools"]), RequiresExecutableTools: request.Arguments["requires-executable-tools"] == "true" || router.RequiresExecutableRuntime(objective), SuccessCriteria: splitRequestList(request.Arguments["criteria"]), RuntimeFilter: request.Arguments["runtime"], ProviderFilter: request.Arguments["provider"], Source: "tui"}
+	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, MaxTokens: maxTokens, RequiredTools: splitRequestList(request.Arguments["required-tools"]), RequiresExecutableTools: request.Arguments["requires-executable-tools"] == "true" || router.RequiresExecutableRuntime(objective), SuccessCriteria: splitRequestList(request.Arguments["criteria"]), RuntimeFilter: request.Arguments["runtime"], ProviderFilter: request.Arguments["provider"], Source: "tui"}, nil
 }
 
 func routeWithTimeout(port Router, ctx context.Context, task router.TaskSpec, timeout time.Duration) (router.ModelCapabilities, router.AdmissionDecision, error) {

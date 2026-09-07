@@ -778,6 +778,11 @@ func runTUIExec(ctx context.Context, request controlplane.ActionRequest, service
 	if failureMode != "abort" && failureMode != "continue" && failureMode != "abort-ask" {
 		return controlplane.ActionResult{ActionID: "exec"}, fmt.Errorf("invalid on-failure mode %q", failureMode)
 	}
+	if failureMode == "abort-ask" {
+		// No interactive confirmation is wired up yet; fail visibly rather than
+		// silently behaving like "abort" while claiming to have asked.
+		return controlplane.ActionResult{ActionID: "exec"}, fmt.Errorf("on-failure mode %q is not yet supported (no confirmation flow implemented); use \"abort\" or \"continue\"", failureMode)
+	}
 	stepTimeout := 60 * time.Second
 	if raw := request.Arguments["timeout"]; raw != "" {
 		parsed, parseErr := time.ParseDuration(raw)
