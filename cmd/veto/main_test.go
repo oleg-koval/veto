@@ -79,6 +79,45 @@ func TestBuildProviderRegistryMarksAPIKeyCodexCostUnknown(t *testing.T) {
 	assert.True(t, reg.caps["codex"].CostPer1kOutputUnknown)
 }
 
+func TestBuildProviderRegistrySubscriptionOnlyTreatsStoredAnthropicKeyAsKnownFree(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("CLAUDE_SUBSCRIPTION", "true")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	require.NoError(t, saveCredential("ANTHROPIC_API_KEY", "stored-key"))
+
+	reg, err := buildProviderRegistryWithCatalog(true)
+	require.NoError(t, err)
+	for _, name := range []string{"haiku", "sonnet", "opus"} {
+		model, ok := reg.caps[name]
+		require.True(t, ok, "expected %s in subscription registry", name)
+		assert.False(t, model.CostPer1kInputUnknown)
+		assert.False(t, model.CostPer1kOutputUnknown)
+		assert.Zero(t, model.CostPer1kInputUSD)
+		assert.Zero(t, model.CostPer1kOutputUSD)
+	}
+}
+
+func TestBuildProviderRegistrySubscriptionWithInheritedAnthropicKeyKeepsCostUnknown(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("CLAUDE_SUBSCRIPTION", "true")
+	t.Setenv("ANTHROPIC_API_KEY", "inherited-key")
+
+	reg, err := buildProviderRegistryWithCatalog(true)
+	require.NoError(t, err)
+	model, ok := reg.caps["sonnet"]
+	require.True(t, ok)
+	assert.True(t, model.CostPer1kInputUnknown)
+	assert.True(t, model.CostPer1kOutputUnknown)
+}
+
 type textOnlyTestExecutor struct{}
 
 func (textOnlyTestExecutor) Run(context.Context, string) execution.Result { return execution.Result{} }

@@ -819,12 +819,16 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 		"openai":     getKey("OPENAI_API_KEY", creds),
 		"openrouter": getKey("OPENROUTER_API_KEY", creds),
 	}
+	// Claude CLI inherits credentials from the process environment, not from
+	// Veto's stored credentials file. A stored API key therefore does not make
+	// subscription billing ambiguous unless the CLI can actually inherit it.
+	claudeAPIKeyInherited := os.Getenv("ANTHROPIC_API_KEY") != ""
 	for _, model := range catalog.All() {
 		var modelExecutor execution.RuntimeAdapter
 		switch model.Provider {
 		case "anthropic":
 			if subscription {
-				if providerKeys[model.Provider] != "" {
+				if claudeAPIKeyInherited {
 					// The claude CLI inherits ANTHROPIC_API_KEY from the process
 					// environment and prefers it over subscription auth, so with
 					// both present we cannot prove which billing path is used.

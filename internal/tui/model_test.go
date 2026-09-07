@@ -411,6 +411,21 @@ func TestModelCommandPaletteSearchesCategories(t *testing.T) {
 	}
 }
 
+func TestModelCommandPaletteBackspaceRemovesCompleteRune(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false})
+	model.paletteOpen = true
+	model.paletteQuery = "run🙂"
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	model = updated.(*Model)
+	if model.paletteQuery != "run" {
+		t.Fatalf("palette query after backspace = %q, want %q", model.paletteQuery, "run")
+	}
+	if !utf8.ValidString(model.paletteQuery) {
+		t.Fatalf("palette query is invalid UTF-8: %q", model.paletteQuery)
+	}
+}
+
 func TestModelRunningStatuslineAdvertisesCancellation(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
 	model.running = true

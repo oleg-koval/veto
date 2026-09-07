@@ -1525,7 +1525,8 @@ func (m *Model) updatePalette(key tea.Key) (tea.Model, tea.Cmd) {
 		m.paletteQuery = ""
 	case "backspace":
 		if len(m.paletteQuery) > 0 {
-			m.paletteQuery = m.paletteQuery[:len(m.paletteQuery)-1]
+			runes := []rune(m.paletteQuery)
+			m.paletteQuery = string(runes[:len(runes)-1])
 			m.paletteCursor = 0
 		}
 	case "j", "down":

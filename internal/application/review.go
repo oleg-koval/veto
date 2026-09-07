@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/oleg-koval/veto/pkg/router"
 )
 
@@ -55,8 +56,10 @@ func (r Runner) Review(ctx context.Context, request ReviewRequest) (ReviewResult
 	response, err := r.Execute(ctx, Request{Task: router.TaskSpec{
 		ID: taskID, Kind: router.KindReview, Objective: prompt,
 		AdmissionObjective: buildReviewAdmissionObjective(request.Original, request.Output),
-		MaxTokens:          (len(prompt) + 3) / 4,
-		Risk:               router.RiskLow, SkipModels: skip,
+		// Context admission must leave room for the bounded review response
+		// requested by Runner.Execute, not just the input prompt.
+		MaxTokens: (len(prompt)+3)/4 + execution.DefaultExecutionMaxTokens,
+		Risk:      router.RiskLow, SkipModels: skip,
 	}})
 	if err != nil {
 		return ReviewResult{}, fmt.Errorf("review unavailable: %w", err)
