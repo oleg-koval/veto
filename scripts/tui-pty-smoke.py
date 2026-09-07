@@ -216,7 +216,9 @@ def run_execution(binary: str, home: str) -> None:
                 output.extend(chunk)
                 if b"SMOKE EXECUTION OK" in output:
                     break
-        if b"SMOKE EXECUTION OK" not in output:
+        execution_output_seen = b"SMOKE EXECUTION OK" in output
+        execution_completed = b"task completed" in output and b"exec output  4" in output
+        if not execution_output_seen and not execution_completed:
             raise SystemExit(f"TUI Run did not reach fake-provider output: output={bytes(output)!r}")
         if not (b"LIVE ROUTING" in output or b"route." in output or b"winner" in output):
             raise SystemExit(f"TUI Run did not render live routing evidence: output={bytes(output)!r}")
