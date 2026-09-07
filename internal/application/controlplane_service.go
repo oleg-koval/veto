@@ -418,7 +418,14 @@ func taskFromRequest(request controlplane.ActionRequest, objective string) (rout
 		}
 		maxCost = parsed
 	}
-	maxTokens, _ := strconv.Atoi(request.Arguments["max-output-tokens"])
+	var maxTokens int
+	if raw := request.Arguments["max-output-tokens"]; raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			return router.TaskSpec{}, fmt.Errorf("invalid max-output-tokens %q", raw)
+		}
+		maxTokens = parsed
+	}
 	// max-output-tokens is retained in TaskSpec for the execution boundary; the
 	// router only applies it when a concrete context limit is known.
 	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, MaxTokens: maxTokens, RequiredTools: splitRequestList(request.Arguments["required-tools"]), RequiresExecutableTools: request.Arguments["requires-executable-tools"] == "true" || router.RequiresExecutableRuntime(objective), SuccessCriteria: splitRequestList(request.Arguments["criteria"]), RuntimeFilter: request.Arguments["runtime"], ProviderFilter: request.Arguments["provider"], Source: "tui"}, nil

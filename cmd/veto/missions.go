@@ -104,7 +104,7 @@ func saveTUIMission(record tuiMissionRecord) error {
 	if err := temporary.Close(); err != nil {
 		return fmt.Errorf("close mission index: %w", err)
 	}
-	if err := os.Rename(temporaryName, path); err != nil {
+	if err := replaceMissionIndex(temporaryName, path); err != nil {
 		return fmt.Errorf("replace mission index: %w", err)
 	}
 	return nil

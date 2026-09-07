@@ -70,8 +70,8 @@ func cmdTUI(args []string) error {
 				result, err := reviewOutput(ctx, reg, mgr, task, output, model)
 				return result.Passed, err
 			})
-			service.RegisterHandler("doctor", func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
-				return runTUIDoctor(request)
+			service.RegisterHandler("doctor", func(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+				return runTUIDoctor(ctx, request)
 			})
 			service.RegisterHandler("benchmark", func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 				corpus := request.Arguments["corpus"]
@@ -91,6 +91,9 @@ func cmdTUI(args []string) error {
 			service.RegisterHandler("version", func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error) {
 				summary := "veto " + resolvedVersion()
 				return controlplane.ActionResult{ActionID: "version", Summary: summary, Output: summary}, nil
+			})
+			service.SetRoutingRefresher(func() error {
+				return refreshTUIRouting(reg, mgr)
 			})
 			registerTUIActionHandlers(service, func() error {
 				return refreshTUIRouting(reg, mgr)
@@ -260,9 +263,9 @@ func runTUIImpeccableInstall(ctx context.Context, lookPath func(string) (string,
 	return result, nil
 }
 
-func runTUIDoctor(request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+func runTUIDoctor(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 	offline := request.Arguments["offline"] != "false"
-	report := runDoctor(doctorOptions{fix: request.Arguments["fix"] == "true", offline: offline}, defaultDoctorDeps())
+	report := runDoctor(doctorOptions{ctx: ctx, fix: request.Arguments["fix"] == "true", offline: offline}, defaultDoctorDeps())
 	result := controlplane.ActionResult{ActionID: "doctor", Summary: fmt.Sprintf("%d pass, %d warn, %d fail, %d fixed", report.Summary.Pass, report.Summary.Warn, report.Summary.Fail, report.Summary.Fixed)}
 	if request.Arguments["json"] == "true" {
 		var output strings.Builder
