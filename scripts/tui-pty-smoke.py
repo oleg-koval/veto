@@ -439,29 +439,19 @@ def run_plan(binary: str, home: str) -> None:
                     break
         if b"Command palette" not in output:
             raise SystemExit(f"TUI Execute plan palette did not render: output={bytes(output)!r}")
-        for key in b"exec":
-            os.write(master, bytes([key]))
+        for _ in range(4):
+            os.write(master, b"j")
             time.sleep(0.05)
-        filter_deadline = time.monotonic() + 2
-        while time.monotonic() < filter_deadline and b"exec  Execute" not in output:
-            ready, _, _ = select.select([master], [], [], 0.1)
-            if ready:
-                try:
-                    output.extend(os.read(master, 8192))
-                except OSError:
-                    break
-        if b"exec  Execute" not in output:
-            raise SystemExit(f"TUI Execute plan palette filter did not render: output={bytes(output)!r}")
         os.write(master, b"\r")
         composer_deadline = time.monotonic() + 2
-        while time.monotonic() < composer_deadline and b"MISSION COMPOSER" not in output:
+        while time.monotonic() < composer_deadline and b"MISSION COMPOSER \xc2\xb7 EXEC" not in output:
             ready, _, _ = select.select([master], [], [], 0.1)
             if ready:
                 try:
                     output.extend(os.read(master, 8192))
                 except OSError:
                     break
-        if b"MISSION COMPOSER" not in output:
+        if b"MISSION COMPOSER \xc2\xb7 EXEC" not in output:
             raise SystemExit(f"TUI Execute plan composer did not render: output={bytes(output)!r}")
         os.write(master, b"smoke-plan.md\r")
         for _ in range(6):
