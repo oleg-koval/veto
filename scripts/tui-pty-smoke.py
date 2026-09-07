@@ -196,6 +196,8 @@ def run_execution(binary: str, home: str) -> None:
                 output.extend(chunk)
                 if b"COMMAND CENTER" in output and b"Enter compose" in output:
                     break
+        if b"COMMAND CENTER" not in output or b"Enter compose" not in output:
+            raise SystemExit(f"TUI Run shell did not become ready: output={bytes(output)!r}")
 
         # Select Run, open its composer, enter an objective, then accept the
         # default CLI-compatible flag values through the final field.
@@ -256,6 +258,8 @@ def run_cancellation(binary: str, home: str) -> None:
                     break
                 if b"COMMAND CENTER" in output and b"Enter compose" in output:
                     break
+        if b"COMMAND CENTER" not in output or b"Enter compose" not in output:
+            raise SystemExit(f"TUI cancellation shell did not become ready: output={bytes(output)!r}")
 
         # Select Run, submit a task that only the delayed fake model accepts,
         # then cancel while the admission request is still in flight.
@@ -324,6 +328,8 @@ def run_route(binary: str, home: str) -> None:
                 output.extend(chunk)
                 if b"COMMAND CENTER" in output and b"Enter compose" in output:
                     break
+        if b"COMMAND CENTER" not in output or b"Enter compose" not in output:
+            raise SystemExit(f"TUI Route shell did not become ready: output={bytes(output)!r}")
 
         # Select Route, submit an objective, and accept every default flag.
         os.write(master, b"jjjjjr")
@@ -425,6 +431,8 @@ def run_plan(binary: str, home: str) -> None:
                     break
                 if b"COMMAND CENTER" in output and b"Enter compose" in output:
                     break
+        if b"COMMAND CENTER" not in output or b"Enter compose" not in output:
+            raise SystemExit(f"TUI Execute plan shell did not become ready: output={bytes(output)!r}")
 
         # Open Execute plan through the palette, choose the safe plan name,
         # accept default flags, and verify the step reaches the Runner.
