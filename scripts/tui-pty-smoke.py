@@ -134,8 +134,11 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
                 os.write(master, b"\x1b\x1b")
             else:
                 os.write(master, b"/")
-                time.sleep(0.15)
-                drain()
+                palette_deadline = time.monotonic() + 2
+                while time.monotonic() < palette_deadline and b"Command palette" not in output:
+                    ready, _, _ = select.select([master], [], [], 0.1)
+                    if ready:
+                        drain()
                 if b"Command palette" not in output:
                     raise SystemExit(f"command palette did not render after '/': output={bytes(output)!r}")
                 os.write(master, b"\x1b")
@@ -191,7 +194,7 @@ def run_execution(binary: str, home: str) -> None:
                 if not chunk:
                     break
                 output.extend(chunk)
-                if b"VETO" in output:
+                if b"COMMAND CENTER" in output and b"Enter compose" in output:
                     break
 
         # Select Run, open its composer, enter an objective, then accept the
@@ -217,7 +220,7 @@ def run_execution(binary: str, home: str) -> None:
                 if b"SMOKE EXECUTION OK" in output:
                     break
         execution_output_seen = b"SMOKE EXECUTION OK" in output
-        execution_completed = b"task completed" in output and b"exec output  4" in output
+        execution_completed = b"task completed" in output and b"4 out" in output
         if not execution_output_seen and not execution_completed:
             raise SystemExit(f"TUI Run did not reach fake-provider output: output={bytes(output)!r}")
         if not (b"LIVE ROUTING" in output or b"route." in output or b"winner" in output):
@@ -247,7 +250,7 @@ def run_cancellation(binary: str, home: str) -> None:
                     output.extend(os.read(master, 8192))
                 except OSError:
                     break
-                if b"VETO" in output:
+                if b"COMMAND CENTER" in output and b"Enter compose" in output:
                     break
 
         # Select Run, submit a task that only the delayed fake model accepts,
@@ -315,7 +318,7 @@ def run_route(binary: str, home: str) -> None:
                 if not chunk:
                     break
                 output.extend(chunk)
-                if b"VETO" in output:
+                if b"COMMAND CENTER" in output and b"Enter compose" in output:
                     break
 
         # Select Route, submit an objective, and accept every default flag.
@@ -416,7 +419,7 @@ def run_plan(binary: str, home: str) -> None:
                     output.extend(os.read(master, 8192))
                 except OSError:
                     break
-                if b"VETO" in output:
+                if b"COMMAND CENTER" in output and b"Enter compose" in output:
                     break
 
         # Open Execute plan through the palette, choose the safe plan name,
