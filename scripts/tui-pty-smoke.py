@@ -197,10 +197,10 @@ def run_execution(binary: str, home: str) -> None:
         # Select Run, open its composer, enter an objective, then accept the
         # default CLI-compatible flag values through the final field.
         os.write(master, b"jjjr")
-        time.sleep(0.15)
+        time.sleep(0.5)
         os.write(master, b"summarize this example\r")
         for _ in range(13):
-            time.sleep(0.03)
+            time.sleep(0.05)
             os.write(master, b"\r")
 
         deadline = time.monotonic() + 20
