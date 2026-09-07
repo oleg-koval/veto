@@ -155,7 +155,13 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
                 raise SystemExit(f"TUI exited unsuccessfully: status={status} output={bytes(output)!r}")
             if b"\x1b[?1049h" not in output or b"\x1b[?1049l" not in output:
                 raise SystemExit(f"TUI did not enter/leave alternate screen: output={bytes(output)!r}")
-            if not (b"VETO" in output or b"LOCAL AI CONTROL PLANE" in output) or not (b"COMMANDS" in output or b"COMMAND CENTER" in output or b"COMPOSER" in output):
+            # A terminal too short to fit the full command list (e.g. the
+            # 12-row onboarding check) renders a condensed home view instead;
+            # its "Enter compose" / "Tab views" hint line is the equivalent
+            # evidence that the shell rendered rather than crashing.
+            has_shell = b"COMMANDS" in output or b"COMMAND CENTER" in output or b"COMPOSER" in output
+            has_condensed_shell = b"Enter compose" in output and b"Tab views" in output
+            if not (b"VETO" in output or b"LOCAL AI CONTROL PLANE" in output) or not (has_shell or has_condensed_shell):
                 raise SystemExit(f"TUI did not render its command shell: output={bytes(output)!r}")
             if secret_probe and b"smoke-secret" in output:
                 raise SystemExit("TUI login form leaked the probe secret into terminal output")
