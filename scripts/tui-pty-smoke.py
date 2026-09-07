@@ -428,8 +428,28 @@ def run_plan(binary: str, home: str) -> None:
 
         # Open Execute plan through the palette, choose the safe plan name,
         # accept default flags, and verify the step reaches the Runner.
-        os.write(master, b"jjjjr")
-        time.sleep(0.2)
+        os.write(master, b"/")
+        palette_deadline = time.monotonic() + 2
+        while time.monotonic() < palette_deadline and b"Command palette" not in output:
+            ready, _, _ = select.select([master], [], [], 0.1)
+            if ready:
+                try:
+                    output.extend(os.read(master, 8192))
+                except OSError:
+                    break
+        if b"Command palette" not in output:
+            raise SystemExit(f"TUI Execute plan palette did not render: output={bytes(output)!r}")
+        os.write(master, b"exec\r")
+        composer_deadline = time.monotonic() + 2
+        while time.monotonic() < composer_deadline and b"MISSION COMPOSER" not in output:
+            ready, _, _ = select.select([master], [], [], 0.1)
+            if ready:
+                try:
+                    output.extend(os.read(master, 8192))
+                except OSError:
+                    break
+        if b"MISSION COMPOSER" not in output:
+            raise SystemExit(f"TUI Execute plan composer did not render: output={bytes(output)!r}")
         os.write(master, b"smoke-plan.md\r")
         for _ in range(6):
             time.sleep(0.03)
