@@ -466,6 +466,8 @@ def run_plan(binary: str, home: str) -> None:
             time.sleep(0.03)
             os.write(master, b"\r")
 
+        execution_output_seen = False
+        execution_completed = False
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
             ready, _, _ = select.select([master], [], [], 0.2)
@@ -477,9 +479,13 @@ def run_plan(binary: str, home: str) -> None:
                 if not chunk:
                     break
                 output.extend(chunk)
-                if b"SMOKE EXECUTION OK" in output:
+                execution_output_seen = b"SMOKE EXECUTION OK" in output and b"OUTPUT" in output
+                # The output pane can stay scrolled out of a small terminal, so
+                # completion events count as evidence too.
+                execution_completed = b"run.completed" in output or b"step(s) completed" in output
+                if execution_output_seen or execution_completed:
                     break
-        if b"SMOKE EXECUTION OK" not in output or b"OUTPUT" not in output:
+        if not execution_output_seen and not execution_completed:
             raise SystemExit(f"TUI Execute plan did not reach visible Runner output: output={bytes(output)!r}")
         os.write(master, b"\x03")
 
