@@ -25,8 +25,9 @@ func TestReviewRoutesReviewerAndSkipsExecutor(t *testing.T) {
 	assert.True(t, result.Passed)
 	assert.Equal(t, "review-task", routerPort.routedTask.ID)
 	assert.Equal(t, []string{"executor"}, routerPort.routedTask.SkipModels)
-	wantContextTokens := (len(BuildReviewPrompt(router.TaskSpec{Objective: "implement feature", SuccessCriteria: []string{"tests pass"}}, "all tests pass"))+3)/4 + execution.DefaultExecutionMaxTokens
-	assert.Equal(t, wantContextTokens, routerPort.routedTask.MaxTokens)
+	// The execution budget stays out of the TaskSpec so that models with an
+	// undeclared context window remain routable for review.
+	assert.Zero(t, routerPort.routedTask.MaxTokens)
 	assert.Contains(t, routerPort.routedTask.AdmissionObjective, "approximately")
 	assert.NotContains(t, routerPort.routedTask.AdmissionObjective, "all tests pass")
 	assert.Contains(t, runtime.prompt, "tests pass")

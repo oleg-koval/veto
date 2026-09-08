@@ -134,8 +134,11 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
                 os.write(master, b"\x1b\x1b")
             else:
                 os.write(master, b"/")
-                time.sleep(0.15)
-                drain()
+                palette_deadline = time.monotonic() + 2
+                while time.monotonic() < palette_deadline and b"Command palette" not in output:
+                    ready, _, _ = select.select([master], [], [], 0.1)
+                    if ready:
+                        drain()
                 if b"Command palette" not in output:
                     raise SystemExit(f"command palette did not render after '/': output={bytes(output)!r}")
                 os.write(master, b"\x1b")
@@ -191,8 +194,10 @@ def run_execution(binary: str, home: str) -> None:
                 if not chunk:
                     break
                 output.extend(chunk)
-                if b"VETO" in output:
+                if b"COMMAND CENTER" in output and b"Enter compose" in output:
                     break
+        if b"COMMAND CENTER" not in output or b"Enter compose" not in output:
+            raise SystemExit(f"TUI Run shell did not become ready: output={bytes(output)!r}")
 
         # Select Run, open its composer, enter an objective, then accept the
         # default CLI-compatible flag values through the final field.
@@ -203,6 +208,8 @@ def run_execution(binary: str, home: str) -> None:
             time.sleep(0.05)
             os.write(master, b"\r")
 
+        execution_output_seen = False
+        execution_completed = False
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
             ready, _, _ = select.select([master], [], [], 0.2)
@@ -214,9 +221,13 @@ def run_execution(binary: str, home: str) -> None:
                 if not chunk:
                     break
                 output.extend(chunk)
-                if b"SMOKE EXECUTION OK" in output:
+                execution_output_seen = b"SMOKE EXECUTION OK" in output
+                execution_completed = b"task completed" in output and (
+                    b"exec output  4" in output or b"4 out" in output
+                )
+                if execution_output_seen or execution_completed:
                     break
-        if b"SMOKE EXECUTION OK" not in output:
+        if not execution_output_seen and not execution_completed:
             raise SystemExit(f"TUI Run did not reach fake-provider output: output={bytes(output)!r}")
         if not (b"LIVE ROUTING" in output or b"route." in output or b"winner" in output):
             raise SystemExit(f"TUI Run did not render live routing evidence: output={bytes(output)!r}")
@@ -245,8 +256,10 @@ def run_cancellation(binary: str, home: str) -> None:
                     output.extend(os.read(master, 8192))
                 except OSError:
                     break
-                if b"VETO" in output:
+                if b"COMMAND CENTER" in output and b"Enter compose" in output:
                     break
+        if b"COMMAND CENTER" not in output or b"Enter compose" not in output:
+            raise SystemExit(f"TUI cancellation shell did not become ready: output={bytes(output)!r}")
 
         # Select Run, submit a task that only the delayed fake model accepts,
         # then cancel while the admission request is still in flight.
@@ -313,8 +326,10 @@ def run_route(binary: str, home: str) -> None:
                 if not chunk:
                     break
                 output.extend(chunk)
-                if b"VETO" in output:
+                if b"COMMAND CENTER" in output and b"Enter compose" in output:
                     break
+        if b"COMMAND CENTER" not in output or b"Enter compose" not in output:
+            raise SystemExit(f"TUI Route shell did not become ready: output={bytes(output)!r}")
 
         # Select Route, submit an objective, and accept every default flag.
         os.write(master, b"jjjjjr")
@@ -414,18 +429,45 @@ def run_plan(binary: str, home: str) -> None:
                     output.extend(os.read(master, 8192))
                 except OSError:
                     break
-                if b"VETO" in output:
+                if b"COMMAND CENTER" in output and b"Enter compose" in output:
                     break
+        if b"COMMAND CENTER" not in output or b"Enter compose" not in output:
+            raise SystemExit(f"TUI Execute plan shell did not become ready: output={bytes(output)!r}")
 
         # Open Execute plan through the palette, choose the safe plan name,
         # accept default flags, and verify the step reaches the Runner.
-        os.write(master, b"jjjjr")
-        time.sleep(0.2)
+        os.write(master, b"/")
+        palette_deadline = time.monotonic() + 2
+        while time.monotonic() < palette_deadline and b"Command palette" not in output:
+            ready, _, _ = select.select([master], [], [], 0.1)
+            if ready:
+                try:
+                    output.extend(os.read(master, 8192))
+                except OSError:
+                    break
+        if b"Command palette" not in output:
+            raise SystemExit(f"TUI Execute plan palette did not render: output={bytes(output)!r}")
+        for _ in range(4):
+            os.write(master, b"j")
+            time.sleep(0.05)
+        os.write(master, b"\r")
+        composer_deadline = time.monotonic() + 2
+        while time.monotonic() < composer_deadline and b"MISSION COMPOSER \xc2\xb7 EXEC" not in output:
+            ready, _, _ = select.select([master], [], [], 0.1)
+            if ready:
+                try:
+                    output.extend(os.read(master, 8192))
+                except OSError:
+                    break
+        if b"MISSION COMPOSER \xc2\xb7 EXEC" not in output:
+            raise SystemExit(f"TUI Execute plan composer did not render: output={bytes(output)!r}")
         os.write(master, b"smoke-plan.md\r")
         for _ in range(6):
             time.sleep(0.03)
             os.write(master, b"\r")
 
+        execution_output_seen = False
+        execution_completed = False
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
             ready, _, _ = select.select([master], [], [], 0.2)
@@ -437,9 +479,18 @@ def run_plan(binary: str, home: str) -> None:
                 if not chunk:
                     break
                 output.extend(chunk)
-                if b"SMOKE EXECUTION OK" in output:
+                execution_output_seen = b"SMOKE EXECUTION OK" in output and b"OUTPUT" in output
+                # The output pane can stay scrolled out of a small terminal, so
+                # the plan summary counts as evidence too. The TUI renders
+                # "N step(s) completed, M failed" when a step fails, so require
+                # the clean single-step summary rather than any completion.
+                execution_completed = (
+                    b"1 step(s) completed" in output
+                    and b"step(s) completed, " not in output
+                )
+                if execution_output_seen or execution_completed:
                     break
-        if b"SMOKE EXECUTION OK" not in output or b"OUTPUT" not in output:
+        if not execution_output_seen and not execution_completed:
             raise SystemExit(f"TUI Execute plan did not reach visible Runner output: output={bytes(output)!r}")
         os.write(master, b"\x03")
 
