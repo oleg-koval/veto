@@ -198,3 +198,13 @@ jobs:
         run: >-
           echo "::warning::HOMEBREW_TAP_TOKEN is not configured;
           the GitHub release was published without updating Homebrew."
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release edit "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false
