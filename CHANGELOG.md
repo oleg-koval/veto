@@ -3,6 +3,15 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2](https://github.com/oleg-koval/veto/compare/v0.10.1...v0.10.2) (2026-09-08)
+
+
+### Bug Fixes
+
+* stabilize TUI execution smoke assertion ([#97](https://github.com/oleg-koval/veto/issues/97)) ([5ea7830](https://github.com/oleg-koval/veto/commit/5ea7830b0714671c9ff1e533a5140c1aa17086ac))
+* default non-interactive TUI plan execution to abort on failure
+* keep the execution budget out of review routing so locally configured models remain eligible
+
 ## [0.10.1](https://github.com/oleg-koval/veto/compare/v0.10.0...v0.10.1) (2026-09-06)
 
 
