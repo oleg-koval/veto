@@ -481,9 +481,13 @@ def run_plan(binary: str, home: str) -> None:
                 output.extend(chunk)
                 execution_output_seen = b"SMOKE EXECUTION OK" in output and b"OUTPUT" in output
                 # The output pane can stay scrolled out of a small terminal, so
-                # plan completion counts as evidence too. A child run.completed
-                # event alone does not show that the one-step plan succeeded.
-                execution_completed = b"exec.completed" in output and b"1 step(s) completed" in output
+                # the plan summary counts as evidence too. The TUI renders
+                # "N step(s) completed, M failed" when a step fails, so require
+                # the clean single-step summary rather than any completion.
+                execution_completed = (
+                    b"1 step(s) completed" in output
+                    and b"step(s) completed, " not in output
+                )
                 if execution_output_seen or execution_completed:
                     break
         if not execution_output_seen and not execution_completed:
