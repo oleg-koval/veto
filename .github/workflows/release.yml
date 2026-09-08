@@ -85,7 +85,7 @@ jobs:
           set -euo pipefail
           gh release upload "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            dist/*.tar.gz dist/*.zip dist/SHA256SUMS dist/BINARY_SHA256SUMS \
+            dist/*.tar.gz dist/*.zip dist/SHA256SUMS \
             --clobber
 
       - name: Build Debian packages
