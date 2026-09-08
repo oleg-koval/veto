@@ -72,10 +72,21 @@ jobs:
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
         with:
           version: "~> v2"
-          args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
+          args: release --clean --skip=publish --release-notes=${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VETO_BINARY_MANIFEST: .release-preflight/BINARY_SHA256SUMS
+
+      - name: Upload release artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            dist/*.tar.gz dist/*.zip dist/SHA256SUMS dist/BINARY_SHA256SUMS \
+            --clobber
 
       - name: Build Debian packages
         env:
