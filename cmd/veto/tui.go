@@ -784,8 +784,10 @@ func runTUIExec(ctx context.Context, request controlplane.ActionRequest, service
 		return controlplane.ActionResult{ActionID: "exec", Summary: "plan validated", Output: strings.Join(lines, "\n")}, nil
 	}
 	failureMode := request.Arguments["on-failure"]
-	if failureMode == "" {
-		failureMode = resolveOnFailure("")
+	if failureMode == "" || failureMode == "auto" {
+		// The TUI has no confirmation flow, so an unset mode falls back to the
+		// non-interactive default instead of the CLI's "abort-ask".
+		failureMode = "abort"
 	}
 	if failureMode != "abort" && failureMode != "continue" && failureMode != "abort-ask" {
 		return controlplane.ActionResult{ActionID: "exec"}, fmt.Errorf("invalid on-failure mode %q", failureMode)
