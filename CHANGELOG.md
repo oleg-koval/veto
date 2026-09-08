@@ -3,6 +3,15 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.3](https://github.com/oleg-koval/veto/compare/v0.10.2...v0.10.3) (2026-09-08)
+
+
+### Bug Fixes
+
+* publish releases only after artifact upload ([#102](https://github.com/oleg-koval/veto/issues/102)) ([8b74ca8](https://github.com/oleg-koval/veto/commit/8b74ca8f1a8e57892582586ae23353d71b0f880e))
+* upload only generated release assets ([#101](https://github.com/oleg-koval/veto/issues/101)) ([4ce7a0e](https://github.com/oleg-koval/veto/commit/4ce7a0e04d203a95642a05e032bfa856bc297ff2))
+* upload release assets to existing release ([#99](https://github.com/oleg-koval/veto/issues/99)) ([1efd365](https://github.com/oleg-koval/veto/commit/1efd365f98135bd5e1b82497564811cfa102587b))
+
 ## [0.10.2](https://github.com/oleg-koval/veto/compare/v0.10.1...v0.10.2) (2026-09-08)
 
 
