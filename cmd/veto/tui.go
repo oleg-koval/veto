@@ -135,6 +135,7 @@ func (s tuiRunLoggingService) Execute(ctx context.Context, request controlplane.
 // that mutate credentials or integration files are invoked only after the
 // model's explicit confirmation overlay.
 func registerTUIActionHandlers(service *application.ControlService, refreshPreferences func() error) {
+	service.RegisterHandler("history-delete", runTUIHistoryDelete)
 	service.RegisterHandler("login", func(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 		result, err := runTUILogin(ctx, request)
 		if err == nil && refreshPreferences != nil {

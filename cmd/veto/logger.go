@@ -15,14 +15,16 @@ import (
 )
 
 var (
-	eventLedger *ledger.Writer
-	eventRunID  string
-	eventRunMu  sync.Mutex
+	eventLedger  *ledger.Writer
+	eventLogFile *os.File
+	eventRunID   string
+	eventRunMu   sync.Mutex
 )
 
 // setupLogger opens today's log file, rotates old ones, and sets eventLedger.
 // Logs are written to ~/.veto/logs/veto-YYYY-MM-DD.log as JSON lines.
 func setupLogger() {
+	closeLogger()
 	eventRunMu.Lock()
 	eventRunID, _ = ledger.NewRunID()
 	if eventRunID == "" {
@@ -54,7 +56,18 @@ func setupLogger() {
 		eventLedger = ledger.NewWriter(io.Discard)
 		return
 	}
+	eventLogFile = f
 	eventLedger = ledger.NewWriter(f)
+}
+
+func closeLogger() {
+	eventRunMu.Lock()
+	defer eventRunMu.Unlock()
+	if eventLogFile != nil {
+		_ = eventLogFile.Close()
+		eventLogFile = nil
+	}
+	eventLedger = nil
 }
 
 // beginLoggedRun gives each submission in a long-lived TUI process a fresh

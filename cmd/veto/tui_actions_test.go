@@ -138,6 +138,80 @@ func TestTUIHistoryLoadsAllEventsForClientSideFiltering(t *testing.T) {
 	}
 }
 
+func TestTUIHistoryDeleteRemovesSelectedMission(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logs := filepath.Join(home, ".veto", "logs")
+	if err := os.MkdirAll(logs, 0700); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(filepath.Join(logs, "veto-delete.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := ledger.NewWriter(file)
+	for _, runID := range []string{"run-delete", "run-keep"} {
+		if err := writer.Append(ledger.Event{RunID: runID, TaskID: runID + "-task", Type: ledger.EventFilterPass}); err != nil {
+			_ = file.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveTUIMission(tuiMissionRecord{RunID: "run-delete", Objective: "delete me"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runTUIHistoryDelete(context.Background(), controlplane.ActionRequest{
+		ActionID:  "history-delete",
+		Arguments: map[string]string{"run-id": "run-delete"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	history := readTUIHistory()
+	if len(history) != 1 || history[0].RunID != "run-keep" {
+		t.Fatalf("history after selected deletion = %#v", history)
+	}
+	if _, ok := readTUIMissions()["run-delete"]; ok {
+		t.Fatal("selected mission remains in the mission index")
+	}
+}
+
+func TestTUIHistoryDeleteRemovesAllMissionHistory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logs := filepath.Join(home, ".veto", "logs")
+	if err := os.MkdirAll(logs, 0700); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(filepath.Join(logs, "veto-delete-all.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.NewWriter(file).Append(ledger.Event{RunID: "run-delete-all", Type: ledger.EventFilterPass}); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveTUIMission(tuiMissionRecord{RunID: "run-delete-all", Objective: "delete all"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runTUIHistoryDelete(context.Background(), controlplane.ActionRequest{
+		ActionID:  "history-delete",
+		Arguments: map[string]string{"scope": "all"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if history := readTUIHistory(); len(history) != 0 {
+		t.Fatalf("history after all deletion = %#v", history)
+	}
+	if missions := readTUIMissions(); len(missions) != 0 {
+		t.Fatalf("mission index after all deletion = %#v", missions)
+	}
+}
+
 func TestTUIHistoryPreservesRedactedMissionEvidence(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

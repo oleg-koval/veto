@@ -290,6 +290,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Loading · fresh health results"
 			return m, m.loadSnapshot()
 		}
+		if message.result.ActionID == "history-delete" {
+			m.activeAction = "history"
+			m.status = "Ready · mission history updated"
+			m.output.Reset()
+			if m.options.Service != nil {
+				return m, m.loadSnapshot()
+			}
+			return m, nil
+		}
 		if !isRoutingAction(message.result.ActionID) {
 			m.eventHistory = nil
 		}
@@ -583,6 +592,8 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.activeAction == "history" {
 			switch key.String() {
+			case "d", "D":
+				return m, m.requestHistoryDeletion(strings.EqualFold(key.String(), "D"))
 			case "j", "down":
 				m.moveHistoryDetailCursor(1)
 				return m, nil
@@ -634,6 +645,9 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.dataFilterOpen {
 		return m.updateDataFilter(key)
+	}
+	if m.activeAction == "history" && (key.String() == "d" || key.String() == "D") {
+		return m, m.requestHistoryDeletion(strings.EqualFold(key.String(), "D"))
 	}
 	if m.supportsDataFilter() && (key.Code == tea.KeyPgDown || key.Code == tea.KeyPgUp) {
 		delta := m.dataPageSize()
@@ -1429,7 +1443,7 @@ func (m *Model) beginExecution(request controlplane.ActionRequest) (tea.Model, t
 
 func requiresConfirmation(request controlplane.ActionRequest) bool {
 	switch request.ActionID {
-	case "login", "logout", "disable", "enable", "install-git-hook":
+	case "login", "logout", "disable", "enable", "install-git-hook", "history-delete":
 		return true
 	case "doctor":
 		return request.Arguments["fix"] == "true"
@@ -1791,7 +1805,7 @@ func (m *Model) renderMain(width int) string {
 	b.WriteString("\n")
 	instruction := m.pageInstruction()
 	if m.composerOpen {
-		instruction = "Set the fields below. Enter advances; Esc cancels without running anything."
+		instruction = "Ctrl+Enter starts this mission · Enter/Tab edits optional settings · Esc cancels."
 	} else if m.confirmOpen {
 		instruction = "Review this action before Veto makes changes."
 	}
@@ -1874,7 +1888,7 @@ func (m *Model) pageInstruction() string {
 	case "FLEET":
 		return "M Models · P Providers · A Add provider. Click or use ↑/↓; Enter manages the selected row."
 	case "MISSIONS":
-		return "Review all local routing events. Click or use ↑/↓; / filters across every page."
+		return "Review local missions. ↑/↓ select · Enter timeline · d remove · D remove all · / filter."
 	case "HEALTH":
 		return "Select a finding for details. Press r to refresh diagnostics; / filters every row."
 	case "INTEGRATIONS":
@@ -2164,7 +2178,10 @@ func (m *Model) displayComposerValue(field controlplane.FlagSpec) string {
 
 func (m *Model) renderComposer(width int) string {
 	contentWidth := max(20, width-10)
-	lines := []string{headerStyle.Render("MISSION COMPOSER · " + strings.ToUpper(m.composerAction))}
+	lines := []string{
+		headerStyle.Render("MISSION COMPOSER · " + strings.ToUpper(m.composerAction)),
+		mutedStyle.Render("Ctrl+Enter starts this mission · Enter/Tab edits optional settings · Esc cancels"),
+	}
 	if m.composerNeedsObjective() {
 		objective := m.composerInput
 		if objective == "" {
@@ -2262,11 +2279,16 @@ func (m *Model) renderPipeline(width int) string {
 	completed := m.routingProgress()
 	parts := make([]string, 0, len(routingStages))
 	for index, stage := range routingStages {
-		label := stage
+		label := mutedStyle.Render(stage)
 		if index < completed {
-			label = "✓ " + stage
+			label = brandStyle.Render("✓ " + stage)
 		} else if index == completed && m.running {
-			label = "› " + stage
+			frames := []rune(runningSpinner)
+			pulse := "◆"
+			if m.options.Motion {
+				pulse = string(frames[int(m.frame)%len(frames)])
+			}
+			label = selectedStyle.Render(pulse + " " + stage)
 		}
 		parts = append(parts, label)
 	}
@@ -2363,6 +2385,14 @@ func (m *Model) renderConfirmation(width int) string {
 	case "impeccable":
 		prompt = "Install Impeccable for Veto?"
 		description = "Veto will install curated design skills into its managed integration scope."
+	case "history-delete":
+		if m.pendingRequest.Arguments["scope"] == "all" {
+			prompt = "Remove all mission history?"
+			description = "Veto will remove the local mission ledger and mission index. This cannot be undone."
+		} else {
+			prompt = "Remove the selected mission?"
+			description = "Veto will remove this mission from the local ledger and mission index. This cannot be undone."
+		}
 	}
 	b.WriteString(panelStyle.Render(prompt + "\n" + description))
 	if m.pendingNative != nil && m.output.Len() > 0 {
@@ -3040,6 +3070,39 @@ func (m *Model) openSelectedDataDetail() {
 	m.dataDetailOpen = true
 }
 
+func (m *Model) requestHistoryDeletion(all bool) tea.Cmd {
+	arguments := map[string]string{}
+	if all {
+		arguments["scope"] = "all"
+	} else {
+		mission, ok := m.selectedHistoryMission()
+		if !ok {
+			m.status = "Ready · no mission selected"
+			return nil
+		}
+		representative := historyMissionRepresentative(mission)
+		switch {
+		case representative.RunID != "":
+			arguments["run-id"] = representative.RunID
+		case representative.TaskID != "":
+			arguments["task-id"] = representative.TaskID
+		case representative.EventID != "":
+			arguments["event-id"] = representative.EventID
+		default:
+			m.status = "Error · selected mission has no removable identity"
+			return nil
+		}
+	}
+	m.pendingRequest = controlplane.ActionRequest{ActionID: "history-delete", Arguments: arguments}
+	m.confirmOpen = true
+	if all {
+		m.status = "Confirm · remove all mission history"
+	} else {
+		m.status = "Confirm · remove selected mission"
+	}
+	return nil
+}
+
 func (m *Model) historyDetailWindowSize() int {
 	height := m.height
 	if height < 1 {
@@ -3483,6 +3546,9 @@ func formatMultiline(value string, width, limit int) string {
 	input := strings.Split(value, "\n")
 	lines := make([]string, 0, min(len(input), limit))
 	for _, line := range input {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			continue
+		}
 		if len(lines) == limit {
 			break
 		}
@@ -3648,7 +3714,7 @@ func (m *Model) renderHistory(width int) string {
 		selected = m.currentDataCursor() - start
 	}
 	content := headerStyle.Render("MISSIONS · RECENT ACTIVITY") + "\n" + m.renderDataFilter(total, len(rows)) + "\n\n" + renderSelectableDataTable([]string{"Time", "Mission", "Model", "Status", "Harness", "Events", "Action"}, page, max(20, width-8), selected) + "\n\n" + m.renderDataPager(len(rows), start, end)
-	content += "\n" + mutedStyle.Render("One row per mission/run · Enter opens its full timeline · failures: press F to diagnose with AI")
+	content += "\n" + mutedStyle.Render("One row per mission/run · Enter timeline · d remove selected · D remove all · F diagnose failures")
 	return workspacePanelStyle.Width(max(12, width)).Render(content)
 }
 
@@ -3821,22 +3887,6 @@ func (m *Model) renderInspector(width int) string {
 	}
 	b.WriteString(mutedStyle.Render(fmt.Sprintf("providers    %d/%d connected\nlast model   %s\nlast harness %s\nroute conf   %s\ncapability   %s\nactive runs  %d\nactive tools %d\napprovals    %d\nexec gross   %s\nexec reused  %s\nexec fresh   %s\nexec output  %s\nexec total   %s\nlast cost    %s\nlast time    %s\nartifacts    %d", connectedProviders, len(m.snapshot.Providers), modelName, harness, valueOrDash(confidence), capabilities, monitor.ActiveSessions, monitor.ActiveTools, monitor.PendingApprovals, inputTokens, reusedTokens, freshTokens, outputTokens, totalTokens, cost, latency, monitor.Artifacts)))
 	b.WriteString("\n\n")
-	whyTitle := "WHY THIS MODEL"
-	if routeName == "" {
-		whyTitle = "ROUTING EXPLANATION"
-	}
-	b.WriteString(headerStyle.Render(whyTitle))
-	b.WriteString("\n")
-	why := m.decisionWhy
-	if why == "" {
-		if routeName == "" {
-			why = "No model selected yet. Start a mission to see Veto's decision."
-		} else {
-			why = "No explanation was recorded for the last route."
-		}
-	}
-	b.WriteString(mutedStyle.Render(truncate(why, width-2)))
-	b.WriteString("\n\n")
 	b.WriteString(mutedStyle.Render("Ctrl+F Fleet · P Providers · Tab views · Enter open · Esc home · Ctrl+K commands"))
 	return lipgloss.NewStyle().Width(width).Render(b.String())
 }
@@ -3858,6 +3908,8 @@ func (m *Model) renderLiveTimeline(width int) string {
 	b.WriteString(headerStyle.Render("LIVE ROUTING"))
 	b.WriteString("\n")
 	if m.running {
+		b.WriteString(m.renderRoutingAmbient(width))
+		b.WriteString("\n")
 		b.WriteString(m.renderRoutingAnimation(width))
 		b.WriteString("\n\n")
 	}
@@ -3960,7 +4012,7 @@ func (m *Model) routingActiveStage() int {
 }
 
 func (m *Model) renderRoutingSweep(width int) string {
-	trackWidth := min(48, max(12, width-2))
+	trackWidth := max(12, width-2)
 	position := trackWidth / 2
 	if m.options.Motion && trackWidth > 1 {
 		period := 2*trackWidth - 2
@@ -3972,6 +4024,17 @@ func (m *Model) renderRoutingSweep(width int) string {
 	left := strings.Repeat("━", position)
 	right := strings.Repeat("─", trackWidth-position-1)
 	return brandStyle.Render("╶"+left) + titleStyle.Render("◆") + mutedStyle.Render(right+"╴")
+}
+
+func (m *Model) renderRoutingAmbient(width int) string {
+	ambientWidth := max(12, width)
+	position := 0
+	if m.options.Motion && ambientWidth > 1 {
+		position = int(m.frame) % ambientWidth
+	}
+	pattern := []rune(strings.Repeat("·", ambientWidth))
+	pattern[position] = '✦'
+	return mutedStyle.Render(string(pattern))
 }
 
 func (m *Model) routingCandidates() []routingCandidate {
@@ -4062,8 +4125,14 @@ func (m *Model) statusLine(width int) string {
 	}
 	if m.supportsDataFilter() {
 		hints = "↑↓ rows  ·  PgUp/PgDn pages  ·  / filter  ·  Esc home "
+		if m.activeAction == "history" {
+			hints = "↑↓ rows  ·  Enter timeline  ·  d/D remove  ·  / filter  ·  Esc home "
+		}
 		if m.dataFilterQuery != "" {
 			hints = "↑↓ rows  ·  PgUp/PgDn pages  ·  / edit filter  ·  Esc clear "
+			if m.activeAction == "history" {
+				hints = "↑↓ rows  ·  d/D remove  ·  / edit filter  ·  Esc clear "
+			}
 		}
 	}
 	if m.running {
@@ -4080,6 +4149,9 @@ func (m *Model) statusLine(width int) string {
 			hints = "Esc cancel · ? help · q quit "
 		} else if m.supportsDataFilter() {
 			hints = "↑↓ rows · PgUp/PgDn · / filter "
+			if m.activeAction == "history" {
+				hints = "↑↓ rows · Enter timeline · d/D remove "
+			}
 		}
 	}
 	available := max(1, width-lipgloss.Width(hints)-1)
@@ -4441,11 +4513,11 @@ func (m *Model) historyDetailPanel(panelWidth int) (string, bool) {
 		b.WriteString(selectedStyle.Render(" [F] DIAGNOSE WITH AI "))
 		b.WriteString(mutedStyle.Render("  opens a reviewable repair mission"))
 		b.WriteString("\n\n")
-		b.WriteString(mutedStyle.Render("↑/↓ select event · Enter/F diagnose · click event · Esc close"))
+		b.WriteString(mutedStyle.Render("↑/↓ select event · Enter/F diagnose · d remove · D remove all · Esc close"))
 		return overlayStyle.Width(panelWidth).Render(strings.TrimSuffix(b.String(), "\n")), true
 	}
 	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("↑/↓ select event · click event · Enter/Esc close"))
+	b.WriteString(mutedStyle.Render("↑/↓ select event · d remove · D remove all · Enter/Esc close"))
 	return overlayStyle.Width(panelWidth).Render(strings.TrimSuffix(b.String(), "\n")), true
 }
 
@@ -4599,6 +4671,7 @@ func (m *Model) renderHelp(_ string) string {
 		"d           run diagnostics",
 		"0 / Home    return to Command Center",
 		"h           open redacted history",
+		"d / D       remove selected mission / all mission history (confirm)",
 		"i           inspect integrations",
 		"p           inspect plans",
 		"Enter       select the focused command or edit its flags",

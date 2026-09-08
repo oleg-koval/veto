@@ -21,7 +21,7 @@ func TestModelRendersAccessibleShellAndStatusline(t *testing.T) {
 	model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	view := model.View()
 
-	for _, want := range []string{"LOCAL AI CONTROL PLANE", "Ctrl+K commands", "STATUS", "providers", "ROUTING EXPLANATION", "? help"} {
+	for _, want := range []string{"LOCAL AI CONTROL PLANE", "Ctrl+K commands", "STATUS", "providers", "? help"} {
 		if !strings.Contains(view.Content, want) {
 			t.Errorf("shell view missing %q\n%s", want, view.Content)
 		}
@@ -88,6 +88,18 @@ func TestModelRunShortcutOpensTaskComposerFromHome(t *testing.T) {
 	model = updated.(*Model)
 	if !model.composerOpen || model.composerAction != "run" {
 		t.Fatalf("home run shortcut = open:%v action:%q", model.composerOpen, model.composerAction)
+	}
+}
+
+func TestModelProviderComposerDefaultsToAnthropic(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
+	model.openProviderLogin("")
+
+	if got := model.composerValues["provider"]; got != "anthropic" {
+		t.Fatalf("provider default = %q, want anthropic", got)
+	}
+	if !strings.Contains(model.renderComposerControl(model.composerFields[0]), "anthropic") {
+		t.Fatalf("provider control does not show its selected default: %s", model.renderComposerControl(model.composerFields[0]))
 	}
 }
 
@@ -170,7 +182,7 @@ func TestModelFillsTerminalHeightAndNamesComposerContext(t *testing.T) {
 	if got := lipgloss.Height(view); got != 40 {
 		t.Fatalf("rendered height = %d, want terminal height 40", got)
 	}
-	if !strings.Contains(view, "Setup") || !strings.Contains(view, "Set the fields below") {
+	if !strings.Contains(view, "Setup") || !strings.Contains(view, "Ctrl+Enter starts this mission") {
 		t.Fatalf("composer context is unclear:\n%s", view)
 	}
 }
@@ -289,6 +301,9 @@ func TestMissionComposerDistinguishesValuesFromCheckboxes(t *testing.T) {
 	model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	model.openTaskComposer("")
 	view := model.View().Content
+	if !strings.Contains(view, "Ctrl+Enter starts this mission") {
+		t.Fatalf("mission composer does not explain how to start:\n%s", view)
+	}
 	for _, want := range []string{"Risk [medium]", "Budget [auto]", "Tools [auto]", "Criteria [optional]", "[Ctrl+Enter] RUN MISSION", "[Enter] or [Tab] configure"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("mission composer missing %q:\n%s", want, view)
@@ -1292,6 +1307,39 @@ func TestModelUsesSmoothRunningSpinnerAndRespectsReducedMotion(t *testing.T) {
 	}
 }
 
+func TestModelRoutingSweepUsesAvailableWidth(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: true, NoColor: true})
+	track := ansi.Strip(model.renderRoutingSweep(100))
+	if lipgloss.Width(track) != 100 {
+		t.Fatalf("routing sweep width = %d, want 100", lipgloss.Width(track))
+	}
+}
+
+func TestModelRoutingPipelineHighlightsAndAnimatesActiveStage(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: true, NoColor: true})
+	model.running = true
+	model.eventHistory = []controlplane.Event{{Kind: "route.shortlist"}}
+	model.frame = 0
+	first := model.renderPipeline(120)
+	model.frame = 1
+	second := model.renderPipeline(120)
+	if first == second {
+		t.Fatal("active routing stage did not animate between frames")
+	}
+	for _, want := range []string{"✓ FILTER", "SHORTLIST", "ADMIT", "WINNER", "EXECUTE", "REVIEW"} {
+		if !strings.Contains(first, want) {
+			t.Fatalf("pipeline missing %q: %s", want, first)
+		}
+	}
+}
+
+func TestFormatMultilineRemovesMarkdownFenceMarkers(t *testing.T) {
+	got := formatMultiline("```bash\nrepair --offline\n```", 80, 10)
+	if strings.Contains(got, "```") || !strings.Contains(got, "repair --offline") {
+		t.Fatalf("markdown fences leaked into output: %q", got)
+	}
+}
+
 func TestModelAnimatesRealRoutingFlowAndCandidateAdmission(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: true, NoColor: true})
 	model.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
@@ -1681,7 +1729,7 @@ func TestModelShowsRoutingDecisionContext(t *testing.T) {
 	}, ok: true})
 	model = updated.(*Model)
 	view := model.View().Content
-	for _, want := range []string{"route conf   91%", "capability", "known (2", "WHY THIS MODEL", "capability fit", "LIVE ROUTING", "winner"} {
+	for _, want := range []string{"route conf   91%", "capability", "known (2", "LIVE ROUTING", "winner"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("decision context missing %q:\n%s", want, view)
 		}

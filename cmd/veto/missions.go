@@ -94,7 +94,11 @@ func saveTUIMission(record tuiMissionRecord) error {
 	if len(records) > maxMissionRecords {
 		records = records[len(records)-maxMissionRecords:]
 	}
-	data, err = json.MarshalIndent(records, "", "  ")
+	return writeTUIMissionRecords(path, records)
+}
+
+func writeTUIMissionRecords(path string, records []tuiMissionRecord) error {
+	data, err := json.MarshalIndent(records, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode mission index: %w", err)
 	}
@@ -121,17 +125,31 @@ func saveTUIMission(record tuiMissionRecord) error {
 	return nil
 }
 
+func readTUIMissionRecords(path string) ([]tuiMissionRecord, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, nil
+	}
+	var records []tuiMissionRecord
+	if err := json.Unmarshal(data, &records); err != nil {
+		return nil, fmt.Errorf("read mission index: %w", err)
+	}
+	return records, nil
+}
+
 func readTUIMissions() map[string]tuiMissionRecord {
 	path, err := tuiMissionStorePath()
 	if err != nil {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+	records, err := readTUIMissionRecords(path)
 	if err != nil {
-		return nil
-	}
-	var records []tuiMissionRecord
-	if json.Unmarshal(data, &records) != nil {
 		return nil
 	}
 	result := make(map[string]tuiMissionRecord, len(records))
