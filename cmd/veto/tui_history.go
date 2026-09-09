@@ -28,6 +28,9 @@ func runTUIHistoryDelete(_ context.Context, request controlplane.ActionRequest) 
 
 	closeLogger()
 	defer setupLogger()
+	if err := resetExperimentLogger(); err != nil {
+		return controlplane.ActionResult{ActionID: "history-delete"}, fmt.Errorf("close native-dispatch history: %w", err)
+	}
 	if scope == "all" {
 		if err := removeAllTUIHistory(home); err != nil {
 			return controlplane.ActionResult{ActionID: "history-delete"}, err
@@ -50,9 +53,9 @@ func runTUIHistoryDelete(_ context.Context, request controlplane.ActionRequest) 
 }
 
 func removeAllTUIHistory(home string) error {
-	paths, err := filepath.Glob(filepath.Join(home, ".veto", "logs", "veto-*.log"))
+	paths, err := tuiHistoryLedgerPaths(home)
 	if err != nil {
-		return fmt.Errorf("find mission logs: %w", err)
+		return err
 	}
 	for _, path := range paths {
 		lockFile, lockErr := lockMissionStoreFile(path + ".lock")
@@ -69,9 +72,9 @@ func removeAllTUIHistory(home string) error {
 }
 
 func removeSelectedTUIHistory(home string, selector tuiHistorySelector) error {
-	paths, err := filepath.Glob(filepath.Join(home, ".veto", "logs", "veto-*.log"))
+	paths, err := tuiHistoryLedgerPaths(home)
 	if err != nil {
-		return fmt.Errorf("find mission logs: %w", err)
+		return err
 	}
 	runIDs := make(map[string]struct{})
 	if selector.RunID != "" {
@@ -92,6 +95,14 @@ func removeSelectedTUIHistory(home string, selector tuiHistorySelector) error {
 		}
 	}
 	return nil
+}
+
+func tuiHistoryLedgerPaths(home string) ([]string, error) {
+	paths, err := filepath.Glob(filepath.Join(home, ".veto", "logs", "veto-*.log"))
+	if err != nil {
+		return nil, fmt.Errorf("find mission logs: %w", err)
+	}
+	return append(paths, filepath.Join(home, ".veto", "experiment.log")), nil
 }
 
 func removeMatchingTUILedgerLines(path string, selector tuiHistorySelector) (map[string]struct{}, error) {
