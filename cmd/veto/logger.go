@@ -99,8 +99,33 @@ func appendLedgerEvent(event ledger.Event) {
 			return
 		}
 		defer lockFile.Close()
+		if err := refreshEventLogFile(); err != nil {
+			return
+		}
 	}
 	_ = eventLedger.Append(event)
+}
+
+// refreshEventLogFile redirects this process to the current log pathname after
+// a history rewrite replaces the file while another process still has it open.
+// The caller holds both eventRunMu and the log's cross-process sidecar lock.
+func refreshEventLogFile() error {
+	path := eventLogFile.Name()
+	openInfo, openErr := eventLogFile.Stat()
+	pathInfo, pathErr := os.Stat(path)
+	if openErr == nil && pathErr == nil && os.SameFile(openInfo, pathInfo) {
+		return nil
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	oldFile := eventLogFile
+	eventLogFile = f
+	eventLedger = ledger.NewWriter(f)
+	_ = oldFile.Close()
+	return nil
 }
 
 // beginLoggedRun gives each submission in a long-lived TUI process a fresh
