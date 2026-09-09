@@ -160,6 +160,20 @@ func TestTUIHistoryDeleteRemovesSelectedMission(t *testing.T) {
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
+	experiment, err := os.Create(filepath.Join(home, ".veto", "experiment.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	experimentWriter := ledger.NewWriter(experiment)
+	for _, runID := range []string{"run-delete", "run-native-keep"} {
+		if err := experimentWriter.Append(ledger.Event{RunID: runID, TaskID: runID + "-task", Type: ledger.EventNativeStarted}); err != nil {
+			_ = experiment.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := experiment.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if err := saveTUIMission(tuiMissionRecord{RunID: "run-delete", Objective: "delete me"}); err != nil {
 		t.Fatal(err)
 	}
@@ -170,8 +184,13 @@ func TestTUIHistoryDeleteRemovesSelectedMission(t *testing.T) {
 		t.Fatal(err)
 	}
 	history := readTUIHistory()
-	if len(history) != 1 || history[0].RunID != "run-keep" {
+	if len(history) != 2 {
 		t.Fatalf("history after selected deletion = %#v", history)
+	}
+	for _, event := range history {
+		if event.RunID == "run-delete" {
+			t.Fatalf("deleted native-dispatch event remains in history: %#v", history)
+		}
 	}
 	if _, ok := readTUIMissions()["run-delete"]; ok {
 		t.Fatal("selected mission remains in the mission index")
@@ -237,6 +256,17 @@ func TestTUIHistoryDeleteRemovesAllMissionHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	experiment, err := os.Create(filepath.Join(home, ".veto", "experiment.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.NewWriter(experiment).Append(ledger.Event{RunID: "run-native-delete-all", Type: ledger.EventNativeStarted}); err != nil {
+		_ = experiment.Close()
+		t.Fatal(err)
+	}
+	if err := experiment.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := saveTUIMission(tuiMissionRecord{RunID: "run-delete-all", Objective: "delete all"}); err != nil {
