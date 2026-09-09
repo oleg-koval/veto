@@ -55,7 +55,13 @@ func removeAllTUIHistory(home string) error {
 		return fmt.Errorf("find mission logs: %w", err)
 	}
 	for _, path := range paths {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		lockFile, lockErr := lockMissionStoreFile(path + ".lock")
+		if lockErr != nil {
+			return fmt.Errorf("lock mission log %s: %w", filepath.Base(path), lockErr)
+		}
+		err := os.Remove(path)
+		_ = lockFile.Close()
+		if err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove mission log %s: %w", filepath.Base(path), err)
 		}
 	}
@@ -67,26 +73,40 @@ func removeSelectedTUIHistory(home string, selector tuiHistorySelector) error {
 	if err != nil {
 		return fmt.Errorf("find mission logs: %w", err)
 	}
+	runIDs := make(map[string]struct{})
+	if selector.RunID != "" {
+		runIDs[selector.RunID] = struct{}{}
+	}
 	for _, path := range paths {
-		if err := removeMatchingTUILedgerLines(path, selector); err != nil {
+		matched, err := removeMatchingTUILedgerLines(path, selector)
+		if err != nil {
 			return err
 		}
+		for runID := range matched {
+			runIDs[runID] = struct{}{}
+		}
 	}
-	if selector.RunID != "" {
-		if err := removeMissionIndexRecord(home, selector.RunID); err != nil {
+	if len(runIDs) > 0 {
+		if err := removeMissionIndexRecords(home, runIDs); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func removeMatchingTUILedgerLines(path string, selector tuiHistorySelector) error {
+func removeMatchingTUILedgerLines(path string, selector tuiHistorySelector) (map[string]struct{}, error) {
+	matchedRunIDs := make(map[string]struct{})
+	lockFile, lockErr := lockMissionStoreFile(path + ".lock")
+	if lockErr != nil {
+		return matchedRunIDs, fmt.Errorf("lock mission log %s: %w", filepath.Base(path), lockErr)
+	}
+	defer lockFile.Close()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return matchedRunIDs, nil
 		}
-		return fmt.Errorf("read mission log %s: %w", filepath.Base(path), err)
+		return matchedRunIDs, fmt.Errorf("read mission log %s: %w", filepath.Base(path), err)
 	}
 	lines := bytes.Split(data, []byte{'\n'})
 	var kept bytes.Buffer
@@ -99,6 +119,9 @@ func removeMatchingTUILedgerLines(path string, selector tuiHistorySelector) erro
 		}
 		if remove {
 			removed = true
+			if event.RunID != "" {
+				matchedRunIDs[event.RunID] = struct{}{}
+			}
 		} else {
 			kept.Write(line)
 			if index < len(lines)-1 {
@@ -107,29 +130,29 @@ func removeMatchingTUILedgerLines(path string, selector tuiHistorySelector) erro
 		}
 	}
 	if !removed {
-		return nil
+		return matchedRunIDs, nil
 	}
 	temporary, err := os.CreateTemp(filepath.Dir(path), ".veto-history-*.tmp")
 	if err != nil {
-		return fmt.Errorf("create mission log temp file: %w", err)
+		return matchedRunIDs, fmt.Errorf("create mission log temp file: %w", err)
 	}
 	temporaryName := temporary.Name()
 	defer os.Remove(temporaryName)
 	if err := temporary.Chmod(0600); err != nil {
 		_ = temporary.Close()
-		return fmt.Errorf("protect mission log: %w", err)
+		return matchedRunIDs, fmt.Errorf("protect mission log: %w", err)
 	}
 	if _, err := temporary.Write(kept.Bytes()); err != nil {
 		_ = temporary.Close()
-		return fmt.Errorf("write mission log: %w", err)
+		return matchedRunIDs, fmt.Errorf("write mission log: %w", err)
 	}
 	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close mission log: %w", err)
+		return matchedRunIDs, fmt.Errorf("close mission log: %w", err)
 	}
 	if err := os.Rename(temporaryName, path); err != nil {
-		return fmt.Errorf("replace mission log: %w", err)
+		return matchedRunIDs, fmt.Errorf("replace mission log: %w", err)
 	}
-	return nil
+	return matchedRunIDs, nil
 }
 
 func historyEventMatchesSelector(event ledger.Event, selector tuiHistorySelector) bool {
@@ -143,6 +166,10 @@ func historyEventMatchesSelector(event ledger.Event, selector tuiHistorySelector
 }
 
 func removeMissionIndexRecord(home, runID string) error {
+	return removeMissionIndexRecords(home, map[string]struct{}{runID: {}})
+}
+
+func removeMissionIndexRecords(home string, runIDs map[string]struct{}) error {
 	path := filepath.Join(home, ".veto", "missions.json")
 	missionStoreMu.Lock()
 	defer missionStoreMu.Unlock()
@@ -152,7 +179,7 @@ func removeMissionIndexRecord(home, runID string) error {
 	}
 	filtered := records[:0]
 	for _, record := range records {
-		if record.RunID != runID {
+		if _, remove := runIDs[record.RunID]; !remove {
 			filtered = append(filtered, record)
 		}
 	}

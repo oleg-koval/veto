@@ -88,11 +88,16 @@ func TestRequiresExecutableRuntime(t *testing.T) {
 			objective: "commit this change",
 			want:      true,
 		},
+		{
+			name:      "ordinary commit request",
+			objective: "commit changes",
+			want:      true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, requiresExecutableRuntime(tt.objective))
+			assert.Equal(t, tt.want, router.RequiresExecutableRuntime(tt.objective))
 		})
 	}
 }

@@ -178,15 +178,23 @@ var (
 
 // Redact removes credentials, API keys, tokens, and passwords from detail text.
 func Redact(detail string) string {
+	detail = RedactUnbounded(detail)
+	if len(detail) > 500 {
+		detail = detail[:500] + "…"
+	}
+	return detail
+}
+
+// RedactUnbounded removes credentials and other sensitive values without
+// applying the diagnostic detail length limit. Callers with a larger,
+// domain-specific bound must apply that bound after redaction.
+func RedactUnbounded(detail string) string {
 	detail = strings.Join(strings.Fields(detail), " ")
 	detail = jsonCredentialPattern.ReplaceAllString(detail, `$1[REDACTED]$2`)
 	detail = credentialPattern.ReplaceAllString(detail, "$1=[REDACTED]")
 	detail = urlUserinfoPattern.ReplaceAllString(detail, `$1[REDACTED]$2`)
 	detail = bearerPattern.ReplaceAllString(detail, "Bearer [REDACTED]")
 	detail = knownKeyPattern.ReplaceAllString(detail, "[REDACTED]")
-	if len(detail) > 500 {
-		detail = detail[:500] + "…"
-	}
 	return detail
 }
 

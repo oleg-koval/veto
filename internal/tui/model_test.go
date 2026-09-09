@@ -240,6 +240,9 @@ func TestModelShowsTabHintOnMouseHover(t *testing.T) {
 			break
 		}
 	}
+	if x < 0 {
+		t.Fatal("Fleet tab has no mouse hit target")
+	}
 	updated, _ := model.Update(tea.MouseMotionMsg{X: x, Y: y})
 	model = updated.(*Model)
 	if !strings.Contains(model.status, "switch to fleet") {

@@ -113,6 +113,7 @@ type Model struct {
 	healthVerification  string
 	verifyHealthFix     bool
 	healthLoading       bool
+	snapshotCancel      context.CancelFunc
 	events              <-chan controlplane.Event
 	cancelRun           context.CancelFunc
 	snapshot            controlplane.Snapshot
@@ -1493,8 +1494,13 @@ func (m *Model) execute(request controlplane.ActionRequest, ctx context.Context)
 }
 
 func (m *Model) loadSnapshot() tea.Cmd {
+	if m.snapshotCancel != nil {
+		m.snapshotCancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.snapshotCancel = cancel
 	return func() tea.Msg {
-		snapshot, err := m.options.Service.Snapshot(context.Background())
+		snapshot, err := m.options.Service.Snapshot(ctx)
 		return snapshotMsg{snapshot: snapshot, err: err}
 	}
 }

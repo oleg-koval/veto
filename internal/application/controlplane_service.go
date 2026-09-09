@@ -333,7 +333,7 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		}
 		s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "ready", Provider: model.Provider, Model: model.Name})
 		reasons := routeDecisionReasons(decision)
-		s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "route.completed", Message: fmt.Sprintf("%s accepted (%.0f%% confidence)", model.Name, decision.Confidence*100), Model: model.Name, Confidence: decision.Confidence, ConfidenceKnown: decision.Confidence > 0, Reasons: reasons})
+		s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "route.completed", Message: fmt.Sprintf("%s accepted (%.0f%% confidence)", model.Name, decision.Confidence*100), Model: model.Name, Confidence: decision.Confidence, ConfidenceKnown: true, Reasons: reasons})
 		return controlplane.ActionResult{ActionID: request.ActionID, Summary: "model selected", Model: model.Name}, nil
 	case "run":
 		if s.router == nil {
@@ -604,7 +604,7 @@ func (s *ControlService) publishRouteEvent(event router.ProgressEvent) {
 	}
 	reasons := append([]string(nil), event.Reasons...)
 	if event.Kind == router.EventAskAccept && len(reasons) == 0 {
-		reasons = []string{"ranked highest among eligible candidates", "accepted by admission gate"}
+		reasons = routeDecisionReasons(router.AdmissionDecision{ReasonCodes: reasons})
 	}
 	message := event.Model
 	if len(reasons) > 0 {
@@ -613,13 +613,14 @@ func (s *ControlService) publishRouteEvent(event router.ProgressEvent) {
 	if event.Detail != "" {
 		message += " · " + strings.Join(strings.Fields(event.Detail), " ")
 	}
-	s.publish(controlplane.Event{ActionID: "route", Kind: "route." + string(event.Kind), Message: message, Model: event.Model, Confidence: event.Confidence, ConfidenceKnown: event.Confidence > 0, Reasons: reasons})
+	confidenceKnown := event.Kind == router.EventAskAccept || event.Confidence > 0
+	s.publish(controlplane.Event{ActionID: "route", Kind: "route." + string(event.Kind), Message: message, Model: event.Model, Confidence: event.Confidence, ConfidenceKnown: confidenceKnown, Reasons: reasons})
 	if event.Kind == router.EventAskAccept && event.Model != "" {
 		s.mu.Lock()
 		s.snapshot.Model = event.Model
 		s.snapshot.Monitor.LastModel = event.Model
 		s.snapshot.Monitor.LastConfidence = event.Confidence
-		s.snapshot.Monitor.LastConfidenceKnown = event.Confidence > 0
+		s.snapshot.Monitor.LastConfidenceKnown = confidenceKnown
 		s.snapshot.Monitor.LastReasons = append([]string(nil), reasons...)
 		for _, model := range s.snapshot.Models {
 			if model.Name == event.Model {

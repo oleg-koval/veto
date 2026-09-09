@@ -41,17 +41,22 @@ func tuiMissionStorePath() (string, error) {
 	return filepath.Join(home, ".veto", "missions.json"), nil
 }
 
-// saveTUIMission persists one searchable mission descriptor. The event ledger
-// remains redacted; this private index is the explicit local-history opt-in
-// needed for Mission Control to show what the user actually asked.
+// saveTUIMission persists one mission descriptor. New TUI submissions keep
+// objectives out of the index by default; explicit callers may provide one,
+// which is redacted and bounded before persistence.
 func saveTUIMission(record tuiMissionRecord) error {
-	if strings.TrimSpace(record.RunID) == "" || strings.TrimSpace(record.Objective) == "" {
-		return fmt.Errorf("mission record requires run_id and objective")
+	if strings.TrimSpace(record.RunID) == "" {
+		return fmt.Errorf("mission record requires run_id")
 	}
 	record.Version = missionStoreVersion
 	record.CreatedAt = record.CreatedAt.UTC()
-	record.Objective = boundMissionPrompt(ledger.Redact(record.Objective))
-	record.Title = missionTitle(record.Objective)
+	if strings.TrimSpace(record.Objective) != "" {
+		record.Objective = boundMissionPrompt(ledger.RedactUnbounded(record.Objective))
+		record.Title = missionTitle(record.Objective)
+	} else {
+		record.Objective = ""
+		record.Title = ""
+	}
 
 	path, err := tuiMissionStorePath()
 	if err != nil {

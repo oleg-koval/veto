@@ -15,6 +15,7 @@ import (
 	"github.com/oleg-koval/veto/internal/controlplane"
 	"github.com/oleg-koval/veto/internal/tui"
 	"github.com/oleg-koval/veto/pkg/ledger"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTUIScreenReaderModeUsesStableTextPresentation(t *testing.T) {
@@ -174,6 +175,49 @@ func TestTUIHistoryDeleteRemovesSelectedMission(t *testing.T) {
 	}
 	if _, ok := readTUIMissions()["run-delete"]; ok {
 		t.Fatal("selected mission remains in the mission index")
+	}
+}
+
+func TestTUIHistoryDeleteSelectorsRemoveResolvedRunMission(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		selector map[string]string
+	}{
+		{name: "task", selector: map[string]string{"task-id": "task-resolved"}},
+		{name: "event", selector: map[string]string{"event-id": "event-resolved"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			logs := filepath.Join(home, ".veto", "logs")
+			require.NoError(t, os.MkdirAll(logs, 0700))
+			file, err := os.Create(filepath.Join(logs, "veto-selector.log"))
+			require.NoError(t, err)
+			writer := ledger.NewWriter(file)
+			require.NoError(t, writer.Append(ledger.Event{EventID: "event-resolved", RunID: "run-resolved", TaskID: "task-resolved", Type: ledger.EventFilterPass}))
+			require.NoError(t, writer.Append(ledger.Event{EventID: "event-keep", RunID: "run-keep", TaskID: "task-keep", Type: ledger.EventFilterPass}))
+			require.NoError(t, file.Close())
+			if test.name == "event" {
+				data, readErr := os.ReadFile(filepath.Join(logs, "veto-selector.log"))
+				require.NoError(t, readErr)
+				events, _, readErr := ledger.Read(bytes.NewReader(data))
+				require.NoError(t, readErr)
+				require.NotEmpty(t, events)
+				test.selector["event-id"] = events[0].EventID
+			}
+			require.NoError(t, saveTUIMission(tuiMissionRecord{RunID: "run-resolved"}))
+			require.NoError(t, saveTUIMission(tuiMissionRecord{RunID: "run-keep"}))
+
+			_, err = runTUIHistoryDelete(context.Background(), controlplane.ActionRequest{ActionID: "history-delete", Arguments: test.selector})
+			require.NoError(t, err)
+			missions := readTUIMissions()
+			if _, ok := missions["run-resolved"]; ok {
+				t.Fatalf("resolved run remains after %s deletion", test.name)
+			}
+			if _, ok := missions["run-keep"]; !ok {
+				t.Fatalf("unmatched run was removed after %s deletion", test.name)
+			}
+		})
 	}
 }
 

@@ -114,20 +114,21 @@ type tuiRunLoggingService struct {
 }
 
 func (s tuiRunLoggingService) Execute(ctx context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+	invalidateTUISnapshotCache()
 	if request.ActionID == "run" || request.ActionID == "route" || request.ActionID == "exec" {
 		runID := beginLoggedRun()
 		kind := request.Arguments["kind"]
-		objective := request.Arguments["objective"]
 		if request.ActionID == "exec" {
 			kind = "exec"
-			objective = "Plan: " + request.Arguments["plan"]
 		}
 		_ = saveTUIMission(tuiMissionRecord{
 			RunID: runID, TaskID: request.Arguments["task-id"], Kind: kind,
-			Risk: request.Arguments["risk"], CreatedAt: time.Now(), Objective: objective,
+			Risk: request.Arguments["risk"], CreatedAt: time.Now(),
 		})
 	}
-	return s.Service.Execute(ctx, request)
+	result, err := s.Service.Execute(ctx, request)
+	invalidateTUISnapshotCache()
+	return result, err
 }
 
 // registerTUIActionHandlers keeps command-specific parsing in the existing
@@ -392,6 +393,7 @@ func runTUILogin(ctx context.Context, request controlplane.ActionRequest) (contr
 		if err := saveCredential("CLAUDE_SUBSCRIPTION", "true"); err != nil {
 			return controlplane.ActionResult{ActionID: "login"}, err
 		}
+		invalidateTUIProviderCache()
 		return controlplane.ActionResult{ActionID: "login", Summary: "Claude subscription connected"}, nil
 	}
 	if provider == "openrouter" && (mode == "browser" || mode == "oauth") {
@@ -404,15 +406,17 @@ func runTUILogin(ctx context.Context, request controlplane.ActionRequest) (contr
 		if err := saveCredential(providerInfo.envKey, credential); err != nil {
 			return controlplane.ActionResult{ActionID: "login"}, err
 		}
+		invalidateTUIProviderCache()
 		return controlplane.ActionResult{ActionID: "login", Summary: "OpenRouter connected via browser"}, nil
 	}
-	credential := tuiSecretArgument(request, "api-key")
-	if strings.TrimSpace(credential) == "" {
+	credential := strings.TrimSpace(tuiSecretArgument(request, "api-key"))
+	if credential == "" {
 		return controlplane.ActionResult{ActionID: "login"}, fmt.Errorf("api-key is required for %s", providerInfo.name)
 	}
 	if err := saveCredential(providerInfo.envKey, credential); err != nil {
 		return controlplane.ActionResult{ActionID: "login"}, err
 	}
+	invalidateTUIProviderCache()
 	return controlplane.ActionResult{ActionID: "login", Summary: providerInfo.name + " connected"}, nil
 }
 
@@ -443,6 +447,7 @@ func runTUILogout(_ context.Context, request controlplane.ActionRequest) (contro
 		if err := removeCredential("CLAUDE_SUBSCRIPTION"); err != nil {
 			return controlplane.ActionResult{ActionID: "logout"}, err
 		}
+		invalidateTUIProviderCache()
 		return controlplane.ActionResult{ActionID: "logout", Summary: "subscription disconnected"}, nil
 	}
 	if strings.EqualFold(target, "opencode") {
@@ -456,6 +461,7 @@ func runTUILogout(_ context.Context, request controlplane.ActionRequest) (contro
 			if err := removeCredential(provider.envKey); err != nil {
 				return controlplane.ActionResult{ActionID: "logout"}, err
 			}
+			invalidateTUIProviderCache()
 			return controlplane.ActionResult{ActionID: "logout", Summary: provider.name + " disconnected"}, nil
 		}
 	}
