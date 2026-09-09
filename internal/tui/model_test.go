@@ -615,6 +615,26 @@ func TestModelIntegrationFailureRendersPersistentResult(t *testing.T) {
 	}
 }
 
+func TestModelHistoryDeletionFailureRendersError(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
+	model.activeAction = "history"
+	updated, cmd := model.Update(executionResultMsg{
+		result: controlplane.ActionResult{ActionID: "history-delete"},
+		err:    errors.New("remove mission history: permission denied"),
+	})
+	model = updated.(*Model)
+
+	if cmd != nil {
+		t.Fatal("failed history deletion unexpectedly scheduled a snapshot refresh")
+	}
+	if want := "Error · remove mission history: permission denied"; model.status != want {
+		t.Fatalf("history deletion status = %q, want %q", model.status, want)
+	}
+	if strings.Contains(model.status, "mission history updated") {
+		t.Fatalf("failed history deletion reported success: %q", model.status)
+	}
+}
+
 func TestModelNoColorStripsANSI(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{NoColor: true})
 	model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
