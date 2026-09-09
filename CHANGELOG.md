@@ -3,6 +3,15 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.4](https://github.com/oleg-koval/veto/compare/v0.10.3...v0.10.4) (2026-09-09)
+
+
+### Bug Fixes
+
+* polish Veto mission control TUI ([#103](https://github.com/oleg-koval/veto/issues/103)) ([9022997](https://github.com/oleg-koval/veto/commit/90229977cbec5bf6aa88b86d1e68b85e5fc2f1e4))
+* reopen rewritten ledger before append ([#104](https://github.com/oleg-koval/veto/issues/104)) ([e97090d](https://github.com/oleg-koval/veto/commit/e97090dec1e38cb117838f6d9904d036159a961a))
+* surface history deletion failures ([#105](https://github.com/oleg-koval/veto/issues/105)) ([72b8bc8](https://github.com/oleg-koval/veto/commit/72b8bc8f9e920f5995a5008f55c84fe3f4c21dac))
+
 ## [0.10.3](https://github.com/oleg-koval/veto/compare/v0.10.2...v0.10.3) (2026-09-08)
 
 
