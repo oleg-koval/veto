@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/oleg-koval/veto/pkg/execution"
@@ -49,6 +50,40 @@ func TestSetupLoggerWritesReplayablePrivateLedger(t *testing.T) {
 	assert.Equal(t, "task-1", events[0].TaskID)
 	assert.Regexp(t, `^run-[0-9a-f]{32}$`, events[0].RunID)
 	assert.NotEqual(t, events[0].TaskID, events[0].RunID)
+}
+
+func TestLoggerReopensLogReplacedByHistoryRewrite(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not allow replacing an open log file")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	previous := eventLedger
+	previousFile := eventLogFile
+	previousRunID := eventRunID
+	t.Cleanup(func() {
+		closeLogger()
+		eventLedger = previous
+		eventLogFile = previousFile
+		eventRunID = previousRunID
+	})
+
+	setupLogger()
+	logLifecycle("task-before", ledger.EventExecutionStarted, "running", "")
+	path := eventLogFile.Name()
+	oldPath := path + ".replaced"
+	require.NoError(t, os.Rename(path, oldPath))
+	require.NoError(t, os.WriteFile(path, nil, 0600))
+
+	logLifecycle("task-after", ledger.EventExecutionStarted, "running", "")
+
+	current, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(current), `"task_id":"task-after"`)
+	old, err := os.ReadFile(oldPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(old), `"task_id":"task-before"`)
+	assert.NotContains(t, string(old), `"task_id":"task-after"`)
 }
 
 func TestLogEventIncludesProviderErrorDetail(t *testing.T) {
