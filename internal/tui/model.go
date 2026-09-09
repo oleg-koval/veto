@@ -594,7 +594,7 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.activeAction == "history" {
 			switch key.String() {
 			case "d", "D":
-				return m, m.requestHistoryDeletion(strings.EqualFold(key.String(), "D"))
+				return m, m.requestHistoryDeletion(key.String() == "D")
 			case "j", "down":
 				m.moveHistoryDetailCursor(1)
 				return m, nil
@@ -648,7 +648,7 @@ func (m *Model) updateKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.updateDataFilter(key)
 	}
 	if m.activeAction == "history" && (key.String() == "d" || key.String() == "D") {
-		return m, m.requestHistoryDeletion(strings.EqualFold(key.String(), "D"))
+		return m, m.requestHistoryDeletion(key.String() == "D")
 	}
 	if m.supportsDataFilter() && (key.Code == tea.KeyPgDown || key.Code == tea.KeyPgUp) {
 		delta := m.dataPageSize()
