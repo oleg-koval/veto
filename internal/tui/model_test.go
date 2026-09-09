@@ -795,6 +795,41 @@ func TestModelGroupsMissionHistoryByRunAndFiltersWithinGroup(t *testing.T) {
 	}
 }
 
+func TestModelHistoryDeletionShortcutPreservesKeyCase(t *testing.T) {
+	for _, detailOpen := range []bool{false, true} {
+		for _, test := range []struct {
+			key       string
+			wantScope string
+		}{
+			{key: "d", wantScope: "selected"},
+			{key: "D", wantScope: "all"},
+		} {
+			t.Run(fmt.Sprintf("detail=%t/key=%s", detailOpen, test.key), func(t *testing.T) {
+				model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
+				model.activeAction = "history"
+				model.dataDetailOpen = detailOpen
+				model.snapshot.History = []controlplane.HistorySnapshot{{RunID: "run-selected", Type: "execution.completed"}}
+
+				updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: test.key, Code: rune(test.key[0])}))
+				model = updated.(*Model)
+
+				if !model.confirmOpen || model.pendingRequest.ActionID != "history-delete" {
+					t.Fatalf("deletion confirmation = open:%t request:%#v", model.confirmOpen, model.pendingRequest)
+				}
+				if test.wantScope == "all" {
+					if got := model.pendingRequest.Arguments["scope"]; got != "all" {
+						t.Fatalf("uppercase D scope = %q, want all", got)
+					}
+				} else if got := model.pendingRequest.Arguments["run-id"]; got != "run-selected" {
+					t.Fatalf("lowercase d run-id = %q, want run-selected", got)
+				} else if _, ok := model.pendingRequest.Arguments["scope"]; ok {
+					t.Fatalf("lowercase d unexpectedly requested all history: %#v", model.pendingRequest.Arguments)
+				}
+			})
+		}
+	}
+}
+
 func TestModelPaginatesFilteredMissionRowsAndNavigatesPages(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
 	model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
