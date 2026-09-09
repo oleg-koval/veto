@@ -331,9 +331,19 @@ def run_route(binary: str, home: str) -> None:
         if b"COMMAND CENTER" not in output or b"Enter compose" not in output:
             raise SystemExit(f"TUI Route shell did not become ready: output={bytes(output)!r}")
 
-        # Select Route, submit an objective, and accept every default flag.
-        os.write(master, b"jjjjjr")
-        time.sleep(0.15)
+        # Activate Route through its documented shortcut before submitting the
+        # objective; navigation alone must not be allowed to mask a dead action.
+        os.write(master, b"t")
+        composer_deadline = time.monotonic() + 2
+        while time.monotonic() < composer_deadline and b"MISSION COMPOSER" not in output:
+            ready, _, _ = select.select([master], [], [], 0.1)
+            if ready:
+                try:
+                    output.extend(os.read(master, 8192))
+                except OSError:
+                    break
+        if b"MISSION COMPOSER" not in output:
+            raise SystemExit(f"TUI Route composer did not render after shortcut: output={bytes(output)!r}")
         os.write(master, b"route this example\r")
         for _ in range(13):
             time.sleep(0.03)

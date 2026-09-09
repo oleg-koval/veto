@@ -421,7 +421,9 @@ type streamer interface {
 The Claude subscription CLI implements the legacy path. Other executors use
 their buffered `Execute` method. Codex consumes its bounded JSONL event stream,
 prints completed agent messages, records only allowlisted tool lifecycle names,
-and reports CLI token usage with known zero marginal subscription cost. Gross
+and reports CLI token usage; known zero marginal cost applies only when the
+CLI is authenticated through a ChatGPT subscription, while API-key and
+unrecognized authentication remain cost-unknown. Gross
 input and cached/reused input are recorded separately when Codex provides both,
 so the UI can derive fresh input without presenting replayed context as wholly
 new. OpenCode exposes provider-reported usage and

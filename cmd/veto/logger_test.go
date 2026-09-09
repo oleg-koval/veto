@@ -18,9 +18,12 @@ func TestSetupLoggerWritesReplayablePrivateLedger(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	previous := eventLedger
+	previousFile := eventLogFile
 	previousRunID := eventRunID
 	t.Cleanup(func() {
+		closeLogger()
 		eventLedger = previous
+		eventLogFile = previousFile
 		eventRunID = previousRunID
 	})
 
@@ -51,11 +54,14 @@ func TestSetupLoggerWritesReplayablePrivateLedger(t *testing.T) {
 func TestLogEventIncludesProviderErrorDetail(t *testing.T) {
 	var output bytes.Buffer
 	previous := eventLedger
+	previousFile := eventLogFile
 	previousRunID := eventRunID
 	eventLedger = ledger.NewWriter(&output)
+	eventLogFile = nil
 	eventRunID = "run-test"
 	t.Cleanup(func() {
 		eventLedger = previous
+		eventLogFile = previousFile
 		eventRunID = previousRunID
 	})
 
@@ -78,11 +84,14 @@ func TestLogEventIncludesProviderErrorDetail(t *testing.T) {
 func TestLogExecutionPreservesKnownUsage(t *testing.T) {
 	var output bytes.Buffer
 	previous := eventLedger
+	previousFile := eventLogFile
 	previousRunID := eventRunID
 	eventLedger = ledger.NewWriter(&output)
+	eventLogFile = nil
 	eventRunID = "run-test"
 	t.Cleanup(func() {
 		eventLedger = previous
+		eventLogFile = previousFile
 		eventRunID = previousRunID
 	})
 
@@ -120,11 +129,14 @@ func TestTUILoggerStartsFreshGroupedRunPerSubmission(t *testing.T) {
 func TestLogRuntimeEventUsesAllowlistedFields(t *testing.T) {
 	var output bytes.Buffer
 	previous := eventLedger
+	previousFile := eventLogFile
 	previousRunID := eventRunID
 	eventLedger = ledger.NewWriter(&output)
+	eventLogFile = nil
 	eventRunID = "run-test"
 	t.Cleanup(func() {
 		eventLedger = previous
+		eventLogFile = previousFile
 		eventRunID = previousRunID
 	})
 
@@ -162,11 +174,14 @@ func TestRuntimeLedgerTypeIsClosed(t *testing.T) {
 func TestLogEventPreservesAcceptedZeroEstimates(t *testing.T) {
 	var output bytes.Buffer
 	previous := eventLedger
+	previousFile := eventLogFile
 	previousRunID := eventRunID
 	eventLedger = ledger.NewWriter(&output)
+	eventLogFile = nil
 	eventRunID = "run-test"
 	t.Cleanup(func() {
 		eventLedger = previous
+		eventLogFile = previousFile
 		eventRunID = previousRunID
 	})
 

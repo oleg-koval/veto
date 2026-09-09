@@ -131,10 +131,12 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens
 }
 
 func TestCodexCLIReportsSafeToolFailureDetail(t *testing.T) {
-	state := codexExecutionState{emit: func(event RuntimeEvent) {
-		assert.Equal(t, RuntimeEvent{Kind: RuntimeToolError, Name: "shell", Status: "failed (exit 7)"}, event)
-	}}
-	require.NoError(t, state.process([]byte(`{"type":"item.completed","item":{"type":"command_execution","status":"failed","exit_code":7,"aggregated_output":"secret output"}}`)))
+	events := make([]RuntimeEvent, 0, 1)
+	state := codexExecutionState{emit: func(event RuntimeEvent) { events = append(events, event) }}
+	processErr := state.process([]byte(`{"type":"item.completed","item":{"type":"command_execution","status":"failed","exit_code":7,"aggregated_output":"secret output"}}`))
+	require.NoError(t, processErr)
+	assert.Len(t, events, 1)
+	assert.Equal(t, RuntimeEvent{Kind: RuntimeToolError, Name: "shell", Status: "failed (exit 7)"}, events[0])
 }
 
 func TestCodexCLIRejectsMalformedOrEmptyEventOutput(t *testing.T) {

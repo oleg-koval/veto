@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -27,10 +29,40 @@ var tuiDoctorCache struct {
 
 const tuiDoctorCacheTTL = 30 * time.Second
 
+const (
+	tuiSnapshotCacheTTL     = 750 * time.Millisecond
+	tuiNativeStatusCacheTTL = 30 * time.Second
+	maxTUIHistoryLogBytes   = 4 << 20
+	maxTUIHistoryEvents     = 2000
+)
+
+var tuiNativeStatusCache struct {
+	sync.Mutex
+	statuses []dispatch.AgentStatus
+	at       time.Time
+}
+
+var tuiSnapshotCache struct {
+	sync.Mutex
+	snapshot controlplane.Snapshot
+	at       time.Time
+}
+
 func loadTUISnapshot(ctx context.Context) (controlplane.Snapshot, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := ctx.Err(); err != nil {
+		return controlplane.Snapshot{}, err
+	}
+	now := time.Now()
+	tuiSnapshotCache.Lock()
+	if !tuiSnapshotCache.at.IsZero() && now.Sub(tuiSnapshotCache.at) < tuiSnapshotCacheTTL {
+		snapshot := cloneTUISnapshot(tuiSnapshotCache.snapshot)
+		tuiSnapshotCache.Unlock()
+		return snapshot, nil
+	}
+	tuiSnapshotCache.Unlock()
 	snapshot := controlplane.Snapshot{Status: "ready"}
 	if status, err := currentAnalyticsStatus(); err == nil {
 		snapshot.Analytics = controlplane.AnalyticsSnapshot{
@@ -54,7 +86,7 @@ func loadTUISnapshot(ctx context.Context) (controlplane.Snapshot, error) {
 	if err := ctx.Err(); err != nil {
 		return snapshot, err
 	}
-	snapshot.History = readTUIHistory()
+	snapshot.History = readTUIHistoryContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return snapshot, err
 	}
@@ -70,7 +102,22 @@ func loadTUISnapshot(ctx context.Context) (controlplane.Snapshot, error) {
 	if err := ctx.Err(); err != nil {
 		return snapshot, err
 	}
+	tuiSnapshotCache.Lock()
+	tuiSnapshotCache.snapshot = cloneTUISnapshot(snapshot)
+	tuiSnapshotCache.at = time.Now()
+	tuiSnapshotCache.Unlock()
 	return snapshot, nil
+}
+
+func cloneTUISnapshot(snapshot controlplane.Snapshot) controlplane.Snapshot {
+	snapshot.Providers = append([]controlplane.ProviderSnapshot(nil), snapshot.Providers...)
+	snapshot.Models = append([]controlplane.ModelSnapshot(nil), snapshot.Models...)
+	snapshot.History = append([]controlplane.HistorySnapshot(nil), snapshot.History...)
+	snapshot.Plans = append([]controlplane.PlanSnapshot(nil), snapshot.Plans...)
+	snapshot.Health = append([]controlplane.HealthSnapshot(nil), snapshot.Health...)
+	snapshot.Integrations = append([]controlplane.IntegrationSnapshot(nil), snapshot.Integrations...)
+	snapshot.Monitor.LastReasons = append([]string(nil), snapshot.Monitor.LastReasons...)
+	return snapshot
 }
 
 func cachedTUIDoctor(ctx context.Context) doctorReport {
@@ -99,7 +146,7 @@ func cachedTUIDoctor(ctx context.Context) doctorReport {
 func readTUIProviders(ctx context.Context) []controlplane.ProviderSnapshot {
 	creds, _ := loadCredentials()
 	providers := make([]controlplane.ProviderSnapshot, 0, len(knownProviders)+2)
-	for _, native := range nativeAgentStatuses(ctx, dispatch.NewAvailabilityStore(availabilityPath())) {
+	for _, native := range cachedNativeAgentStatuses(ctx) {
 		name := native.Name
 		if len(name) > 0 {
 			name = strings.ToUpper(name[:1]) + name[1:]
@@ -123,6 +170,44 @@ func readTUIProviders(ctx context.Context) []controlplane.ProviderSnapshot {
 	return providers
 }
 
+func cachedNativeAgentStatuses(ctx context.Context) []dispatch.AgentStatus {
+	if err := ctx.Err(); err != nil {
+		return nil
+	}
+	now := time.Now()
+	tuiNativeStatusCache.Lock()
+	if !tuiNativeStatusCache.at.IsZero() && now.Sub(tuiNativeStatusCache.at) < tuiNativeStatusCacheTTL {
+		statuses := append([]dispatch.AgentStatus(nil), tuiNativeStatusCache.statuses...)
+		tuiNativeStatusCache.Unlock()
+		return statuses
+	}
+	tuiNativeStatusCache.Unlock()
+	statuses := nativeAgentStatuses(ctx, dispatch.NewAvailabilityStore(availabilityPath()))
+	if err := ctx.Err(); err != nil {
+		return nil
+	}
+	tuiNativeStatusCache.Lock()
+	tuiNativeStatusCache.statuses = append([]dispatch.AgentStatus(nil), statuses...)
+	tuiNativeStatusCache.at = time.Now()
+	tuiNativeStatusCache.Unlock()
+	return statuses
+}
+
+func invalidateTUIProviderCache() {
+	tuiNativeStatusCache.Lock()
+	tuiNativeStatusCache.statuses = nil
+	tuiNativeStatusCache.at = time.Time{}
+	tuiNativeStatusCache.Unlock()
+	invalidateTUISnapshotCache()
+}
+
+func invalidateTUISnapshotCache() {
+	tuiSnapshotCache.Lock()
+	tuiSnapshotCache.snapshot = controlplane.Snapshot{}
+	tuiSnapshotCache.at = time.Time{}
+	tuiSnapshotCache.Unlock()
+}
+
 func readTUIPlans() []controlplane.PlanSnapshot {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -141,6 +226,10 @@ func readTUIPlans() []controlplane.PlanSnapshot {
 }
 
 func readTUIHistory() []controlplane.HistorySnapshot {
+	return readTUIHistoryContext(context.Background())
+}
+
+func readTUIHistoryContext(ctx context.Context) []controlplane.HistorySnapshot {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil
@@ -154,16 +243,22 @@ func readTUIHistory() []controlplane.HistorySnapshot {
 	result := make([]controlplane.HistorySnapshot, 0, 128)
 	missions := readTUIMissions()
 	for index := len(paths) - 1; index >= 0; index-- {
+		if err := ctx.Err(); err != nil {
+			return result
+		}
 		file, openErr := os.Open(paths[index])
 		if openErr != nil {
 			continue
 		}
-		events, _, readErr := ledger.Read(file)
+		events, _, readErr := readBoundedTUILedger(file)
 		_ = file.Close()
 		if readErr != nil {
 			continue
 		}
 		for eventIndex := len(events) - 1; eventIndex >= 0; eventIndex-- {
+			if err := ctx.Err(); err != nil {
+				return result
+			}
 			event := events[eventIndex]
 			model, harness := tuiHistoryIdentity(event)
 			snapshot := controlplane.HistorySnapshot{
@@ -204,7 +299,29 @@ func readTUIHistory() []controlplane.HistorySnapshot {
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Timestamp.After(result[j].Timestamp) })
+	if len(result) > maxTUIHistoryEvents {
+		result = result[:maxTUIHistoryEvents]
+	}
 	return result
+}
+
+func readBoundedTUILedger(file *os.File) ([]ledger.Event, int, error) {
+	info, err := file.Stat()
+	if err != nil {
+		return nil, 0, err
+	}
+	var input io.Reader = file
+	if info.Size() > maxTUIHistoryLogBytes {
+		if _, err := file.Seek(info.Size()-maxTUIHistoryLogBytes, io.SeekStart); err != nil {
+			return nil, 0, err
+		}
+		reader := bufio.NewReader(file)
+		if _, err := reader.ReadBytes('\n'); err != nil && err != io.EOF {
+			return nil, 0, err
+		}
+		input = io.LimitReader(reader, maxTUIHistoryLogBytes)
+	}
+	return ledger.Read(input)
 }
 
 func tuiHistoryIdentity(event ledger.Event) (string, string) {

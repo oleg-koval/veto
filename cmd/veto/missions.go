@@ -41,17 +41,22 @@ func tuiMissionStorePath() (string, error) {
 	return filepath.Join(home, ".veto", "missions.json"), nil
 }
 
-// saveTUIMission persists one searchable mission descriptor. The event ledger
-// remains redacted; this private index is the explicit local-history opt-in
-// needed for Mission Control to show what the user actually asked.
+// saveTUIMission persists one mission descriptor. New TUI submissions keep
+// objectives out of the index by default; explicit callers may provide one,
+// which is redacted and bounded before persistence.
 func saveTUIMission(record tuiMissionRecord) error {
-	if strings.TrimSpace(record.RunID) == "" || strings.TrimSpace(record.Objective) == "" {
-		return fmt.Errorf("mission record requires run_id and objective")
+	if strings.TrimSpace(record.RunID) == "" {
+		return fmt.Errorf("mission record requires run_id")
 	}
 	record.Version = missionStoreVersion
 	record.CreatedAt = record.CreatedAt.UTC()
-	record.Objective = boundMissionPrompt(ledger.Redact(record.Objective))
-	record.Title = missionTitle(record.Objective)
+	if strings.TrimSpace(record.Objective) != "" {
+		record.Objective = boundMissionPrompt(ledger.RedactUnbounded(record.Objective))
+		record.Title = missionTitle(record.Objective)
+	} else {
+		record.Objective = ""
+		record.Title = ""
+	}
 
 	path, err := tuiMissionStorePath()
 	if err != nil {
@@ -94,7 +99,11 @@ func saveTUIMission(record tuiMissionRecord) error {
 	if len(records) > maxMissionRecords {
 		records = records[len(records)-maxMissionRecords:]
 	}
-	data, err = json.MarshalIndent(records, "", "  ")
+	return writeTUIMissionRecords(path, records)
+}
+
+func writeTUIMissionRecords(path string, records []tuiMissionRecord) error {
+	data, err := json.MarshalIndent(records, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode mission index: %w", err)
 	}
@@ -121,17 +130,31 @@ func saveTUIMission(record tuiMissionRecord) error {
 	return nil
 }
 
+func readTUIMissionRecords(path string) ([]tuiMissionRecord, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, nil
+	}
+	var records []tuiMissionRecord
+	if err := json.Unmarshal(data, &records); err != nil {
+		return nil, fmt.Errorf("read mission index: %w", err)
+	}
+	return records, nil
+}
+
 func readTUIMissions() map[string]tuiMissionRecord {
 	path, err := tuiMissionStorePath()
 	if err != nil {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+	records, err := readTUIMissionRecords(path)
 	if err != nil {
-		return nil
-	}
-	var records []tuiMissionRecord
-	if json.Unmarshal(data, &records) != nil {
 		return nil
 	}
 	result := make(map[string]tuiMissionRecord, len(records))

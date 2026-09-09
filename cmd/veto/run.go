@@ -96,7 +96,7 @@ func cmdRun(args []string) {
 	}
 
 	requiredToolList := splitTaskList(*requiredTools)
-	needsExecutableTools := *requiresExecutableTools || requiresExecutableRuntime(objective)
+	needsExecutableTools := *requiresExecutableTools || router.RequiresExecutableRuntime(objective)
 	spec := router.TaskSpec{
 		ID:                      taskHashWithTools(objective, kind, *risk, *maxCost, requiredToolList, needsExecutableTools),
 		Kind:                    router.TaskKind(kind),

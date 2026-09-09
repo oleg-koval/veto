@@ -11,6 +11,7 @@ func RequiresExecutableRuntime(objective string) bool {
 		"git push", "commit and push", "push when", "push once",
 		"modify the repository", "edit the repository", "update the repository",
 		"modify the repo", "edit the repo", "commit the changes",
+		"commit changes", "commit change", "commit this", "commit these", "commit my",
 	) {
 		return true
 	}

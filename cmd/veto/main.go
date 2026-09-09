@@ -280,7 +280,7 @@ func cmdRoute(args []string) {
 	if *providerFilter != "" {
 		hashObjective += "\x00provider=" + *providerFilter
 	}
-	hash := taskHashWithTools(hashObjective, kind, *risk, *maxCost, splitTaskList(*requiredTools), *requiresExecutableTools || requiresExecutableRuntime(objective))
+	hash := taskHashWithTools(hashObjective, kind, *risk, *maxCost, splitTaskList(*requiredTools), *requiresExecutableTools || router.RequiresExecutableRuntime(objective))
 	cp := &Checkpoint{Hash: hash, Objective: objective}
 	if !*noResume {
 		if saved, ok := loadCheckpoint(hash); ok {
@@ -360,7 +360,7 @@ func cmdRoute(args []string) {
 		Complexity:              router.Complexity(complexity),
 		Objective:               objective,
 		RequiredTools:           splitTaskList(*requiredTools),
-		RequiresExecutableTools: *requiresExecutableTools || requiresExecutableRuntime(objective),
+		RequiresExecutableTools: *requiresExecutableTools || router.RequiresExecutableRuntime(objective),
 		Risk:                    router.Risk(*risk),
 		MaxCostUSD:              *maxCost,
 		SkipModels:              cp.triedNames(),
@@ -495,23 +495,6 @@ func keepDashboardAlive(url string) {
 // to pass --kind. ponytail: keyword heuristic; --kind always overrides it.
 func inferKind(objective string) string {
 	return string(router.InferKind(objective))
-}
-
-// requiresExecutableRuntime recognizes explicit requests to mutate repository
-// state. Content-only code generation remains eligible for text transports.
-func requiresExecutableRuntime(objective string) bool {
-	s := strings.ToLower(objective)
-	if containsAny(s,
-		"git push", "commit and push", "push when", "push once",
-		"modify the repository", "edit the repository", "update the repository",
-		"modify the repo", "edit the repo", "commit the changes",
-		"commit this", "commit these", "commit my",
-	) {
-		return true
-	}
-
-	prTarget, _, mutation := pullRequestMutationSignals(s)
-	return prTarget && mutation
 }
 
 func pullRequestMutationSignals(objective string) (prTarget, reviewTarget, mutation bool) {

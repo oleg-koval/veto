@@ -15,6 +15,7 @@ import (
 	"github.com/oleg-koval/veto/internal/controlplane"
 	"github.com/oleg-koval/veto/internal/tui"
 	"github.com/oleg-koval/veto/pkg/ledger"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTUIScreenReaderModeUsesStableTextPresentation(t *testing.T) {
@@ -135,6 +136,153 @@ func TestTUIHistoryLoadsAllEventsForClientSideFiltering(t *testing.T) {
 	history := readTUIHistory()
 	if len(history) != 55 {
 		t.Fatalf("history rows = %d, want all 55", len(history))
+	}
+}
+
+func TestTUIHistoryDeleteRemovesSelectedMission(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logs := filepath.Join(home, ".veto", "logs")
+	if err := os.MkdirAll(logs, 0700); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(filepath.Join(logs, "veto-delete.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := ledger.NewWriter(file)
+	for _, runID := range []string{"run-delete", "run-keep"} {
+		if err := writer.Append(ledger.Event{RunID: runID, TaskID: runID + "-task", Type: ledger.EventFilterPass}); err != nil {
+			_ = file.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	experiment, err := os.Create(filepath.Join(home, ".veto", "experiment.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	experimentWriter := ledger.NewWriter(experiment)
+	for _, runID := range []string{"run-delete", "run-native-keep"} {
+		if err := experimentWriter.Append(ledger.Event{RunID: runID, TaskID: runID + "-task", Type: ledger.EventNativeStarted}); err != nil {
+			_ = experiment.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := experiment.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveTUIMission(tuiMissionRecord{RunID: "run-delete", Objective: "delete me"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runTUIHistoryDelete(context.Background(), controlplane.ActionRequest{
+		ActionID:  "history-delete",
+		Arguments: map[string]string{"run-id": "run-delete"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	history := readTUIHistory()
+	if len(history) != 2 {
+		t.Fatalf("history after selected deletion = %#v", history)
+	}
+	for _, event := range history {
+		if event.RunID == "run-delete" {
+			t.Fatalf("deleted native-dispatch event remains in history: %#v", history)
+		}
+	}
+	if _, ok := readTUIMissions()["run-delete"]; ok {
+		t.Fatal("selected mission remains in the mission index")
+	}
+}
+
+func TestTUIHistoryDeleteSelectorsRemoveResolvedRunMission(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		selector map[string]string
+	}{
+		{name: "task", selector: map[string]string{"task-id": "task-resolved"}},
+		{name: "event", selector: map[string]string{"event-id": "event-resolved"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			logs := filepath.Join(home, ".veto", "logs")
+			require.NoError(t, os.MkdirAll(logs, 0700))
+			file, err := os.Create(filepath.Join(logs, "veto-selector.log"))
+			require.NoError(t, err)
+			writer := ledger.NewWriter(file)
+			require.NoError(t, writer.Append(ledger.Event{EventID: "event-resolved", RunID: "run-resolved", TaskID: "task-resolved", Type: ledger.EventFilterPass}))
+			require.NoError(t, writer.Append(ledger.Event{EventID: "event-keep", RunID: "run-keep", TaskID: "task-keep", Type: ledger.EventFilterPass}))
+			require.NoError(t, file.Close())
+			if test.name == "event" {
+				data, readErr := os.ReadFile(filepath.Join(logs, "veto-selector.log"))
+				require.NoError(t, readErr)
+				events, _, readErr := ledger.Read(bytes.NewReader(data))
+				require.NoError(t, readErr)
+				require.NotEmpty(t, events)
+				test.selector["event-id"] = events[0].EventID
+			}
+			require.NoError(t, saveTUIMission(tuiMissionRecord{RunID: "run-resolved"}))
+			require.NoError(t, saveTUIMission(tuiMissionRecord{RunID: "run-keep"}))
+
+			_, err = runTUIHistoryDelete(context.Background(), controlplane.ActionRequest{ActionID: "history-delete", Arguments: test.selector})
+			require.NoError(t, err)
+			missions := readTUIMissions()
+			if _, ok := missions["run-resolved"]; ok {
+				t.Fatalf("resolved run remains after %s deletion", test.name)
+			}
+			if _, ok := missions["run-keep"]; !ok {
+				t.Fatalf("unmatched run was removed after %s deletion", test.name)
+			}
+		})
+	}
+}
+
+func TestTUIHistoryDeleteRemovesAllMissionHistory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	logs := filepath.Join(home, ".veto", "logs")
+	if err := os.MkdirAll(logs, 0700); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(filepath.Join(logs, "veto-delete-all.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.NewWriter(file).Append(ledger.Event{RunID: "run-delete-all", Type: ledger.EventFilterPass}); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	experiment, err := os.Create(filepath.Join(home, ".veto", "experiment.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.NewWriter(experiment).Append(ledger.Event{RunID: "run-native-delete-all", Type: ledger.EventNativeStarted}); err != nil {
+		_ = experiment.Close()
+		t.Fatal(err)
+	}
+	if err := experiment.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveTUIMission(tuiMissionRecord{RunID: "run-delete-all", Objective: "delete all"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runTUIHistoryDelete(context.Background(), controlplane.ActionRequest{
+		ActionID:  "history-delete",
+		Arguments: map[string]string{"scope": "all"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if history := readTUIHistory(); len(history) != 0 {
+		t.Fatalf("history after all deletion = %#v", history)
+	}
+	if missions := readTUIMissions(); len(missions) != 0 {
+		t.Fatalf("mission index after all deletion = %#v", missions)
 	}
 }
 

@@ -15,14 +15,16 @@ import (
 )
 
 var (
-	eventLedger *ledger.Writer
-	eventRunID  string
-	eventRunMu  sync.Mutex
+	eventLedger  *ledger.Writer
+	eventLogFile *os.File
+	eventRunID   string
+	eventRunMu   sync.Mutex
 )
 
 // setupLogger opens today's log file, rotates old ones, and sets eventLedger.
 // Logs are written to ~/.veto/logs/veto-YYYY-MM-DD.log as JSON lines.
 func setupLogger() {
+	closeLogger()
 	eventRunMu.Lock()
 	eventRunID, _ = ledger.NewRunID()
 	if eventRunID == "" {
@@ -51,10 +53,54 @@ func setupLogger() {
 	f, err := os.OpenFile(filepath.Join(logDir, name), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		// fallback: discard logs silently — routing still works
+		eventRunMu.Lock()
 		eventLedger = ledger.NewWriter(io.Discard)
+		eventLogFile = nil
+		eventRunMu.Unlock()
 		return
 	}
-	eventLedger = ledger.NewWriter(f)
+	lockFile, lockErr := lockMissionStoreFile(f.Name() + ".lock")
+	if lockErr != nil {
+		_ = f.Close()
+		eventRunMu.Lock()
+		eventLedger = ledger.NewWriter(io.Discard)
+		eventLogFile = nil
+		eventRunMu.Unlock()
+		return
+	}
+	_ = lockFile.Close()
+
+	writer := ledger.NewWriter(f)
+	eventRunMu.Lock()
+	eventLogFile = f
+	eventLedger = writer
+	eventRunMu.Unlock()
+}
+
+func closeLogger() {
+	eventRunMu.Lock()
+	defer eventRunMu.Unlock()
+	if eventLogFile != nil {
+		_ = eventLogFile.Close()
+		eventLogFile = nil
+	}
+	eventLedger = nil
+}
+
+func appendLedgerEvent(event ledger.Event) {
+	eventRunMu.Lock()
+	defer eventRunMu.Unlock()
+	if eventLedger == nil {
+		return
+	}
+	if eventLogFile != nil {
+		lockFile, err := lockMissionStoreFile(eventLogFile.Name() + ".lock")
+		if err != nil {
+			return
+		}
+		defer lockFile.Close()
+	}
+	_ = eventLedger.Append(event)
 }
 
 // beginLoggedRun gives each submission in a long-lived TUI process a fresh
@@ -71,9 +117,6 @@ func beginLoggedRun() string {
 
 // logEvent writes a routing pipeline event as a structured JSON log line.
 func logEvent(taskID, kind, risk string, e router.ProgressEvent) {
-	if eventLedger == nil {
-		return
-	}
 	eventType, ok := ledgerType(e.Kind)
 	if !ok {
 		return
@@ -98,13 +141,10 @@ func logEvent(taskID, kind, risk string, e router.ProgressEvent) {
 			event.EstimatedCostUSD = &e.EstCost
 		}
 	}
-	_ = eventLedger.Append(event)
+	appendLedgerEvent(event)
 }
 
 func logExecution(taskID string, eventType ledger.EventType, model router.ModelCapabilities, metrics router.ExecutionMetrics, detail string) {
-	if eventLedger == nil {
-		return
-	}
 	event := ledger.Event{
 		RunID: currentRunID(taskID), TaskID: taskID, Type: eventType, Model: model.Name,
 		Runtime: model.Runtime, Status: metrics.Status, Detail: detail,
@@ -122,20 +162,20 @@ func logExecution(taskID string, eventType ledger.EventType, model router.ModelC
 	if metrics.LatencyKnown {
 		event.LatencyMS = &metrics.LatencyMs
 	}
-	_ = eventLedger.Append(event)
+	appendLedgerEvent(event)
 }
 
 func logLifecycle(taskID string, eventType ledger.EventType, status, detail string) {
-	if eventLedger == nil || taskID == "" {
+	if taskID == "" {
 		return
 	}
-	_ = eventLedger.Append(ledger.Event{
+	appendLedgerEvent(ledger.Event{
 		RunID: currentRunID(taskID), TaskID: taskID, Type: eventType, Status: status, Detail: detail,
 	})
 }
 
 func logRuntimeEvent(taskID string, model router.ModelCapabilities, runtimeEvent execution.RuntimeEvent) {
-	if eventLedger == nil || taskID == "" {
+	if taskID == "" {
 		return
 	}
 	eventType, ok := runtimeLedgerType(runtimeEvent.Kind)
@@ -152,7 +192,7 @@ func logRuntimeEvent(taskID string, model router.ModelCapabilities, runtimeEvent
 		}
 		detail += fmt.Sprintf("count=%d", runtimeEvent.Count)
 	}
-	_ = eventLedger.Append(ledger.Event{
+	appendLedgerEvent(ledger.Event{
 		RunID: currentRunID(taskID), TaskID: taskID, Type: eventType,
 		Model: model.Name, Runtime: model.Runtime, Status: runtimeEvent.Status,
 		Detail: normalizeErrorDetail(detail),

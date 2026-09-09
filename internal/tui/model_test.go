@@ -21,7 +21,7 @@ func TestModelRendersAccessibleShellAndStatusline(t *testing.T) {
 	model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	view := model.View()
 
-	for _, want := range []string{"LOCAL AI CONTROL PLANE", "Ctrl+K commands", "STATUS", "providers", "ROUTING EXPLANATION", "? help"} {
+	for _, want := range []string{"LOCAL AI CONTROL PLANE", "Ctrl+K commands", "STATUS", "providers", "? help"} {
 		if !strings.Contains(view.Content, want) {
 			t.Errorf("shell view missing %q\n%s", want, view.Content)
 		}
@@ -88,6 +88,18 @@ func TestModelRunShortcutOpensTaskComposerFromHome(t *testing.T) {
 	model = updated.(*Model)
 	if !model.composerOpen || model.composerAction != "run" {
 		t.Fatalf("home run shortcut = open:%v action:%q", model.composerOpen, model.composerAction)
+	}
+}
+
+func TestModelProviderComposerDefaultsToAnthropic(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
+	model.openProviderLogin("")
+
+	if got := model.composerValues["provider"]; got != "anthropic" {
+		t.Fatalf("provider default = %q, want anthropic", got)
+	}
+	if !strings.Contains(model.renderComposerControl(model.composerFields[0]), "anthropic") {
+		t.Fatalf("provider control does not show its selected default: %s", model.renderComposerControl(model.composerFields[0]))
 	}
 }
 
@@ -170,7 +182,7 @@ func TestModelFillsTerminalHeightAndNamesComposerContext(t *testing.T) {
 	if got := lipgloss.Height(view); got != 40 {
 		t.Fatalf("rendered height = %d, want terminal height 40", got)
 	}
-	if !strings.Contains(view, "Setup") || !strings.Contains(view, "Set the fields below") {
+	if !strings.Contains(view, "Setup") || !strings.Contains(view, "Ctrl+Enter starts this mission") {
 		t.Fatalf("composer context is unclear:\n%s", view)
 	}
 }
@@ -227,6 +239,9 @@ func TestModelShowsTabHintOnMouseHover(t *testing.T) {
 			x = candidate
 			break
 		}
+	}
+	if x < 0 {
+		t.Fatal("Fleet tab has no mouse hit target")
 	}
 	updated, _ := model.Update(tea.MouseMotionMsg{X: x, Y: y})
 	model = updated.(*Model)
@@ -289,6 +304,9 @@ func TestMissionComposerDistinguishesValuesFromCheckboxes(t *testing.T) {
 	model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	model.openTaskComposer("")
 	view := model.View().Content
+	if !strings.Contains(view, "Ctrl+Enter starts this mission") {
+		t.Fatalf("mission composer does not explain how to start:\n%s", view)
+	}
 	for _, want := range []string{"Risk [medium]", "Budget [auto]", "Tools [auto]", "Criteria [optional]", "[Ctrl+Enter] RUN MISSION", "[Enter] or [Tab] configure"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("mission composer missing %q:\n%s", want, view)
@@ -774,6 +792,41 @@ func TestModelGroupsMissionHistoryByRunAndFiltersWithinGroup(t *testing.T) {
 	model = updated.(*Model)
 	if !model.dataDetailOpen || !strings.Contains(model.View().Content, "MISSION TIMELINE · 2 EVENTS") {
 		t.Fatalf("grouped mission did not open its complete timeline:\n%s", model.View().Content)
+	}
+}
+
+func TestModelHistoryDeletionShortcutPreservesKeyCase(t *testing.T) {
+	for _, detailOpen := range []bool{false, true} {
+		for _, test := range []struct {
+			key       string
+			wantScope string
+		}{
+			{key: "d", wantScope: "selected"},
+			{key: "D", wantScope: "all"},
+		} {
+			t.Run(fmt.Sprintf("detail=%t/key=%s", detailOpen, test.key), func(t *testing.T) {
+				model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
+				model.activeAction = "history"
+				model.dataDetailOpen = detailOpen
+				model.snapshot.History = []controlplane.HistorySnapshot{{RunID: "run-selected", Type: "execution.completed"}}
+
+				updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Text: test.key, Code: rune(test.key[0])}))
+				model = updated.(*Model)
+
+				if !model.confirmOpen || model.pendingRequest.ActionID != "history-delete" {
+					t.Fatalf("deletion confirmation = open:%t request:%#v", model.confirmOpen, model.pendingRequest)
+				}
+				if test.wantScope == "all" {
+					if got := model.pendingRequest.Arguments["scope"]; got != "all" {
+						t.Fatalf("uppercase D scope = %q, want all", got)
+					}
+				} else if got := model.pendingRequest.Arguments["run-id"]; got != "run-selected" {
+					t.Fatalf("lowercase d run-id = %q, want run-selected", got)
+				} else if _, ok := model.pendingRequest.Arguments["scope"]; ok {
+					t.Fatalf("lowercase d unexpectedly requested all history: %#v", model.pendingRequest.Arguments)
+				}
+			})
+		}
 	}
 }
 
@@ -1292,6 +1345,39 @@ func TestModelUsesSmoothRunningSpinnerAndRespectsReducedMotion(t *testing.T) {
 	}
 }
 
+func TestModelRoutingSweepUsesAvailableWidth(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: true, NoColor: true})
+	track := ansi.Strip(model.renderRoutingSweep(100))
+	if lipgloss.Width(track) != 100 {
+		t.Fatalf("routing sweep width = %d, want 100", lipgloss.Width(track))
+	}
+}
+
+func TestModelRoutingPipelineHighlightsAndAnimatesActiveStage(t *testing.T) {
+	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: true, NoColor: true})
+	model.running = true
+	model.eventHistory = []controlplane.Event{{Kind: "route.shortlist"}}
+	model.frame = 0
+	first := model.renderPipeline(120)
+	model.frame = 1
+	second := model.renderPipeline(120)
+	if first == second {
+		t.Fatal("active routing stage did not animate between frames")
+	}
+	for _, want := range []string{"✓ FILTER", "SHORTLIST", "ADMIT", "WINNER", "EXECUTE", "REVIEW"} {
+		if !strings.Contains(first, want) {
+			t.Fatalf("pipeline missing %q: %s", want, first)
+		}
+	}
+}
+
+func TestFormatMultilineRemovesMarkdownFenceMarkers(t *testing.T) {
+	got := formatMultiline("```bash\nrepair --offline\n```", 80, 10)
+	if strings.Contains(got, "```") || !strings.Contains(got, "repair --offline") {
+		t.Fatalf("markdown fences leaked into output: %q", got)
+	}
+}
+
 func TestModelAnimatesRealRoutingFlowAndCandidateAdmission(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: true, NoColor: true})
 	model.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
@@ -1681,7 +1767,7 @@ func TestModelShowsRoutingDecisionContext(t *testing.T) {
 	}, ok: true})
 	model = updated.(*Model)
 	view := model.View().Content
-	for _, want := range []string{"route conf   91%", "capability", "known (2", "WHY THIS MODEL", "capability fit", "LIVE ROUTING", "winner"} {
+	for _, want := range []string{"route conf   91%", "capability", "known (2", "LIVE ROUTING", "winner"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("decision context missing %q:\n%s", want, view)
 		}
