@@ -296,15 +296,12 @@ func readTUIHistoryContext(ctx context.Context) []controlplane.HistorySnapshot {
 				snapshot.LatencyMS, snapshot.LatencyKnown = *event.LatencyMS, true
 			}
 			result = append(result, snapshot)
-			if len(result) >= maxTUIHistoryEvents {
-				break
-			}
-		}
-		if len(result) >= maxTUIHistoryEvents {
-			break
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Timestamp.After(result[j].Timestamp) })
+	if len(result) > maxTUIHistoryEvents {
+		result = result[:maxTUIHistoryEvents]
+	}
 	return result
 }
 
