@@ -27,7 +27,7 @@ func TestReadTUIHistoryKeepsNewestEventsAcrossFiles(t *testing.T) {
 		old.WriteByte('\n')
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(logDir, "veto-old.log"), []byte(old.String()), 0600))
-	newest, err := json.Marshal(ledger.Event{SchemaVersion: ledger.SchemaVersion, Timestamp: time.Unix(1000, 0).UTC(), EventID: "new", RunID: "new", Type: ledger.EventNativeExited})
+	newest, err := json.Marshal(ledger.Event{SchemaVersion: ledger.SchemaVersion, Timestamp: time.Unix(int64(maxTUIHistoryEvents+1), 0).UTC(), EventID: "new", RunID: "new", Type: ledger.EventNativeExited})
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(experimentPath(), append(newest, '\n'), 0600))
 
