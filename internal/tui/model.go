@@ -291,7 +291,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Loading · fresh health results"
 			return m, m.loadSnapshot()
 		}
-		if message.result.ActionID == "history-delete" {
+		if message.result.ActionID == "history-delete" && message.err == nil {
 			m.activeAction = "history"
 			m.status = "Ready · mission history updated"
 			m.output.Reset()
