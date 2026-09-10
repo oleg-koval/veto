@@ -53,6 +53,11 @@ func NormalizeTaskRole(role TaskRole) (TaskRole, error) {
 	}
 }
 
+// IsZero treats the semantic unspecified sentinel as absent for JSON omitzero.
+func (r TaskRole) IsZero() bool {
+	return r == "" || r == RoleUnspecified
+}
+
 // UnmarshalJSON validates and canonicalizes roles supplied through JSON. An
 // unspecified role remains the zero value for backward-compatible output.
 func (r *TaskRole) UnmarshalJSON(data []byte) error {
@@ -110,7 +115,7 @@ const (
 type TaskSpec struct {
 	ID         string
 	Kind       TaskKind
-	Role       TaskRole   `json:"role,omitempty"`
+	Role       TaskRole   `json:"role,omitempty,omitzero"`
 	Complexity Complexity // "" = inferred by Manager from Objective+Kind
 	Objective  string
 	// AdmissionObjective is an optional compact description used only while
@@ -130,16 +135,6 @@ type TaskSpec struct {
 	SkipModels              []string // resume: models already decided in a prior interrupted run
 	RuntimeFilter           string   // optional runtime adapter restriction
 	ProviderFilter          string   // optional provider restriction
-}
-
-// MarshalJSON keeps the semantic unspecified role out of serialized tasks so
-// normalized programmatic input remains compatible with role-less output.
-func (t TaskSpec) MarshalJSON() ([]byte, error) {
-	type taskSpec TaskSpec
-	if t.Role == RoleUnspecified {
-		t.Role = ""
-	}
-	return json.Marshal(taskSpec(t))
 }
 
 // ModelCapabilities describes what a model can and cannot handle.

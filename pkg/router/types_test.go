@@ -78,6 +78,18 @@ func TestTaskSpecRoleJSONCompatibility(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotContains(t, string(withUnspecifiedRole), `"role"`)
 
+	type taskEnvelope struct {
+		TaskSpec
+		Label string `json:"label"`
+	}
+	envelope, err := json.Marshal(taskEnvelope{
+		TaskSpec: TaskSpec{ID: "legacy", Role: unspecified},
+		Label:    "preserved",
+	})
+	assert.NoError(t, err)
+	assert.Contains(t, string(envelope), `"label":"preserved"`)
+	assert.NotContains(t, string(envelope), `"role"`)
+
 	withRole, err := json.Marshal(TaskSpec{ID: "review", Role: RoleReviewer})
 	assert.NoError(t, err)
 	assert.Contains(t, string(withRole), `"role":"reviewer"`)
