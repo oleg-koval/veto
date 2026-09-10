@@ -54,7 +54,7 @@ $ veto route "refactor the auth middleware to use JWT" --kind refactor --risk me
 ```bash
 brew install oleg-koval/tap/veto
 veto doctor
-veto login
+veto providers
 veto route --json "summarize this pull request"
 ```
 
