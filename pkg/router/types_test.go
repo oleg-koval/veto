@@ -79,14 +79,17 @@ func TestTaskSpecRoleJSONCompatibility(t *testing.T) {
 
 func TestTaskSpecRoleJSONDecodeNormalizesAndValidates(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		want    TaskRole
-		wantErr string
+		name           string
+		input          string
+		wantDecoded    TaskRole
+		wantNormalized TaskRole
+		wantOmitted    bool
+		wantErr        string
 	}{
-		{name: "empty", input: `{"role":""}`, want: RoleUnspecified},
-		{name: "null", input: `{"role":null}`, want: RoleUnspecified},
-		{name: "case and whitespace", input: `{"role":" Reviewer "}`, want: RoleReviewer},
+		{name: "empty", input: `{"role":""}`, wantNormalized: RoleUnspecified, wantOmitted: true},
+		{name: "null", input: `{"role":null}`, wantNormalized: RoleUnspecified, wantOmitted: true},
+		{name: "unspecified", input: `{"role":"unspecified"}`, wantNormalized: RoleUnspecified, wantOmitted: true},
+		{name: "case and whitespace", input: `{"role":" Reviewer "}`, wantDecoded: RoleReviewer, wantNormalized: RoleReviewer},
 		{name: "unknown", input: `{"role":"manager"}`, wantErr: "supported roles"},
 		{name: "non-string", input: `{"role":1}`, wantErr: "decode task role"},
 	}
@@ -100,7 +103,17 @@ func TestTaskSpecRoleJSONDecodeNormalizesAndValidates(t *testing.T) {
 				return
 			}
 			assert.NoError(t, err)
-			assert.Equal(t, tt.want, decoded.Role)
+			assert.Equal(t, tt.wantDecoded, decoded.Role)
+
+			normalized, err := NormalizeTaskRole(decoded.Role)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantNormalized, normalized)
+
+			encoded, err := json.Marshal(decoded)
+			assert.NoError(t, err)
+			if tt.wantOmitted {
+				assert.NotContains(t, string(encoded), `"role"`)
+			}
 		})
 	}
 }

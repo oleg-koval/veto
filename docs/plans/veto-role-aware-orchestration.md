@@ -44,9 +44,9 @@ infer subscription quotas, or silently create parallel writers.
 
 - Add fields rather than change existing meanings. An omitted role preserves the
   current routing, admission, execution, JSON, and plan behavior.
-- Keep role descriptive in the first slice. It is sent to admission and recorded
-  in evidence, but it does not affect ranking until measured results justify a
-  policy.
+- Keep role descriptive in the first slice. Admission and evidence propagation
+  are deferred to Task 3; role does not affect ranking until measured results
+  justify a policy.
 - Keep orchestration advice pure and deterministic: no provider call, history
   lookup, or hidden filesystem mutation.
 - Treat advice as a recommendation, not authorization. File writes, external

@@ -54,7 +54,7 @@ func NormalizeTaskRole(role TaskRole) (TaskRole, error) {
 }
 
 // UnmarshalJSON validates and canonicalizes roles supplied through JSON. An
-// omitted TaskSpec role remains the zero value for backward-compatible output.
+// unspecified role remains the zero value for backward-compatible output.
 func (r *TaskRole) UnmarshalJSON(data []byte) error {
 	var raw string
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -64,6 +64,10 @@ func (r *TaskRole) UnmarshalJSON(data []byte) error {
 	normalized, err := NormalizeTaskRole(TaskRole(raw))
 	if err != nil {
 		return err
+	}
+	if normalized == RoleUnspecified {
+		*r = ""
+		return nil
 	}
 	*r = normalized
 	return nil
