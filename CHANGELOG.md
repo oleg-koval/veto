@@ -3,6 +3,13 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0](https://github.com/oleg-koval/veto/compare/v0.10.4...v0.11.0) (2026-09-10)
+
+
+### Features
+
+* define task role contract ([#110](https://github.com/oleg-koval/veto/issues/110)) ([b700c3c](https://github.com/oleg-koval/veto/commit/b700c3ca6ac77d8ddc0431387485ce6a8d02c3f8))
+
 ## [0.10.4](https://github.com/oleg-koval/veto/compare/v0.10.3...v0.10.4) (2026-09-09)
 
 
