@@ -61,6 +61,8 @@ func TestTaskSpecRoleJSONCompatibility(t *testing.T) {
 	legacy := []byte(`{"ID":"legacy","Kind":"review"}`)
 	var decoded TaskSpec
 	assert.NoError(t, json.Unmarshal(legacy, &decoded))
+	assert.Equal(t, "legacy", decoded.ID)
+	assert.Equal(t, KindReview, decoded.Kind)
 
 	normalized, err := NormalizeTaskRole(decoded.Role)
 	assert.NoError(t, err)
@@ -73,6 +75,32 @@ func TestTaskSpecRoleJSONCompatibility(t *testing.T) {
 	withRole, err := json.Marshal(TaskSpec{ID: "review", Role: RoleReviewer})
 	assert.NoError(t, err)
 	assert.Contains(t, string(withRole), `"role":"reviewer"`)
+}
+
+func TestTaskSpecRoleJSONDecodeNormalizesAndValidates(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    TaskRole
+		wantErr string
+	}{
+		{name: "empty", input: `{"role":""}`, want: RoleUnspecified},
+		{name: "case and whitespace", input: `{"role":" Reviewer "}`, want: RoleReviewer},
+		{name: "unknown", input: `{"role":"manager"}`, wantErr: "supported roles"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var decoded TaskSpec
+			err := json.Unmarshal([]byte(tt.input), &decoded)
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, decoded.Role)
+		})
+	}
 }
 
 func TestTaskKindConstants(t *testing.T) {

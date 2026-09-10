@@ -3,6 +3,7 @@
 package router
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -50,6 +51,22 @@ func NormalizeTaskRole(role TaskRole) (TaskRole, error) {
 	default:
 		return "", fmt.Errorf("unsupported task role %q; supported roles: unspecified, orchestrator, explorer, worker, tester, reviewer, researcher", role)
 	}
+}
+
+// UnmarshalJSON validates and canonicalizes roles supplied through JSON. An
+// omitted TaskSpec role remains the zero value for backward-compatible output.
+func (r *TaskRole) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("decode task role: %w", err)
+	}
+
+	normalized, err := NormalizeTaskRole(TaskRole(raw))
+	if err != nil {
+		return err
+	}
+	*r = normalized
+	return nil
 }
 
 // Risk classifies the potential impact of a task.
