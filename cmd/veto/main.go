@@ -967,9 +967,9 @@ func claudeCLIAuthentication() claudeAuthMode {
 }
 
 // claudeCLIAuthenticationContext discovers an existing Claude Code login
-// without changing auth state or prompting the user. A successful but newer
-// status format is treated as authenticated/unknown so discovery remains
-// forward-compatible without claiming a billing mode.
+// without changing auth state or prompting the user. Unknown fields in a
+// valid status response remain authenticated/unknown, while malformed output
+// fails closed so it cannot override a working API-key transport.
 func claudeCLIAuthenticationContext(parent context.Context) claudeAuthMode {
 	path, err := osexec.LookPath("claude")
 	if err != nil {
@@ -978,7 +978,7 @@ func claudeCLIAuthenticationContext(parent context.Context) claudeAuthMode {
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 	cmd := osexec.CommandContext(ctx, path, "auth", "status", "--json")
-	out, err := cmd.CombinedOutput()
+	out, err := cmd.Output()
 	if err != nil {
 		return claudeAuthNone
 	}
@@ -1001,11 +1001,7 @@ func claudeCLIAuthenticationContext(parent context.Context) claudeAuthMode {
 		}
 	}
 
-	status := strings.ToLower(strings.TrimSpace(string(out)))
-	if status == "" || strings.Contains(status, "not logged") || strings.Contains(status, "logged out") {
-		return claudeAuthNone
-	}
-	return claudeAuthUnknown
+	return claudeAuthNone
 }
 
 // loadDisabledModels reads the "disabled_models" list from ~/.veto/config.json.

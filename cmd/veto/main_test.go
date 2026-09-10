@@ -62,6 +62,9 @@ func TestClaudeCLIAuthenticationDistinguishesAPIKeyAndLoggedOut(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":false}'\n"), 0700))
 	assert.Equal(t, claudeAuthNone, claudeCLIAuthentication())
+
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' 'not-json'\n"), 0700))
+	assert.Equal(t, claudeAuthNone, claudeCLIAuthentication())
 }
 
 func TestBuildProviderRegistryAddsDiscoveredClaudeCLI(t *testing.T) {
