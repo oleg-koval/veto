@@ -132,6 +132,16 @@ type TaskSpec struct {
 	ProviderFilter          string   // optional provider restriction
 }
 
+// MarshalJSON keeps the semantic unspecified role out of serialized tasks so
+// normalized programmatic input remains compatible with role-less output.
+func (t TaskSpec) MarshalJSON() ([]byte, error) {
+	type taskSpec TaskSpec
+	if t.Role == RoleUnspecified {
+		t.Role = ""
+	}
+	return json.Marshal(taskSpec(t))
+}
+
 // ModelCapabilities describes what a model can and cannot handle.
 type ModelCapabilities struct {
 	Name                   string
