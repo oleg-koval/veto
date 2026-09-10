@@ -40,6 +40,69 @@ func TestCodexCLIAuthenticationDistinguishesAPIKey(t *testing.T) {
 	assert.Equal(t, codexAuthAPIKey, codexCLIAuthentication())
 }
 
+func TestClaudeCLIAuthenticationDiscoversSubscription(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\n[ \"$1 $2 $3\" = \"auth status --json\" ] || exit 1\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"subscriptionType\":\"pro\"}'\n"), 0700))
+	t.Setenv("PATH", bin)
+	assert.Equal(t, claudeAuthSubscription, claudeCLIAuthentication())
+}
+
+func TestClaudeCLIAuthenticationDistinguishesAPIKeyAndLoggedOut(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	script := filepath.Join(bin, "claude")
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"apiKey\"}'\n"), 0700))
+	t.Setenv("PATH", bin)
+	assert.Equal(t, claudeAuthAPIKey, claudeCLIAuthentication())
+
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":false}'\n"), 0700))
+	assert.Equal(t, claudeAuthNone, claudeCLIAuthentication())
+}
+
+func TestBuildProviderRegistryAddsDiscoveredClaudeCLI(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"subscriptionType\":\"pro\"}'\n"), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY", "CLAUDE_SUBSCRIPTION"} {
+		t.Setenv(key, "")
+	}
+
+	reg, err := buildProviderRegistryWithCatalog(true)
+	require.NoError(t, err)
+	registered, ok := reg.executors["sonnet"]
+	require.True(t, ok)
+	assert.Equal(t, "claude-cli", registered.RuntimeID())
+	assert.False(t, reg.caps["sonnet"].CostPer1kInputUnknown)
+}
+
+func TestProvidersDiscoversClaudeCLIWithoutLoginMarker(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"subscriptionType\":\"pro\"}'\n"), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY", "CLAUDE_SUBSCRIPTION"} {
+		t.Setenv(key, "")
+	}
+
+	var output bytes.Buffer
+	require.Equal(t, 0, runProvidersCommand(&output))
+	assert.Contains(t, output.String(), "Anthropic")
+	assert.Contains(t, output.String(), "subscription (cli)")
+	assert.NotContains(t, output.String(), "Anthropic       not set")
+}
+
 func TestBuildProviderRegistryAddsAuthenticatedCodexCLI(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX subprocess fixture")

@@ -266,11 +266,12 @@ func resetExperimentLogger() error {
 func nativeAgentStatuses(ctx context.Context, availability *dispatch.AvailabilityStore) []dispatch.AgentStatus {
 	creds, credentialErr := loadCredentials()
 	apiKey := os.Getenv("ANTHROPIC_API_KEY") != "" || creds["ANTHROPIC_API_KEY"] != ""
-	subscription := os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true"
+	claudeAuth := claudeCLIAuthenticationContext(ctx)
+	subscription := os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true" || claudeAuth == claudeAuthSubscription
 	claude := dispatch.AgentStatus{Name: "claude", Installed: executableAvailable("claude"), Auth: dispatch.AuthUnknown, Billing: dispatch.BillingUnknown}
-	if apiKey {
+	if apiKey || claudeAuth != claudeAuthNone || subscription {
 		claude.Auth = dispatch.AuthAuthenticated
-		if !subscription {
+		if claudeAuth == claudeAuthAPIKey || (apiKey && !subscription) {
 			claude.Billing = dispatch.BillingAPI
 		}
 	}

@@ -594,9 +594,16 @@ func runProvidersCommand(stdout io.Writer) int {
 		models := catalogModelDescription(p.provider)
 		// Anthropic: check subscription mode before API key
 		if p.envKey == "ANTHROPIC_API_KEY" {
+			claudeAuth := claudeCLIAuthentication()
 			switch {
 			case os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true":
 				providerRows = append(providerRows, []string{p.name, "subscription (cli)", "Claude Haiku, Sonnet, Opus"})
+				configured++
+			case claudeAuth == claudeAuthSubscription:
+				providerRows = append(providerRows, []string{p.name, "subscription (cli)", "Claude Haiku, Sonnet, Opus"})
+				configured++
+			case claudeAuth != claudeAuthNone:
+				providerRows = append(providerRows, []string{p.name, "authenticated (cli)", "Claude Haiku, Sonnet, Opus"})
 				configured++
 			case os.Getenv(p.envKey) != "":
 				providerRows = append(providerRows, []string{p.name, "env var", models})
@@ -794,9 +801,12 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 		reg.caps[model.Name] = model
 	}
 
-	// Subscription mode: use claude CLI (flat-fee, $0 marginal) instead of API key.
-	// Subscription takes precedence over API key when both are present.
-	subscription := creds["CLAUDE_SUBSCRIPTION"] == "true" || os.Getenv("CLAUDE_SUBSCRIPTION") == "true"
+	// Use an already-authenticated Claude CLI without requiring veto login.
+	// The explicit marker remains supported for older configurations.
+	claudeAuth := claudeCLIAuthentication()
+	claudeSubscriptionMarker := creds["CLAUDE_SUBSCRIPTION"] == "true" || os.Getenv("CLAUDE_SUBSCRIPTION") == "true"
+	claudeCLI := claudeSubscriptionMarker || claudeAuth != claudeAuthNone
+	claudeSubscription := claudeSubscriptionMarker || claudeAuth == claudeAuthSubscription
 	providerKeys := map[string]string{
 		"anthropic":  getKey("ANTHROPIC_API_KEY", creds),
 		"openai":     getKey("OPENAI_API_KEY", creds),
@@ -810,18 +820,21 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 		var modelExecutor execution.RuntimeAdapter
 		switch model.Provider {
 		case "anthropic":
-			if subscription {
+			if claudeCLI {
 				if claudeAPIKeyInherited {
 					// The claude CLI inherits ANTHROPIC_API_KEY from the process
 					// environment and prefers it over subscription auth, so with
 					// both present we cannot prove which billing path is used.
 					model.CostPer1kInputUnknown = true
 					model.CostPer1kOutputUnknown = true
-				} else {
+				} else if claudeSubscription {
 					model.CostPer1kInputUSD = 0
 					model.CostPer1kOutputUSD = 0
 					model.CostPer1kInputUnknown = false
 					model.CostPer1kOutputUnknown = false
+				} else {
+					model.CostPer1kInputUnknown = true
+					model.CostPer1kOutputUnknown = true
 				}
 				modelExecutor = executor.NewClaudeCLIExecutor(model.APIModel)
 			} else if key := providerKeys[model.Provider]; key != "" {
@@ -932,6 +945,67 @@ func codexCLIAuthenticationContext(parent context.Context) codexAuthMode {
 	default:
 		return codexAuthUnknown
 	}
+}
+
+type claudeAuthMode string
+
+const (
+	claudeAuthNone         claudeAuthMode = ""
+	claudeAuthSubscription claudeAuthMode = "subscription"
+	claudeAuthAPIKey       claudeAuthMode = "api-key"
+	claudeAuthUnknown      claudeAuthMode = "unknown"
+)
+
+type claudeAuthReport struct {
+	LoggedIn         *bool  `json:"loggedIn"`
+	AuthMethod       string `json:"authMethod"`
+	SubscriptionType string `json:"subscriptionType"`
+}
+
+func claudeCLIAuthentication() claudeAuthMode {
+	return claudeCLIAuthenticationContext(context.Background())
+}
+
+// claudeCLIAuthenticationContext discovers an existing Claude Code login
+// without changing auth state or prompting the user. A successful but newer
+// status format is treated as authenticated/unknown so discovery remains
+// forward-compatible without claiming a billing mode.
+func claudeCLIAuthenticationContext(parent context.Context) claudeAuthMode {
+	path, err := osexec.LookPath("claude")
+	if err != nil {
+		return claudeAuthNone
+	}
+	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
+	defer cancel()
+	cmd := osexec.CommandContext(ctx, path, "auth", "status", "--json")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return claudeAuthNone
+	}
+
+	var report claudeAuthReport
+	if json.Unmarshal(out, &report) == nil && report.LoggedIn != nil {
+		if !*report.LoggedIn {
+			return claudeAuthNone
+		}
+		method := strings.ToLower(strings.TrimSpace(report.AuthMethod))
+		subscription := strings.ToLower(strings.TrimSpace(report.SubscriptionType))
+		if strings.Contains(method, "api") {
+			return claudeAuthAPIKey
+		}
+		switch subscription {
+		case "pro", "max", "team", "enterprise", "business":
+			return claudeAuthSubscription
+		default:
+			return claudeAuthUnknown
+		}
+	}
+
+	status := strings.ToLower(strings.TrimSpace(string(out)))
+	if status == "" || strings.Contains(status, "not logged") || strings.Contains(status, "logged out") {
+		return claudeAuthNone
+	}
+	return claudeAuthUnknown
 }
 
 // loadDisabledModels reads the "disabled_models" list from ~/.veto/config.json.
