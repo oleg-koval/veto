@@ -1,10 +1,79 @@
 package router
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func TestTaskRoleConstants(t *testing.T) {
+	roles := []TaskRole{
+		RoleUnspecified, RoleOrchestrator, RoleExplorer, RoleWorker,
+		RoleTester, RoleReviewer, RoleResearcher,
+	}
+	want := []string{
+		"unspecified", "orchestrator", "explorer", "worker",
+		"tester", "reviewer", "researcher",
+	}
+
+	for i, role := range roles {
+		assert.Equal(t, want[i], string(role))
+	}
+}
+
+func TestNormalizeTaskRole(t *testing.T) {
+	tests := []struct {
+		name string
+		role TaskRole
+		want TaskRole
+	}{
+		{name: "empty", want: RoleUnspecified},
+		{name: "whitespace", role: "  ", want: RoleUnspecified},
+		{name: "unspecified", role: RoleUnspecified, want: RoleUnspecified},
+		{name: "orchestrator", role: RoleOrchestrator, want: RoleOrchestrator},
+		{name: "explorer", role: RoleExplorer, want: RoleExplorer},
+		{name: "worker", role: RoleWorker, want: RoleWorker},
+		{name: "tester", role: RoleTester, want: RoleTester},
+		{name: "reviewer", role: RoleReviewer, want: RoleReviewer},
+		{name: "researcher", role: RoleResearcher, want: RoleResearcher},
+		{name: "case and whitespace", role: " Reviewer ", want: RoleReviewer},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NormalizeTaskRole(tt.role)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestNormalizeTaskRoleRejectsUnknownRole(t *testing.T) {
+	role, err := NormalizeTaskRole("manager")
+
+	assert.Empty(t, role)
+	assert.ErrorContains(t, err, "supported roles")
+	assert.ErrorContains(t, err, "orchestrator")
+}
+
+func TestTaskSpecRoleJSONCompatibility(t *testing.T) {
+	legacy := []byte(`{"ID":"legacy","Kind":"review"}`)
+	var decoded TaskSpec
+	assert.NoError(t, json.Unmarshal(legacy, &decoded))
+
+	normalized, err := NormalizeTaskRole(decoded.Role)
+	assert.NoError(t, err)
+	assert.Equal(t, RoleUnspecified, normalized)
+
+	withoutRole, err := json.Marshal(TaskSpec{ID: "legacy"})
+	assert.NoError(t, err)
+	assert.NotContains(t, string(withoutRole), `"role"`)
+
+	withRole, err := json.Marshal(TaskSpec{ID: "review", Role: RoleReviewer})
+	assert.NoError(t, err)
+	assert.Contains(t, string(withRole), `"role":"reviewer"`)
+}
 
 func TestTaskKindConstants(t *testing.T) {
 	kinds := []TaskKind{
@@ -37,6 +106,7 @@ func TestTaskSpecZeroValue(t *testing.T) {
 	var ts TaskSpec
 	assert.Empty(t, ts.ID)
 	assert.Empty(t, ts.Kind)
+	assert.Empty(t, ts.Role)
 	assert.Zero(t, ts.MaxCostUSD)
 }
 
