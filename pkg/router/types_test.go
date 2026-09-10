@@ -85,8 +85,10 @@ func TestTaskSpecRoleJSONDecodeNormalizesAndValidates(t *testing.T) {
 		wantErr string
 	}{
 		{name: "empty", input: `{"role":""}`, want: RoleUnspecified},
+		{name: "null", input: `{"role":null}`, want: RoleUnspecified},
 		{name: "case and whitespace", input: `{"role":" Reviewer "}`, want: RoleReviewer},
 		{name: "unknown", input: `{"role":"manager"}`, wantErr: "supported roles"},
+		{name: "non-string", input: `{"role":1}`, wantErr: "decode task role"},
 	}
 
 	for _, tt := range tests {
