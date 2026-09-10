@@ -2,6 +2,12 @@
 // Each candidate model must explicitly accept or reject a task before execution.
 package router
 
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
 // TaskKind classifies the type of work in a task.
 type TaskKind string
 
@@ -15,6 +21,62 @@ const (
 	KindReview     TaskKind = "review"
 	KindRefactor   TaskKind = "refactor"
 )
+
+// TaskRole describes the responsibility a task has in a larger workflow.
+type TaskRole string
+
+// TaskRole constants define the supported workflow responsibilities.
+const (
+	RoleUnspecified  TaskRole = "unspecified"
+	RoleOrchestrator TaskRole = "orchestrator"
+	RoleExplorer     TaskRole = "explorer"
+	RoleWorker       TaskRole = "worker"
+	RoleTester       TaskRole = "tester"
+	RoleReviewer     TaskRole = "reviewer"
+	RoleResearcher   TaskRole = "researcher"
+)
+
+// NormalizeTaskRole canonicalizes and validates a task role. An empty role is
+// equivalent to RoleUnspecified so existing callers retain their behavior.
+func NormalizeTaskRole(role TaskRole) (TaskRole, error) {
+	normalized := TaskRole(strings.ToLower(strings.TrimSpace(string(role))))
+	if normalized == "" {
+		return RoleUnspecified, nil
+	}
+
+	switch normalized {
+	case RoleUnspecified, RoleOrchestrator, RoleExplorer, RoleWorker,
+		RoleTester, RoleReviewer, RoleResearcher:
+		return normalized, nil
+	default:
+		return "", fmt.Errorf("unsupported task role %q; supported roles: unspecified, orchestrator, explorer, worker, tester, reviewer, researcher", role)
+	}
+}
+
+// IsZero treats the semantic unspecified sentinel as absent for JSON omitzero.
+func (r TaskRole) IsZero() bool {
+	return r == "" || r == RoleUnspecified
+}
+
+// UnmarshalJSON validates and canonicalizes roles supplied through JSON. An
+// unspecified role remains the zero value for backward-compatible output.
+func (r *TaskRole) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("decode task role: %w", err)
+	}
+
+	normalized, err := NormalizeTaskRole(TaskRole(raw))
+	if err != nil {
+		return err
+	}
+	if normalized == RoleUnspecified {
+		*r = ""
+		return nil
+	}
+	*r = normalized
+	return nil
+}
 
 // Risk classifies the potential impact of a task.
 type Risk string
@@ -53,6 +115,7 @@ const (
 type TaskSpec struct {
 	ID         string
 	Kind       TaskKind
+	Role       TaskRole   `json:"role,omitempty,omitzero"`
 	Complexity Complexity // "" = inferred by Manager from Objective+Kind
 	Objective  string
 	// AdmissionObjective is an optional compact description used only while
