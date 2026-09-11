@@ -183,6 +183,25 @@ func TestProvidersDiscoversClaudeCLIWithoutLoginMarker(t *testing.T) {
 	assert.NotContains(t, output.String(), "Anthropic       not set")
 }
 
+func TestProvidersReportsStoredAnthropicKeyForUnknownClaudeAuth(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"future\"}'\n"), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY", "CLAUDE_SUBSCRIPTION"} {
+		t.Setenv(key, "")
+	}
+	require.NoError(t, saveCredential("ANTHROPIC_API_KEY", "stored-key"))
+
+	var output bytes.Buffer
+	require.Equal(t, 0, runProvidersCommand(&output))
+	assert.Contains(t, output.String(), "veto login")
+	assert.NotContains(t, output.String(), "authenticated (cli)")
+}
+
 func TestBuildProviderRegistryAddsAuthenticatedCodexCLI(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX subprocess fixture")
