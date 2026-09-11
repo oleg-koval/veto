@@ -54,7 +54,7 @@ $ veto route "refactor the auth middleware to use JWT" --kind refactor --risk me
 ```bash
 brew install oleg-koval/tap/veto
 veto doctor
-veto login
+veto providers
 veto route --json "summarize this pull request"
 ```
 
@@ -255,20 +255,32 @@ To uninstall, remove only the binary first (`rm "$(command -v veto)"`). To also 
 
 ## Quick start
 
-**1. Connect a provider:**
+**1. Discover existing providers and harnesses:**
 
 ```bash
-veto login
+veto providers
 ```
 
-For Anthropic, veto asks whether you use a **subscription** (Claude Max / Pro) or an **API key**:
+If a provider is not already available, run `veto login` to connect an
+API-key provider or add a local model. Native Claude and Codex sessions are
+discovered from their own CLIs and do not require a second Veto login.
+
+If you explicitly choose to connect Anthropic, veto asks whether you use a
+**subscription** (Claude Max / Pro) or an **API key**:
 
 - **Subscription mode** — if you have Claude Code installed and logged in, veto shells out to `claude -p` instead of hitting the API. Veto reports billing as UNKNOWN unless the execution mode is directly verifiable; an inherited `ANTHROPIC_API_KEY` can affect native CLI behavior.
 - **API key mode** — standard pay-per-token via the Anthropic API.
 
-For subscription mode, veto verifies the `claude` CLI is present and saves a `CLAUDE_SUBSCRIPTION=true` marker. For API key mode, it opens the keys page in your browser and stores the key (masked input) at `~/.veto/credentials.json` (mode 0600).
+For Claude, veto discovers an existing `claude auth status --json` session and
+uses the native CLI directly; it does not ask you to log in again. The legacy
+subscription option still saves a `CLAUDE_SUBSCRIPTION=true` marker for
+backward compatibility. For API key mode, it opens the keys page in your
+browser and stores the key (masked input) at `~/.veto/credentials.json` (mode
+0600).
 
 Veto also detects an installed Codex CLI whose `codex login status` succeeds.
+Native CLI sessions are discovered automatically; `veto login` is only needed
+for API-key providers or explicit local-model configuration.
 It registers the `codex` agent automatically. A ChatGPT login is authenticated,
 but its billing and capacity remain UNKNOWN to Veto; an API-key or unrecognized
 login also keeps cost unknown rather than pretending it is free. OpenAI API models remain
@@ -770,7 +782,7 @@ automatically. See [the event schema](docs/event-ledger.md).
 | Provider | Models | Set up with |
 |----------|--------|-------------|
 | Codex (ChatGPT subscription) | `codex` | `codex` CLI logged in with ChatGPT |
-| Anthropic (subscription) | `haiku`, `sonnet`, `opus` | `CLAUDE_SUBSCRIPTION=true` + `claude` CLI logged in |
+| Anthropic (subscription or native CLI) | `haiku`, `sonnet`, `opus` | authenticated `claude` CLI; legacy `CLAUDE_SUBSCRIPTION=true` also supported |
 | Anthropic (API key) | `haiku`, `sonnet`, `opus` | `ANTHROPIC_API_KEY` |
 | OpenAI | `gpt-4.1`, `gpt-4.1-mini`, `sol`, `terra`, `luna` | `OPENAI_API_KEY` |
 | OpenRouter | built-in fallback plus the validated dynamic catalog | `veto login` browser OAuth or `OPENROUTER_API_KEY` |

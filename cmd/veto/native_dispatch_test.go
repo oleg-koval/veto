@@ -5,12 +5,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/oleg-koval/veto/pkg/dispatch"
 	"github.com/oleg-koval/veto/pkg/executor"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -57,7 +59,7 @@ func TestRunStartCancellationStopsNativeProcess(t *testing.T) {
 	home := t.TempDir()
 	startedPath := filepath.Join(t.TempDir(), "started")
 	script := filepath.Join(bin, "claude")
-	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\n: > \"$VETO_TEST_STARTED\"\n/bin/sleep 30\n"), 0700))
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nif [ \"$1 $2 $3\" = \"auth status --json\" ]; then printf '%s\\n' '{\"loggedIn\":false}'; exit 0; fi\n: > \"$VETO_TEST_STARTED\"\n/bin/sleep 30\n"), 0700))
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", bin)
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
@@ -86,6 +88,75 @@ func TestRunStartCancellationStopsNativeProcess(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("native process did not stop after cancellation")
 	}
+}
+
+func TestNativeAgentStatusesDiscoversClaudeCLIAuthentication(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"subscriptionType\":\"pro\"}'\n"), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_SUBSCRIPTION", "")
+
+	statuses := nativeAgentStatuses(context.Background(), dispatch.NewAvailabilityStore(filepath.Join(t.TempDir(), "unavailable.json")))
+	var claude dispatch.AgentStatus
+	for _, status := range statuses {
+		if status.Name == "claude" {
+			claude = status
+			break
+		}
+	}
+	assert.Equal(t, dispatch.AuthAuthenticated, claude.Auth)
+	assert.True(t, claude.Installed)
+}
+
+func TestNativeAgentStatusesDoesNotTreatStoredAPIKeyAsInheritedConflict(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"subscriptionType\":\"pro\"}'\n"), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_SUBSCRIPTION", "")
+	require.NoError(t, saveCredential("ANTHROPIC_API_KEY", "stored-key"))
+
+	statuses := nativeAgentStatuses(context.Background(), dispatch.NewAvailabilityStore(filepath.Join(t.TempDir(), "unavailable.json")))
+	var claude dispatch.AgentStatus
+	for _, status := range statuses {
+		if status.Name == "claude" {
+			claude = status
+			break
+		}
+	}
+	assert.Equal(t, dispatch.AuthAuthenticated, claude.Auth)
+	assert.NotContains(t, claude.Warning, "both present")
+}
+
+func TestNativeAgentStatusesMarksLoggedOutClaudeUnauthenticated(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":false}'\n"), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_SUBSCRIPTION", "")
+
+	statuses := nativeAgentStatuses(context.Background(), dispatch.NewAvailabilityStore(filepath.Join(t.TempDir(), "unavailable.json")))
+	var claude dispatch.AgentStatus
+	for _, status := range statuses {
+		if status.Name == "claude" {
+			claude = status
+			break
+		}
+	}
+	assert.Equal(t, dispatch.AuthUnauthenticated, claude.Auth)
 }
 
 func TestNativeProposalRejectsUnsupportedOverrideModel(t *testing.T) {

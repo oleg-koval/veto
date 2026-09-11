@@ -367,6 +367,7 @@ class VetoRuntime:
             "api_model": route.get("api_model"),
             "runtime": route.get("runtime"),
             "estimated_savings_usd": route.get("saved_usd"),
+            "estimated_savings_known": route.get("saved_known") is True,
             "message": "This is Veto's routing savings estimate, not provider billing.",
         })
 
@@ -504,7 +505,11 @@ class VetoRuntime:
             return error
         model = self._display(value.get("model", "unknown"))
         savings = value.get("estimated_savings_usd")
-        if isinstance(savings, (int, float)) and math.isfinite(savings):
+        if (
+            value.get("estimated_savings_known") is True
+            and isinstance(savings, (int, float))
+            and math.isfinite(savings)
+        ):
             estimate = f"${savings:.6f}"
         else:
             estimate = "unavailable"

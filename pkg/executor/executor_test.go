@@ -40,6 +40,21 @@ func TestClaudeCLIAdmissionArgsAreStructuredAndIsolated(t *testing.T) {
 	assert.NotContains(t, args, "--dangerously-skip-permissions")
 }
 
+func TestClaudeCLIUnknownCostAdmissionSchemaDoesNotClaimZero(t *testing.T) {
+	exec := NewClaudeCLIExecutorWithUnknownCost("claude-sonnet")
+	args := exec.admissionArgs("decide")
+	var schema struct {
+		Properties map[string]struct {
+			Maximum *float64 `json:"maximum"`
+		} `json:"properties"`
+	}
+	require.Equal(t, "--json-schema", args[9])
+	require.NoError(t, json.Unmarshal([]byte(args[10]), &schema))
+	cost, ok := schema.Properties["estimated_cost_usd"]
+	require.True(t, ok, "unknown-cost schema must retain estimated_cost_usd")
+	assert.Nil(t, cost.Maximum)
+}
+
 func TestClaudeCLIExecutionArgsRetainProjectRuntime(t *testing.T) {
 	exec := NewClaudeCLIExecutor("claude-sonnet")
 	args := exec.executionArgs("execute")

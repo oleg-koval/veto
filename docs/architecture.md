@@ -304,15 +304,21 @@ network-free.
 
 | Executor | Transport | When used |
 |----------|-----------|-----------|
-| `AnthropicExecutor` | Anthropic API (HTTP) | `ANTHROPIC_API_KEY` set, no subscription |
+| `AnthropicExecutor` | Anthropic API (HTTP) | `ANTHROPIC_API_KEY` set and no confirmed Claude subscription CLI |
 | `OpenAIExecutor` | OpenAI Responses for GPT-5.6; Chat Completions for GPT-4.1 (HTTP) | `OPENAI_API_KEY` set |
 | `OpenRouterExecutor` | OpenRouter API (HTTP) | `OPENROUTER_API_KEY` set |
-| `CLIExecutor` | `claude -p` subprocess | `CLAUDE_SUBSCRIPTION=true` |
+| `CLIExecutor` | `claude -p` subprocess | selected authenticated Claude CLI session (confirmed subscription or API-key/unknown auth with no effective API key); legacy `CLAUDE_SUBSCRIPTION=true` also supported |
 | `CodexCLIExecutor` | `codex exec` subprocess | Codex CLI has an active ChatGPT login |
 | `opencode.Runtime` | OpenCode session SSE or JSON CLI subprocess | `veto opencode connect` |
 | `OpenAICompatibleExecutor` | any OpenAI-compatible endpoint (HTTP) | local model configured via `veto login` |
 
-**Subscription mode** (`CLIExecutor`) shells out to the `claude` CLI with `-p` (print mode) and `--output-format text`. When only `CLAUDE_SUBSCRIPTION=true` is configured, this bypasses the Anthropic API entirely and cost is $0 per route because it runs under the user's flat Claude Max / Pro subscription. If `ANTHROPIC_API_KEY` is also set, the CLI may use the API key instead, so cost is unknown rather than guaranteed $0. Subscription takes precedence over API key when routing decides which executor to use.
+**Claude CLI mode** (`CLIExecutor`) shells out to the `claude` CLI with `-p`
+(print mode) and `--output-format text`. Veto first discovers an existing
+`claude auth status --json` session and uses it directly, so users are not
+asked to log in again. The legacy `CLAUDE_SUBSCRIPTION=true` marker remains
+supported. A confirmed Max/Pro-style session without an inherited
+`ANTHROPIC_API_KEY` is treated as zero marginal provider cost; otherwise cost
+remains unknown rather than being guessed.
 
 **Codex subscription mode** (`CodexCLIExecutor`) is registered automatically
 when `codex login status` succeeds. Admission runs ephemerally in a temporary

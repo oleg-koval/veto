@@ -87,6 +87,21 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertIn("30s", argv)
         self.assertEqual(timeout, 95)
 
+    def test_cost_preserves_unknown_savings(self):
+        route = '{"model":"claude","saved_usd":0,"saved_known":false}'
+        runner = FakeRunner([
+            COMMAND_RESULT("cost", 0, route),
+            COMMAND_RESULT("cost", 0, route),
+            COMMAND_RESULT("cost", 0, '{"model":"opus","saved_usd":0,"saved_known":true}'),
+        ])
+        runtime = RUNTIME(runner)
+
+        value = json.loads(runtime.cost({"objective": "plan"}))
+        self.assertEqual(value["estimated_savings_usd"], 0)
+        self.assertFalse(value["estimated_savings_known"])
+        self.assertIn("unavailable", runtime.command_cost("plan"))
+        self.assertIn("$0.000000", runtime.command_cost("plan"))
+
     def test_status_handles_missing_and_incompatible_veto(self):
         missing = RUNTIME(FakeRunner([FileNotFoundError()]))
         self.assertEqual(json.loads(missing.status({}))["error"], "veto_not_found")

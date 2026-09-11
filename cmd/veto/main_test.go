@@ -40,6 +40,149 @@ func TestCodexCLIAuthenticationDistinguishesAPIKey(t *testing.T) {
 	assert.Equal(t, codexAuthAPIKey, codexCLIAuthentication())
 }
 
+func TestClaudeCLIAuthenticationDiscoversSubscription(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\n[ \"$1 $2 $3\" = \"auth status --json\" ] || exit 1\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"subscriptionType\":\"pro\"}'\n"), 0700))
+	t.Setenv("PATH", bin)
+	assert.Equal(t, claudeAuthSubscription, claudeCLIAuthentication())
+}
+
+func TestClaudeCLIAuthenticationDistinguishesAPIKeyAndLoggedOut(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	script := filepath.Join(bin, "claude")
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"apiKey\"}'\n"), 0700))
+	t.Setenv("PATH", bin)
+	assert.Equal(t, claudeAuthAPIKey, claudeCLIAuthentication())
+
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":false}'\n"), 0700))
+	assert.Equal(t, claudeAuthLoggedOut, claudeCLIAuthentication())
+
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' 'not-json'\n"), 0700))
+	assert.Equal(t, claudeAuthNone, claudeCLIAuthentication())
+}
+
+func TestBuildProviderRegistryAddsDiscoveredClaudeCLI(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"subscriptionType\":\"pro\"}'\n"), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY", "CLAUDE_SUBSCRIPTION"} {
+		t.Setenv(key, "")
+	}
+
+	reg, err := buildProviderRegistryWithCatalog(true)
+	require.NoError(t, err)
+	registered, ok := reg.executors["sonnet"]
+	require.True(t, ok)
+	assert.Equal(t, "claude-cli", registered.RuntimeID())
+	assert.False(t, reg.caps["sonnet"].CostPer1kInputUnknown)
+}
+
+func TestBuildProviderRegistryKeepsAnthropicAPITransportForAPIKeyAuth(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"apiKey\"}'\n"), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	t.Setenv("ANTHROPIC_API_KEY", "env-key")
+	t.Setenv("CLAUDE_SUBSCRIPTION", "")
+
+	reg, err := buildProviderRegistryWithCatalog(true)
+	require.NoError(t, err)
+	registered, ok := reg.executors["sonnet"]
+	require.True(t, ok)
+	assert.Equal(t, "anthropic-api", registered.RuntimeID())
+	assert.False(t, reg.caps["sonnet"].CostPer1kInputUnknown)
+}
+
+func TestBuildProviderRegistryUsesStoredAnthropicKeyForAPIKeyAuth(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"apiKey\"}'\n"), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_SUBSCRIPTION", "")
+	require.NoError(t, saveCredential("ANTHROPIC_API_KEY", "stored-key"))
+
+	reg, err := buildProviderRegistryWithCatalog(true)
+	require.NoError(t, err)
+	assert.Equal(t, "anthropic-api", reg.executors["sonnet"].RuntimeID())
+}
+
+func TestBuildProviderRegistryLiveAPIAuthOverridesSubscriptionMarker(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"apiKey\"}'\n"), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_SUBSCRIPTION", "true")
+
+	reg, err := buildProviderRegistryWithCatalog(true)
+	require.NoError(t, err)
+	model, ok := reg.caps["sonnet"]
+	require.True(t, ok)
+	assert.True(t, model.CostPer1kInputUnknown)
+	assert.True(t, model.CostPer1kOutputUnknown)
+}
+
+func TestProvidersUsesOneClaudeAuthenticationSnapshot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	countPath := filepath.Join(t.TempDir(), "claude-auth-count")
+	script := "#!/bin/sh\nprintf x >> \"$VETO_CLAUDE_AUTH_COUNT\"\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"subscriptionType\":\"pro\"}'\n"
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	t.Setenv("VETO_CLAUDE_AUTH_COUNT", countPath)
+	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY", "CLAUDE_SUBSCRIPTION"} {
+		t.Setenv(key, "")
+	}
+
+	var output bytes.Buffer
+	require.Equal(t, 0, runProvidersCommand(&output))
+	count, err := os.ReadFile(countPath)
+	require.NoError(t, err)
+	assert.Equal(t, "x", string(count))
+}
+
+func TestProvidersDiscoversClaudeCLIWithoutLoginMarker(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"subscriptionType\":\"pro\"}'\n"), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	for _, key := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY", "CLAUDE_SUBSCRIPTION"} {
+		t.Setenv(key, "")
+	}
+
+	var output bytes.Buffer
+	require.Equal(t, 0, runProvidersCommand(&output))
+	assert.Contains(t, output.String(), "Anthropic")
+	assert.Contains(t, output.String(), "subscription (cli)")
+	assert.NotContains(t, output.String(), "Anthropic       not set")
+}
+
 func TestBuildProviderRegistryAddsAuthenticatedCodexCLI(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX subprocess fixture")
@@ -116,6 +259,60 @@ func TestBuildProviderRegistrySubscriptionWithInheritedAnthropicKeyKeepsCostUnkn
 	require.True(t, ok)
 	assert.True(t, model.CostPer1kInputUnknown)
 	assert.True(t, model.CostPer1kOutputUnknown)
+}
+
+func TestBuildProviderRegistrySubscriptionWithInheritedBillingOverrideUsesUnknownCostAdmission(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	for _, override := range []string{
+		"ANTHROPIC_AUTH_TOKEN",
+		"CLAUDE_CODE_USE_BEDROCK",
+		"CLAUDE_CODE_USE_VERTEX",
+		"CLAUDE_CODE_USE_FOUNDRY",
+	} {
+		t.Run(override, func(t *testing.T) {
+			bin := t.TempDir()
+			schemaPath := filepath.Join(t.TempDir(), "schema.json")
+			script := `#!/bin/sh
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--json-schema" ]; then
+    shift
+    printf '%s' "$1" > "$VETO_CLAUDE_SCHEMA"
+  fi
+  shift
+done
+printf '%s\n' '{"is_error":false,"structured_output":{"accept":true,"confidence":0.9,"reason_codes":[],"estimated_tokens":100,"estimated_cost_usd":0.1,"suggested_alternative_model":"","required_task_changes":[]}}'
+`
+			require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700))
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("PATH", bin)
+			t.Setenv("VETO_CLAUDE_SCHEMA", schemaPath)
+			for _, key := range []string{
+				"ANTHROPIC_API_KEY",
+				"ANTHROPIC_AUTH_TOKEN",
+				"CLAUDE_CODE_USE_BEDROCK",
+				"CLAUDE_CODE_USE_VERTEX",
+				"CLAUDE_CODE_USE_FOUNDRY",
+			} {
+				t.Setenv(key, "")
+			}
+			t.Setenv(override, "true")
+
+			reg, err := buildProviderRegistryWithCatalogAndAuth(true, claudeAuthSubscription)
+			require.NoError(t, err)
+			model, ok := reg.caps["sonnet"]
+			require.True(t, ok)
+			assert.True(t, model.CostPer1kInputUnknown)
+			assert.True(t, model.CostPer1kOutputUnknown)
+
+			result := reg.executors["sonnet"].Run(context.Background(), "decide")
+			require.NoError(t, result.Error)
+			schema, err := os.ReadFile(schemaPath)
+			require.NoError(t, err)
+			assert.NotContains(t, string(schema), `"estimated_cost_usd":{"type":"number","minimum":0,"maximum":0}`)
+		})
+	}
 }
 
 type textOnlyTestExecutor struct{}

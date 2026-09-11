@@ -11,11 +11,12 @@ import (
 )
 
 // CLIExecutor runs the Claude CLI (e.g. claude -p) to answer prompts. The
-// billing path is intentionally treated as unknown because the native CLI may
-// use subscription credentials or an inherited API key.
+// admission schema records either a known zero cost for a confirmed
+// subscription or an unknown cost for all other billing paths.
 type CLIExecutor struct {
-	binary string // "claude"
-	model  string
+	binary          string // "claude"
+	model           string
+	admissionSchema string
 }
 
 const admissionJSONSchema = `{"type":"object","properties":{"accept":{"type":"boolean"},"confidence":{"type":"number","minimum":0,"maximum":1},"reason_codes":{"type":"array","items":{"type":"string","enum":["MISSING_REQUIRED_TOOL","CONTEXT_TOO_LARGE","COST_CEILING_EXCEEDED","TASK_KIND_OUTSIDE_STRENGTHS","RISK_TOO_HIGH"]}},"estimated_tokens":{"type":"integer","minimum":0},"estimated_cost_usd":{"type":"number","minimum":0,"maximum":0},"suggested_alternative_model":{"type":"string"},"required_task_changes":{"type":"array","items":{"type":"string"}}},"required":["accept","confidence","reason_codes","estimated_tokens","estimated_cost_usd","suggested_alternative_model","required_task_changes"],"additionalProperties":false}`
@@ -26,22 +27,34 @@ var _ RuntimeAdapter = (*CLIExecutor)(nil)
 // Requires claude (Claude Code) to be installed and already logged in.
 func NewClaudeCLIExecutor(model string) *CLIExecutor {
 	return &CLIExecutor{
-		binary: "claude",
-		model:  model,
+		binary:          "claude",
+		model:           model,
+		admissionSchema: admissionJSONSchema,
 	}
+}
+
+// NewClaudeCLIExecutorWithUnknownCost creates a Claude CLI executor whose
+// admission response may report a billed or otherwise unverifiable cost.
+func NewClaudeCLIExecutorWithUnknownCost(model string) *CLIExecutor {
+	schema := strings.Replace(admissionJSONSchema, `"minimum":0,"maximum":0`, `"minimum":0`, 1)
+	return &CLIExecutor{binary: "claude", model: model, admissionSchema: schema}
 }
 
 // RuntimeID returns the executor's runtime identifier.
 func (*CLIExecutor) RuntimeID() string { return "claude-cli" }
 
 func (e *CLIExecutor) admissionArgs(prompt string) []string {
+	schema := e.admissionSchema
+	if schema == "" {
+		schema = admissionJSONSchema
+	}
 	return []string{
 		"-p", "--model", e.model,
 		"--safe-mode",
 		"--tools", "",
 		"--no-session-persistence",
 		"--output-format", "json",
-		"--json-schema", admissionJSONSchema,
+		"--json-schema", schema,
 		prompt,
 	}
 }

@@ -265,18 +265,21 @@ func resetExperimentLogger() error {
 
 func nativeAgentStatuses(ctx context.Context, availability *dispatch.AvailabilityStore) []dispatch.AgentStatus {
 	creds, credentialErr := loadCredentials()
-	apiKey := os.Getenv("ANTHROPIC_API_KEY") != "" || creds["ANTHROPIC_API_KEY"] != ""
-	subscription := os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true"
+	envAPIKey := os.Getenv("ANTHROPIC_API_KEY") != ""
+	claudeAuth := claudeCLIAuthenticationContext(ctx)
+	subscription := claudeAuth == claudeAuthSubscription || (claudeAuth != claudeAuthAPIKey && claudeAuth != claudeAuthLoggedOut && (os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true"))
 	claude := dispatch.AgentStatus{Name: "claude", Installed: executableAvailable("claude"), Auth: dispatch.AuthUnknown, Billing: dispatch.BillingUnknown}
-	if apiKey {
+	if claudeAuth == claudeAuthLoggedOut && !claudeInheritedBillingOverridePresent() {
+		claude.Auth = dispatch.AuthUnauthenticated
+	} else if envAPIKey || claudeAuth != claudeAuthNone || subscription {
 		claude.Auth = dispatch.AuthAuthenticated
-		if !subscription {
+		if claudeAuth == claudeAuthAPIKey || (envAPIKey && !subscription) {
 			claude.Billing = dispatch.BillingAPI
 		}
 	}
 	if subscription {
 		claude.Warning = "Claude billing is UNKNOWN: native CLI subscription/API selection cannot be verified"
-		if apiKey {
+		if envAPIKey {
 			claude.Warning = "Claude billing is UNKNOWN: CLAUDE_SUBSCRIPTION and ANTHROPIC_API_KEY are both present"
 		}
 	}
