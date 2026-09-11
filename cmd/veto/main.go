@@ -411,14 +411,7 @@ func cmdRoute(args []string) {
 
 	// reward: show what routing to this model saved vs always reaching for opus.
 	// Unknown provider prices must never be presented as a numeric saving.
-	saved := 0.0
-	savedKnown := false
-	if opus, ok := modelReg.ByName("opus"); ok && model.Name != opus.Name &&
-		!model.CostPer1kInputUnknown && !model.CostPer1kOutputUnknown &&
-		!opus.CostPer1kInputUnknown && !opus.CostPer1kOutputUnknown {
-		saved = router.EstimatedCost(opus, spec) - router.EstimatedCost(model, spec)
-		savedKnown = true
-	}
+	saved, savedKnown := savingsVsOpus(modelReg, model, spec)
 	render.PrintResult(model, decision, saved)
 
 	// json mode: single machine-readable line for scripting / agent infra
@@ -433,6 +426,15 @@ func cmdRoute(args []string) {
 		dash.sendResult(model.Name, model.Tier, saved, true)
 		keepDashboardAlive(dashURL)
 	}
+}
+
+func savingsVsOpus(modelReg *router.Registry, model router.ModelCapabilities, spec router.TaskSpec) (float64, bool) {
+	opus, ok := modelReg.ByName("opus")
+	if !ok || model.CostPer1kInputUnknown || model.CostPer1kOutputUnknown ||
+		opus.CostPer1kInputUnknown || opus.CostPer1kOutputUnknown {
+		return 0, false
+	}
+	return router.EstimatedCost(opus, spec) - router.EstimatedCost(model, spec), true
 }
 
 type routeJSONSuccess struct {
@@ -869,7 +871,7 @@ func buildProviderRegistryWithCatalogAndAuth(offline bool, claudeAuth claudeAuth
 					model.CostPer1kInputUnknown = true
 					model.CostPer1kOutputUnknown = true
 				}
-				if claudeSubscription && !claudeAPIKeyInherited {
+				if claudeSubscription && !claudeBillingOverride {
 					modelExecutor = executor.NewClaudeCLIExecutor(model.APIModel)
 				} else {
 					modelExecutor = executor.NewClaudeCLIExecutorWithUnknownCost(model.APIModel)

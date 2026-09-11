@@ -261,6 +261,60 @@ func TestBuildProviderRegistrySubscriptionWithInheritedAnthropicKeyKeepsCostUnkn
 	assert.True(t, model.CostPer1kOutputUnknown)
 }
 
+func TestBuildProviderRegistrySubscriptionWithInheritedBillingOverrideUsesUnknownCostAdmission(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	for _, override := range []string{
+		"ANTHROPIC_AUTH_TOKEN",
+		"CLAUDE_CODE_USE_BEDROCK",
+		"CLAUDE_CODE_USE_VERTEX",
+		"CLAUDE_CODE_USE_FOUNDRY",
+	} {
+		t.Run(override, func(t *testing.T) {
+			bin := t.TempDir()
+			schemaPath := filepath.Join(t.TempDir(), "schema.json")
+			script := `#!/bin/sh
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--json-schema" ]; then
+    shift
+    printf '%s' "$1" > "$VETO_CLAUDE_SCHEMA"
+  fi
+  shift
+done
+printf '%s\n' '{"is_error":false,"structured_output":{"accept":true,"confidence":0.9,"reason_codes":[],"estimated_tokens":100,"estimated_cost_usd":0.1,"suggested_alternative_model":"","required_task_changes":[]}}'
+`
+			require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700))
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("PATH", bin)
+			t.Setenv("VETO_CLAUDE_SCHEMA", schemaPath)
+			for _, key := range []string{
+				"ANTHROPIC_API_KEY",
+				"ANTHROPIC_AUTH_TOKEN",
+				"CLAUDE_CODE_USE_BEDROCK",
+				"CLAUDE_CODE_USE_VERTEX",
+				"CLAUDE_CODE_USE_FOUNDRY",
+			} {
+				t.Setenv(key, "")
+			}
+			t.Setenv(override, "true")
+
+			reg, err := buildProviderRegistryWithCatalogAndAuth(true, claudeAuthSubscription)
+			require.NoError(t, err)
+			model, ok := reg.caps["sonnet"]
+			require.True(t, ok)
+			assert.True(t, model.CostPer1kInputUnknown)
+			assert.True(t, model.CostPer1kOutputUnknown)
+
+			result := reg.executors["sonnet"].Run(context.Background(), "decide")
+			require.NoError(t, result.Error)
+			schema, err := os.ReadFile(schemaPath)
+			require.NoError(t, err)
+			assert.NotContains(t, string(schema), `"estimated_cost_usd":{"type":"number","minimum":0,"maximum":0}`)
+		})
+	}
+}
+
 type textOnlyTestExecutor struct{}
 
 func (textOnlyTestExecutor) Run(context.Context, string) execution.Result { return execution.Result{} }

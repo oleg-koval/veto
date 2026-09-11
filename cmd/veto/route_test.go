@@ -106,14 +106,23 @@ func TestRequiresExecutableRuntime(t *testing.T) {
 // less than opus for the same task, yielding a positive saving.
 func TestSavingsVsOpus(t *testing.T) {
 	reg := router.NewRegistry()
-	opus, ok := reg.ByName("opus")
-	assert.True(t, ok)
 	haiku, ok := reg.ByName("haiku")
 	assert.True(t, ok)
 
 	spec := router.TaskSpec{Kind: router.KindCodeChange, MaxTokens: 1000}
-	saved := router.EstimatedCost(opus, spec) - router.EstimatedCost(haiku, spec)
+	saved, known := savingsVsOpus(reg, haiku, spec)
+	assert.True(t, known)
 	assert.Greater(t, saved, 0.0, "routing to haiku must be cheaper than opus")
+}
+
+func TestSavingsVsOpusMarksOpusBaselineAsKnownZero(t *testing.T) {
+	reg := router.NewRegistry()
+	opus, ok := reg.ByName("opus")
+	require.True(t, ok)
+
+	saved, known := savingsVsOpus(reg, opus, router.TaskSpec{Kind: router.KindCodeChange, MaxTokens: 1000})
+	assert.Zero(t, saved)
+	assert.True(t, known)
 }
 
 func TestPrintRouteJSONSuccess(t *testing.T) {
