@@ -632,7 +632,7 @@ func runProvidersCommand(stdout io.Writer) int {
 			case claudeAuth == claudeAuthSubscription:
 				providerRows = append(providerRows, []string{p.name, "subscription (cli)", "Claude Haiku, Sonnet, Opus"})
 				configured++
-			case claudeAuth != claudeAuthNone && !claudeAPIKeyInherited:
+			case claudeAuth != claudeAuthNone && !claudeAPIKeyConfigured:
 				providerRows = append(providerRows, []string{p.name, "authenticated (cli)", "Claude Haiku, Sonnet, Opus"})
 				configured++
 			case os.Getenv(p.envKey) != "":
