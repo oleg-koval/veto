@@ -121,7 +121,7 @@ func TestPrintRouteJSONSuccess(t *testing.T) {
 	printRouteJSONSuccess(&out, router.ModelCapabilities{
 		Name: "sonnet", Source: "builtin", Provider: "anthropic", APIModel: "claude-sonnet", Runtime: "opencode",
 		Tier: "mid",
-	}, "code-change", "medium", "moderate", 0.937, 0.0123)
+	}, "code-change", "medium", "moderate", 0.937, 0.0123, true)
 
 	var got routeJSONSuccess
 	require.NoError(t, json.Unmarshal(out.Bytes(), &got))
@@ -137,6 +137,7 @@ func TestPrintRouteJSONSuccess(t *testing.T) {
 		Complexity: "moderate",
 		Confidence: 0.937,
 		SavedUSD:   0.0123,
+		SavedKnown: true,
 	}, got)
 	assert.Equal(t, byte('\n'), out.Bytes()[out.Len()-1])
 }

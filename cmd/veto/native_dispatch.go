@@ -266,14 +266,14 @@ func resetExperimentLogger() error {
 func nativeAgentStatuses(ctx context.Context, availability *dispatch.AvailabilityStore) []dispatch.AgentStatus {
 	creds, credentialErr := loadCredentials()
 	envAPIKey := os.Getenv("ANTHROPIC_API_KEY") != ""
-	storedAPIKey := creds["ANTHROPIC_API_KEY"] != ""
-	apiKey := envAPIKey || storedAPIKey
 	claudeAuth := claudeCLIAuthenticationContext(ctx)
-	subscription := os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true" || claudeAuth == claudeAuthSubscription
+	subscription := claudeAuth == claudeAuthSubscription || (claudeAuth != claudeAuthAPIKey && claudeAuth != claudeAuthLoggedOut && (os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true"))
 	claude := dispatch.AgentStatus{Name: "claude", Installed: executableAvailable("claude"), Auth: dispatch.AuthUnknown, Billing: dispatch.BillingUnknown}
-	if apiKey || claudeAuth != claudeAuthNone || subscription {
+	if claudeAuth == claudeAuthLoggedOut && !claudeInheritedBillingOverridePresent() {
+		claude.Auth = dispatch.AuthUnauthenticated
+	} else if envAPIKey || claudeAuth != claudeAuthNone || subscription {
 		claude.Auth = dispatch.AuthAuthenticated
-		if claudeAuth == claudeAuthAPIKey || (apiKey && !subscription) {
+		if claudeAuth == claudeAuthAPIKey || (envAPIKey && !subscription) {
 			claude.Billing = dispatch.BillingAPI
 		}
 	}

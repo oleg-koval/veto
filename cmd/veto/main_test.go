@@ -61,7 +61,7 @@ func TestClaudeCLIAuthenticationDistinguishesAPIKeyAndLoggedOut(t *testing.T) {
 	assert.Equal(t, claudeAuthAPIKey, claudeCLIAuthentication())
 
 	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":false}'\n"), 0700))
-	assert.Equal(t, claudeAuthNone, claudeCLIAuthentication())
+	assert.Equal(t, claudeAuthLoggedOut, claudeCLIAuthentication())
 
 	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' 'not-json'\n"), 0700))
 	assert.Equal(t, claudeAuthNone, claudeCLIAuthentication())
@@ -106,13 +106,49 @@ func TestBuildProviderRegistryKeepsAnthropicAPITransportForAPIKeyAuth(t *testing
 	assert.False(t, reg.caps["sonnet"].CostPer1kInputUnknown)
 }
 
+func TestBuildProviderRegistryUsesStoredAnthropicKeyForAPIKeyAuth(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"apiKey\"}'\n"), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_SUBSCRIPTION", "")
+	require.NoError(t, saveCredential("ANTHROPIC_API_KEY", "stored-key"))
+
+	reg, err := buildProviderRegistryWithCatalog(true)
+	require.NoError(t, err)
+	assert.Equal(t, "anthropic-api", reg.executors["sonnet"].RuntimeID())
+}
+
+func TestBuildProviderRegistryLiveAPIAuthOverridesSubscriptionMarker(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"apiKey\"}'\n"), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_SUBSCRIPTION", "true")
+
+	reg, err := buildProviderRegistryWithCatalog(true)
+	require.NoError(t, err)
+	model, ok := reg.caps["sonnet"]
+	require.True(t, ok)
+	assert.True(t, model.CostPer1kInputUnknown)
+	assert.True(t, model.CostPer1kOutputUnknown)
+}
+
 func TestProvidersUsesOneClaudeAuthenticationSnapshot(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX subprocess fixture")
 	}
 	bin := t.TempDir()
 	countPath := filepath.Join(t.TempDir(), "claude-auth-count")
-	script := "#!/bin/sh\ncount=$(cat \"$VETO_CLAUDE_AUTH_COUNT\" 2>/dev/null || printf 0)\ncount=$((count + 1))\nprintf '%s' \"$count\" > \"$VETO_CLAUDE_AUTH_COUNT\"\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"subscriptionType\":\"pro\"}'\n"
+	script := "#!/bin/sh\nprintf x >> \"$VETO_CLAUDE_AUTH_COUNT\"\nprintf '%s\\n' '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"subscriptionType\":\"pro\"}'\n"
 	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0700))
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", bin)
@@ -125,7 +161,7 @@ func TestProvidersUsesOneClaudeAuthenticationSnapshot(t *testing.T) {
 	require.Equal(t, 0, runProvidersCommand(&output))
 	count, err := os.ReadFile(countPath)
 	require.NoError(t, err)
-	assert.Equal(t, "1", string(count))
+	assert.Equal(t, "x", string(count))
 }
 
 func TestProvidersDiscoversClaudeCLIWithoutLoginMarker(t *testing.T) {

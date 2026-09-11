@@ -409,16 +409,21 @@ func cmdRoute(args []string) {
 
 	deleteCheckpoint(hash)
 
-	// reward: show what routing to this model saved vs always reaching for opus
+	// reward: show what routing to this model saved vs always reaching for opus.
+	// Unknown provider prices must never be presented as a numeric saving.
 	saved := 0.0
-	if opus, ok := modelReg.ByName("opus"); ok && model.Name != opus.Name {
+	savedKnown := false
+	if opus, ok := modelReg.ByName("opus"); ok && model.Name != opus.Name &&
+		!model.CostPer1kInputUnknown && !model.CostPer1kOutputUnknown &&
+		!opus.CostPer1kInputUnknown && !opus.CostPer1kOutputUnknown {
 		saved = router.EstimatedCost(opus, spec) - router.EstimatedCost(model, spec)
+		savedKnown = true
 	}
 	render.PrintResult(model, decision, saved)
 
 	// json mode: single machine-readable line for scripting / agent infra
 	if *jsonOut {
-		printRouteJSONSuccess(os.Stdout, model, kind, *risk, complexity, decision.Confidence, saved)
+		printRouteJSONSuccess(os.Stdout, model, kind, *risk, complexity, decision.Confidence, saved, savedKnown)
 	} else if *quiet {
 		// quiet mode: machine-readable single line (model name only)
 		fmt.Printf("%s\n", model.Name)
@@ -442,6 +447,7 @@ type routeJSONSuccess struct {
 	Complexity string  `json:"complexity"`
 	Confidence float64 `json:"confidence"`
 	SavedUSD   float64 `json:"saved_usd"`
+	SavedKnown bool    `json:"saved_known"`
 }
 
 type routeJSONError struct {
@@ -457,7 +463,7 @@ type routeJSONProviderError struct {
 	Detail string `json:"detail"`
 }
 
-func printRouteJSONSuccess(w io.Writer, model router.ModelCapabilities, kind, risk, complexity string, confidence, savedUSD float64) {
+func printRouteJSONSuccess(w io.Writer, model router.ModelCapabilities, kind, risk, complexity string, confidence, savedUSD float64, savedKnown bool) {
 	_ = json.NewEncoder(w).Encode(routeJSONSuccess{
 		Model:      model.Name,
 		Source:     model.Source,
@@ -470,6 +476,7 @@ func printRouteJSONSuccess(w io.Writer, model router.ModelCapabilities, kind, ri
 		Complexity: complexity,
 		Confidence: confidence,
 		SavedUSD:   savedUSD,
+		SavedKnown: savedKnown,
 	})
 }
 
@@ -572,7 +579,7 @@ func cmdInstallGitHook(args []string) {
 	fmt.Println("  veto will suggest a model in each commit message going forward.")
 }
 
-// cmdProviders prints which provider API keys are configured and their source.
+// cmdProviders prints configured API providers and discovered native CLI sessions.
 func cmdProviders() {
 	_ = runProvidersCommand(os.Stdout)
 }
@@ -582,6 +589,7 @@ func runProvidersCommand(stdout io.Writer) int {
 	claudeAuth := claudeCLIAuthentication()
 	claudeSubscriptionMarker := creds["CLAUDE_SUBSCRIPTION"] == "true" || os.Getenv("CLAUDE_SUBSCRIPTION") == "true"
 	claudeAPIKeyInherited := os.Getenv("ANTHROPIC_API_KEY") != ""
+	claudeAPIKeyConfigured := getKey("ANTHROPIC_API_KEY", creds) != ""
 	providerRows := make([][]string, 0, len(knownProviders)+2)
 	configured := 0
 	if auth := codexCLIAuthentication(); auth != codexAuthNone {
@@ -599,14 +607,28 @@ func runProvidersCommand(stdout io.Writer) int {
 		// Anthropic: check subscription mode before API key
 		if p.envKey == "ANTHROPIC_API_KEY" {
 			switch {
+			case claudeAuth == claudeAuthAPIKey && claudeAPIKeyInherited:
+				providerRows = append(providerRows, []string{p.name, "env var", models})
+				configured++
+			case claudeAuth == claudeAuthAPIKey && claudeAPIKeyConfigured:
+				providerRows = append(providerRows, []string{p.name, "veto login", models})
+				configured++
+			case claudeAuth == claudeAuthAPIKey:
+				providerRows = append(providerRows, []string{p.name, "API key (cli)", "Claude Haiku, Sonnet, Opus"})
+				configured++
+			case claudeAuth == claudeAuthLoggedOut && claudeAPIKeyInherited:
+				providerRows = append(providerRows, []string{p.name, "env var", models})
+				configured++
+			case claudeAuth == claudeAuthLoggedOut && claudeAPIKeyConfigured:
+				providerRows = append(providerRows, []string{p.name, "veto login", models})
+				configured++
+			case claudeAuth == claudeAuthLoggedOut:
+				providerRows = append(providerRows, []string{p.name, "not set", "run 'veto login'"})
 			case claudeSubscriptionMarker:
 				providerRows = append(providerRows, []string{p.name, "subscription (cli)", "Claude Haiku, Sonnet, Opus"})
 				configured++
 			case claudeAuth == claudeAuthSubscription:
 				providerRows = append(providerRows, []string{p.name, "subscription (cli)", "Claude Haiku, Sonnet, Opus"})
-				configured++
-			case claudeAuth == claudeAuthAPIKey && !claudeAPIKeyInherited:
-				providerRows = append(providerRows, []string{p.name, "API key (cli)", "Claude Haiku, Sonnet, Opus"})
 				configured++
 			case claudeAuth != claudeAuthNone && !claudeAPIKeyInherited:
 				providerRows = append(providerRows, []string{p.name, "authenticated (cli)", "Claude Haiku, Sonnet, Opus"})
@@ -814,14 +836,16 @@ func buildProviderRegistryWithCatalogAndAuth(offline bool, claudeAuth claudeAuth
 	// Use an already-authenticated Claude CLI without requiring veto login.
 	// The explicit marker remains supported for older configurations.
 	claudeSubscriptionMarker := creds["CLAUDE_SUBSCRIPTION"] == "true" || os.Getenv("CLAUDE_SUBSCRIPTION") == "true"
-	claudeAPIKeyInherited := os.Getenv("ANTHROPIC_API_KEY") != ""
-	claudeCLI := claudeSubscriptionMarker || claudeAuth == claudeAuthSubscription || (claudeAuth != claudeAuthNone && !claudeAPIKeyInherited)
-	claudeSubscription := claudeSubscriptionMarker || claudeAuth == claudeAuthSubscription
 	providerKeys := map[string]string{
 		"anthropic":  getKey("ANTHROPIC_API_KEY", creds),
 		"openai":     getKey("OPENAI_API_KEY", creds),
 		"openrouter": getKey("OPENROUTER_API_KEY", creds),
 	}
+	claudeAPIKeyInherited := os.Getenv("ANTHROPIC_API_KEY") != ""
+	claudeAuthConflict := claudeAuth == claudeAuthAPIKey || claudeAuth == claudeAuthLoggedOut
+	claudeSubscription := !claudeAuthConflict && (claudeSubscriptionMarker || claudeAuth == claudeAuthSubscription)
+	claudeCLI := claudeAuth != claudeAuthLoggedOut && (claudeSubscription || (claudeAuth != claudeAuthNone && !claudeAPIKeyInherited && providerKeys["anthropic"] == ""))
+	claudeBillingOverride := claudeAPIKeyInherited || claudeInheritedBillingOverridePresent()
 	// Claude CLI inherits credentials from the process environment, not from
 	// Veto's stored credentials file. A stored API key therefore does not make
 	// subscription billing ambiguous unless the CLI can actually inherit it.
@@ -830,7 +854,7 @@ func buildProviderRegistryWithCatalogAndAuth(offline bool, claudeAuth claudeAuth
 		switch model.Provider {
 		case "anthropic":
 			if claudeCLI {
-				if claudeAPIKeyInherited {
+				if claudeBillingOverride {
 					// The claude CLI inherits ANTHROPIC_API_KEY from the process
 					// environment and prefers it over subscription auth, so with
 					// both present we cannot prove which billing path is used.
@@ -966,6 +990,7 @@ const (
 	claudeAuthNone         claudeAuthMode = ""
 	claudeAuthSubscription claudeAuthMode = "subscription"
 	claudeAuthAPIKey       claudeAuthMode = "api-key"
+	claudeAuthLoggedOut    claudeAuthMode = "logged-out"
 	claudeAuthUnknown      claudeAuthMode = "unknown"
 )
 
@@ -999,7 +1024,7 @@ func claudeCLIAuthenticationContext(parent context.Context) claudeAuthMode {
 	var report claudeAuthReport
 	if json.Unmarshal(out, &report) == nil && report.LoggedIn != nil {
 		if !*report.LoggedIn {
-			return claudeAuthNone
+			return claudeAuthLoggedOut
 		}
 		method := strings.ToLower(strings.TrimSpace(report.AuthMethod))
 		subscription := strings.ToLower(strings.TrimSpace(report.SubscriptionType))
@@ -1015,6 +1040,21 @@ func claudeCLIAuthenticationContext(parent context.Context) claudeAuthMode {
 	}
 
 	return claudeAuthNone
+}
+
+func claudeInheritedBillingOverridePresent() bool {
+	for _, key := range []string{
+		"ANTHROPIC_API_KEY",
+		"ANTHROPIC_AUTH_TOKEN",
+		"CLAUDE_CODE_USE_BEDROCK",
+		"CLAUDE_CODE_USE_VERTEX",
+		"CLAUDE_CODE_USE_FOUNDRY",
+	} {
+		if os.Getenv(key) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // loadDisabledModels reads the "disabled_models" list from ~/.veto/config.json.

@@ -137,6 +137,28 @@ func TestNativeAgentStatusesDoesNotTreatStoredAPIKeyAsInheritedConflict(t *testi
 	assert.NotContains(t, claude.Warning, "both present")
 }
 
+func TestNativeAgentStatusesMarksLoggedOutClaudeUnauthenticated(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX subprocess fixture")
+	}
+	bin := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":false}'\n"), 0700))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_SUBSCRIPTION", "")
+
+	statuses := nativeAgentStatuses(context.Background(), dispatch.NewAvailabilityStore(filepath.Join(t.TempDir(), "unavailable.json")))
+	var claude dispatch.AgentStatus
+	for _, status := range statuses {
+		if status.Name == "claude" {
+			claude = status
+			break
+		}
+	}
+	assert.Equal(t, dispatch.AuthUnauthenticated, claude.Auth)
+}
+
 func TestNativeProposalRejectsUnsupportedOverrideModel(t *testing.T) {
 	statuses := []dispatch.AgentStatus{{Name: "claude", Installed: true, Auth: dispatch.AuthAuthenticated}, {Name: "codex", Installed: true, Auth: dispatch.AuthAuthenticated}}
 	_, _, err := nativeProposal(map[string]string{"choose": "agent", "objective": "fix code", "override-agent": "claude", "override-model": "gpt-5-codex"}, statuses)

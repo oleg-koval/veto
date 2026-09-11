@@ -307,7 +307,7 @@ network-free.
 | `AnthropicExecutor` | Anthropic API (HTTP) | `ANTHROPIC_API_KEY` set and no confirmed Claude subscription CLI |
 | `OpenAIExecutor` | OpenAI Responses for GPT-5.6; Chat Completions for GPT-4.1 (HTTP) | `OPENAI_API_KEY` set |
 | `OpenRouterExecutor` | OpenRouter API (HTTP) | `OPENROUTER_API_KEY` set |
-| `CLIExecutor` | `claude -p` subprocess | confirmed subscription or discovered non-API-key Claude CLI; legacy `CLAUDE_SUBSCRIPTION=true` also supported |
+| `CLIExecutor` | `claude -p` subprocess | selected authenticated Claude CLI session (confirmed subscription or API-key/unknown auth with no effective API key); legacy `CLAUDE_SUBSCRIPTION=true` also supported |
 | `CodexCLIExecutor` | `codex exec` subprocess | Codex CLI has an active ChatGPT login |
 | `opencode.Runtime` | OpenCode session SSE or JSON CLI subprocess | `veto opencode connect` |
 | `OpenAICompatibleExecutor` | any OpenAI-compatible endpoint (HTTP) | local model configured via `veto login` |
