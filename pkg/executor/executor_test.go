@@ -50,7 +50,9 @@ func TestClaudeCLIUnknownCostAdmissionSchemaDoesNotClaimZero(t *testing.T) {
 	}
 	require.Equal(t, "--json-schema", args[9])
 	require.NoError(t, json.Unmarshal([]byte(args[10]), &schema))
-	assert.Nil(t, schema.Properties["estimated_cost_usd"].Maximum)
+	cost, ok := schema.Properties["estimated_cost_usd"]
+	require.True(t, ok, "unknown-cost schema must retain estimated_cost_usd")
+	assert.Nil(t, cost.Maximum)
 }
 
 func TestClaudeCLIExecutionArgsRetainProjectRuntime(t *testing.T) {
