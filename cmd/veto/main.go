@@ -165,7 +165,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  install-git-hook   add veto to your git workflow")
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "QUICK START")
-	fmt.Fprintln(o, "  veto login")
+	fmt.Fprintln(o, "  veto providers")
+	fmt.Fprintln(o, "  veto login       # when no provider is already available")
 	fmt.Fprintln(o, `  veto run "refactor the auth middleware to use JWT"`)
 	fmt.Fprintln(o, `  veto run --kind debug --risk high "explain the race condition in sync.go"`)
 	fmt.Fprintln(o, `  veto route "refactor the auth middleware to use JWT"   # pick model only`)
@@ -578,6 +579,9 @@ func cmdProviders() {
 
 func runProvidersCommand(stdout io.Writer) int {
 	creds, _ := loadCredentials()
+	claudeAuth := claudeCLIAuthentication()
+	claudeSubscriptionMarker := creds["CLAUDE_SUBSCRIPTION"] == "true" || os.Getenv("CLAUDE_SUBSCRIPTION") == "true"
+	claudeAPIKeyInherited := os.Getenv("ANTHROPIC_API_KEY") != ""
 	providerRows := make([][]string, 0, len(knownProviders)+2)
 	configured := 0
 	if auth := codexCLIAuthentication(); auth != codexAuthNone {
@@ -594,15 +598,17 @@ func runProvidersCommand(stdout io.Writer) int {
 		models := catalogModelDescription(p.provider)
 		// Anthropic: check subscription mode before API key
 		if p.envKey == "ANTHROPIC_API_KEY" {
-			claudeAuth := claudeCLIAuthentication()
 			switch {
-			case os.Getenv("CLAUDE_SUBSCRIPTION") == "true" || creds["CLAUDE_SUBSCRIPTION"] == "true":
+			case claudeSubscriptionMarker:
 				providerRows = append(providerRows, []string{p.name, "subscription (cli)", "Claude Haiku, Sonnet, Opus"})
 				configured++
 			case claudeAuth == claudeAuthSubscription:
 				providerRows = append(providerRows, []string{p.name, "subscription (cli)", "Claude Haiku, Sonnet, Opus"})
 				configured++
-			case claudeAuth != claudeAuthNone:
+			case claudeAuth == claudeAuthAPIKey && !claudeAPIKeyInherited:
+				providerRows = append(providerRows, []string{p.name, "API key (cli)", "Claude Haiku, Sonnet, Opus"})
+				configured++
+			case claudeAuth != claudeAuthNone && !claudeAPIKeyInherited:
 				providerRows = append(providerRows, []string{p.name, "authenticated (cli)", "Claude Haiku, Sonnet, Opus"})
 				configured++
 			case os.Getenv(p.envKey) != "":
@@ -649,7 +655,7 @@ func runProvidersCommand(stdout io.Writer) int {
 		fmt.Fprintln(stdout, "  No providers configured — run 'veto login' to get started.")
 	} else {
 		// build an accurate model count from the registry
-		reg, err := buildProviderRegistryWithCatalog(true)
+		reg, err := buildProviderRegistryWithCatalogAndAuth(true, claudeAuth)
 		if err == nil {
 			available := loadCandidatePreferences().Filter(reg.modelCaps())
 			fmt.Fprintf(stdout, "  %d model(s) available for routing\n", len(available))
@@ -788,6 +794,10 @@ func buildProviderRegistry() (*providerRegistry, error) {
 }
 
 func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
+	return buildProviderRegistryWithCatalogAndAuth(offline, claudeCLIAuthentication())
+}
+
+func buildProviderRegistryWithCatalogAndAuth(offline bool, claudeAuth claudeAuthMode) (*providerRegistry, error) {
 	creds, _ := loadCredentials() // best-effort; env vars take precedence
 	catalog := router.NewRegistry()
 	preferences := loadCandidatePreferences()
@@ -803,9 +813,9 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 
 	// Use an already-authenticated Claude CLI without requiring veto login.
 	// The explicit marker remains supported for older configurations.
-	claudeAuth := claudeCLIAuthentication()
 	claudeSubscriptionMarker := creds["CLAUDE_SUBSCRIPTION"] == "true" || os.Getenv("CLAUDE_SUBSCRIPTION") == "true"
-	claudeCLI := claudeSubscriptionMarker || claudeAuth != claudeAuthNone
+	claudeAPIKeyInherited := os.Getenv("ANTHROPIC_API_KEY") != ""
+	claudeCLI := claudeSubscriptionMarker || claudeAuth == claudeAuthSubscription || (claudeAuth != claudeAuthNone && !claudeAPIKeyInherited)
 	claudeSubscription := claudeSubscriptionMarker || claudeAuth == claudeAuthSubscription
 	providerKeys := map[string]string{
 		"anthropic":  getKey("ANTHROPIC_API_KEY", creds),
@@ -815,7 +825,6 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 	// Claude CLI inherits credentials from the process environment, not from
 	// Veto's stored credentials file. A stored API key therefore does not make
 	// subscription billing ambiguous unless the CLI can actually inherit it.
-	claudeAPIKeyInherited := os.Getenv("ANTHROPIC_API_KEY") != ""
 	for _, model := range catalog.All() {
 		var modelExecutor execution.RuntimeAdapter
 		switch model.Provider {
@@ -836,7 +845,11 @@ func buildProviderRegistryWithCatalog(offline bool) (*providerRegistry, error) {
 					model.CostPer1kInputUnknown = true
 					model.CostPer1kOutputUnknown = true
 				}
-				modelExecutor = executor.NewClaudeCLIExecutor(model.APIModel)
+				if claudeSubscription && !claudeAPIKeyInherited {
+					modelExecutor = executor.NewClaudeCLIExecutor(model.APIModel)
+				} else {
+					modelExecutor = executor.NewClaudeCLIExecutorWithUnknownCost(model.APIModel)
+				}
 			} else if key := providerKeys[model.Provider]; key != "" {
 				modelExecutor = executor.NewAnthropicExecutor(key, model.APIModel)
 			}
