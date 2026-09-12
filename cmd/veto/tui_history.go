@@ -68,12 +68,18 @@ func removeAllTUIHistory(home string) error {
 			return fmt.Errorf("remove mission log %s: %w", filepath.Base(path), err)
 		}
 	}
-	runIDs := make(map[string]struct{})
-	for _, receipt := range readVerifiedReceipts() {
-		runIDs[receipt.RunID] = struct{}{}
+	receiptDir := filepath.Join(home, ".veto", "receipts")
+	entries, err := os.ReadDir(receiptDir)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("enumerate verified receipts: %w", err)
 	}
-	if err := deleteVerifiedReceipts(runIDs); err != nil {
-		return fmt.Errorf("remove verified receipts: %w", err)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		if err := os.Remove(filepath.Join(receiptDir, entry.Name())); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove verified receipt %s: %w", entry.Name(), err)
+		}
 	}
 	return replaceTUIHistoryIndex(home, []tuiMissionRecord{})
 }

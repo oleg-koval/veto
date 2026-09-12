@@ -37,3 +37,13 @@ func TestParseEvidenceRedactsSummaryBeforeReview(t *testing.T) {
 		t.Fatalf("summary was not redacted: %q", evidence[0].Summary)
 	}
 }
+
+func TestParseEvidenceMatchesNormalizedCriteria(t *testing.T) {
+	evidence, err := ParseEvidence([]byte(`{"version":1,"evidence":[{"id":"tests","criterion":"tests pass","type":"test","summary":"ok"}]}`), []string{" tests pass "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evidence[0].Criterion != "tests pass" {
+		t.Fatalf("criterion = %q, want normalized criterion", evidence[0].Criterion)
+	}
+}

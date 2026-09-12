@@ -91,15 +91,16 @@ func ParseEvidence(data []byte, criteria []string) ([]Evidence, error) {
 	if manifest.Version != SchemaVersion {
 		return nil, fmt.Errorf("evidence manifest: unsupported version %d", manifest.Version)
 	}
-	if _, err := validateCriteria(criteria); err != nil {
+	normalizedCriteria, err := validateCriteria(criteria)
+	if err != nil {
 		return nil, err
 	}
-	allowed := make(map[string]struct{}, len(criteria))
-	for _, criterion := range criteria {
+	allowed := make(map[string]struct{}, len(normalizedCriteria))
+	for _, criterion := range normalizedCriteria {
 		allowed[criterion] = struct{}{}
 	}
 	seen := make(map[string]struct{}, len(manifest.Evidence))
-	covered := make(map[string]struct{}, len(criteria))
+	covered := make(map[string]struct{}, len(normalizedCriteria))
 	for index := range manifest.Evidence {
 		evidence := &manifest.Evidence[index]
 		evidence.ID = strings.TrimSpace(evidence.ID)
@@ -126,7 +127,7 @@ func ParseEvidence(data []byte, criteria []string) ([]Evidence, error) {
 		}
 		covered[evidence.Criterion] = struct{}{}
 	}
-	for _, criterion := range criteria {
+	for _, criterion := range normalizedCriteria {
 		if _, ok := covered[criterion]; !ok {
 			return nil, fmt.Errorf("evidence manifest: criterion %q has no evidence", criterion)
 		}

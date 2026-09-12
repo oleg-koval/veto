@@ -26,7 +26,7 @@ veto run \
 {
   "version": 1,
   "evidence": [
-    {"id":"tests","criterion":"Checkout tests pass","type":"test","summary":"CI suite passed","sha256":"optional-64-character-digest"},
+    {"id":"tests","criterion":"Checkout tests pass","type":"test","summary":"CI suite passed"},
     {"id":"benchmark","criterion":"p95 is below 100 ms","type":"benchmark","summary":"p95: 810 ms to 27 ms"}
   ]
 }

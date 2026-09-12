@@ -286,6 +286,29 @@ func TestTUIHistoryDeleteRemovesAllMissionHistory(t *testing.T) {
 	}
 }
 
+func TestRemoveAllTUIHistoryDeletesEveryReceiptJSONFromSuppliedHome(t *testing.T) {
+	home := t.TempDir()
+	otherHome := t.TempDir()
+	t.Setenv("HOME", otherHome)
+	receipts := filepath.Join(home, ".veto", "receipts")
+	require.NoError(t, os.MkdirAll(receipts, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(receipts, "malformed.json"), []byte("not json"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(receipts, "older-schema.json"), []byte(`{"version":0}`), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(receipts, "keep.txt"), []byte("keep"), 0600))
+	otherReceipts := filepath.Join(otherHome, ".veto", "receipts")
+	require.NoError(t, os.MkdirAll(otherReceipts, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(otherReceipts, "keep.json"), []byte("not in supplied home"), 0600))
+
+	require.NoError(t, removeAllTUIHistory(home))
+
+	_, err := os.Stat(filepath.Join(receipts, "malformed.json"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+	_, err = os.Stat(filepath.Join(receipts, "older-schema.json"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+	require.FileExists(t, filepath.Join(receipts, "keep.txt"))
+	require.FileExists(t, filepath.Join(otherReceipts, "keep.json"))
+}
+
 func TestTUIHistoryPreservesRedactedMissionEvidence(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
