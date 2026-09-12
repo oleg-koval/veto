@@ -25,7 +25,7 @@ func TestTUICatalogMatchesRootCLICommandInventory(t *testing.T) {
 			continue
 		}
 		fields := strings.Fields(line)
-		if len(fields) == 0 || fields[0] == "tui" {
+		if len(fields) == 0 || fields[0] == "tui" || fields[0] == "attribution" {
 			continue
 		}
 		cliCommands[fields[0]] = struct{}{}
@@ -35,6 +35,7 @@ func TestTUICatalogMatchesRootCLICommandInventory(t *testing.T) {
 	// printed COMMANDS usage text (they're advanced native-dispatch
 	// controls, not primary entry points) still belong in the TUI catalog.
 	hiddenFromUsage := map[string]struct{}{
+		"attribution": {},
 		"start":       {},
 		"unavailable": {},
 		"experiment":  {},

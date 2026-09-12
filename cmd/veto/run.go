@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/oleg-koval/veto/pkg/ledger"
 	"github.com/oleg-koval/veto/pkg/router"
+	"github.com/oleg-koval/veto/pkg/verifiedrun"
 )
 
 const (
@@ -40,6 +42,9 @@ func cmdRun(args []string) {
 	admissionTimeout := fs.Duration("admission-timeout", defaultAdmissionTimeout, "timeout for each model admission decision")
 	quiet := fs.Bool("quiet", false, "suppress routing pipeline — print model output only")
 	criteriaFlag := fs.String("criteria", "", "comma-separated acceptance criteria; review runs after execution")
+	criteriaFile := fs.String("criteria-file", "", "versioned JSON acceptance criteria manifest")
+	evidenceFile := fs.String("evidence", "", "versioned JSON evidence manifest; requires acceptance criteria")
+	verifiedReceiptPath := fs.String("verified-receipt", "", "export the redacted verified-run receipt to a relative file path")
 	maxOutputTokens := fs.Int("max-output-tokens", execution.DefaultExecutionMaxTokens, "maximum output tokens for task execution")
 	outputPath := fs.String("output", "", "write task output to a relative file path")
 	forceOutput := fs.Bool("force", false, "overwrite an existing --output file")
@@ -87,12 +92,41 @@ func cmdRun(args []string) {
 	render.PrintTaskHeader(objective, kind, *risk, string(complexity), *maxCost, kindInferred)
 
 	var criteria []string
+	if *criteriaFlag != "" && *criteriaFile != "" {
+		fmt.Fprintln(os.Stderr, "error: use either --criteria or --criteria-file, not both")
+		os.Exit(1)
+	}
 	if *criteriaFlag != "" {
 		for _, c := range strings.Split(*criteriaFlag, ",") {
 			if t := strings.TrimSpace(c); t != "" {
 				criteria = append(criteria, t)
 			}
 		}
+	}
+	if *criteriaFile != "" {
+		var criteriaErr error
+		criteria, criteriaErr = parseCriteriaFile(*criteriaFile)
+		if criteriaErr != nil {
+			fmt.Fprintln(os.Stderr, "error:", criteriaErr)
+			os.Exit(1)
+		}
+	}
+	var evidence []verifiedrun.Evidence
+	if *evidenceFile != "" {
+		if len(criteria) == 0 {
+			fmt.Fprintln(os.Stderr, "error: --evidence requires --criteria or --criteria-file")
+			os.Exit(1)
+		}
+		var evidenceErr error
+		evidence, evidenceErr = parseEvidenceFile(*evidenceFile, criteria)
+		if evidenceErr != nil {
+			fmt.Fprintln(os.Stderr, "error:", evidenceErr)
+			os.Exit(1)
+		}
+	}
+	if *verifiedReceiptPath != "" && len(evidence) == 0 {
+		fmt.Fprintln(os.Stderr, "error: --verified-receipt requires --evidence")
+		os.Exit(1)
 	}
 
 	requiredToolList := splitTaskList(*requiredTools)
@@ -151,6 +185,7 @@ func cmdRun(args []string) {
 	_ = store.Save()
 
 	if err != nil && response.Model.Name != "" {
+		persistVerifiedReceipt(spec, response.Model, executionMetrics, evidence, ReviewResult{}, verifiedrun.OutcomeInconclusive, *verifiedReceiptPath)
 		fmt.Fprintf(os.Stderr, "run failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -209,19 +244,67 @@ func cmdRun(args []string) {
 			fmt.Fprintln(os.Stderr, "review failed: executor returned empty output")
 			os.Exit(1)
 		}
-		result, err := reviewOutput(ctx, reg, mgr, spec, output, model.Name)
+		result, err := reviewOutputWithEvidence(ctx, reg, mgr, spec, output, model.Name, evidence)
 		if err != nil {
+			persistVerifiedReceipt(spec, model, executionMetrics, evidence, ReviewResult{}, verifiedrun.OutcomeInconclusive, *verifiedReceiptPath)
 			fmt.Fprintf(os.Stderr, "review failed: %v\n", err)
 			os.Exit(1)
 		}
 		render.PrintReview(result)
 		if !result.Passed {
+			persistVerifiedReceipt(spec, model, executionMetrics, evidence, result, verifiedrun.OutcomeVerifiedFail, *verifiedReceiptPath)
 			os.Exit(1)
+		}
+		if len(evidence) > 0 {
+			persistVerifiedReceipt(spec, model, executionMetrics, evidence, result, verifiedrun.OutcomeVerifiedPass, *verifiedReceiptPath)
 		}
 	}
 	if !*noFeedback {
 		maybeOfferPostRunFeedback("run", *risk, model.Name)
 	}
+}
+
+func persistVerifiedReceipt(spec router.TaskSpec, model router.ModelCapabilities, metrics router.ExecutionMetrics, evidence []verifiedrun.Evidence, result ReviewResult, outcome verifiedrun.Outcome, exportPath string) {
+	if len(evidence) == 0 {
+		return
+	}
+	byCriterion := make(map[string]int, len(spec.SuccessCriteria))
+	for _, item := range evidence {
+		byCriterion[item.Criterion]++
+	}
+	criteria := make([]verifiedrun.CriterionReceipt, 0, len(spec.SuccessCriteria))
+	for index, criterion := range spec.SuccessCriteria {
+		item := verifiedrun.CriterionReceipt{Criterion: criterion, EvidenceCount: byCriterion[criterion]}
+		if index < len(result.Criteria) {
+			item.Met = result.Criteria[index].Met
+			item.Note = ledger.Redact(result.Criteria[index].Note)
+		}
+		criteria = append(criteria, item)
+	}
+	receipt := verifiedrun.Receipt{
+		RunID: currentRunID(spec.ID), TaskID: spec.ID, CreatedAt: time.Now(),
+		TaskKind: string(spec.Kind), Risk: string(spec.Risk), Model: model.Name, Runtime: model.Runtime,
+		Outcome: outcome, Criteria: criteria, EvidenceCoverage: len(byCriterion), EvidenceTotal: len(spec.SuccessCriteria),
+		ExecutionCostUSD: metrics.CostUSD, ExecutionCostKnown: metrics.CostKnown,
+		ExecutionLatencyMS: metrics.LatencyMs, LatencyKnown: metrics.LatencyKnown,
+	}
+	if err := saveVerifiedReceipt(receipt); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: save verified receipt: %v\n", err)
+		return
+	}
+	if exportPath == "" {
+		return
+	}
+	data, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: encode verified receipt: %v\n", err)
+		return
+	}
+	if err := writeOutputFile(exportPath, string(data), false); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: export verified receipt: %v\n", err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "  verified receipt exported: %s\n", exportPath)
 }
 
 func writeOutputFile(path, output string, force bool) error {

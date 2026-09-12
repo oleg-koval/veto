@@ -187,6 +187,32 @@ func registerTUIActionHandlers(service *application.ControlService, refreshPrefe
 			return runAnalyticsCommand(arguments, output, diagnostics)
 		})
 	})
+	service.RegisterHandler("verified-runs", func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+		operation := request.Arguments["subcommand"]
+		if operation == "" {
+			operation = "list"
+		}
+		receipts := readVerifiedReceipts()
+		var output strings.Builder
+		switch operation {
+		case "list":
+			for _, receipt := range receipts {
+				fmt.Fprintf(&output, "%s  %s  %s  %s\n", receipt.CreatedAt.Local().Format("2006-01-02 15:04"), receipt.Outcome, receipt.Model, receipt.RunID)
+			}
+		case "report":
+			report := buildVerifiedRunReport(receipts)
+			fmt.Fprintf(&output, "verified runs: %d total · %d pass · %d fail · %d inconclusive\n", report.Total, report.VerifiedPass, report.VerifiedFail, report.Inconclusive)
+			fmt.Fprintf(&output, "evidence coverage: %.0f%% · execution cost coverage: %d known, %d unknown\n", report.EvidenceCoverage*100, report.KnownCostRuns, report.UnknownCostRuns)
+			if report.CostPerVerifiedRun == nil {
+				output.WriteString("execution cost per verified pass: insufficient evidence\n")
+			} else {
+				fmt.Fprintf(&output, "execution cost per verified pass: $%.6f\n", *report.CostPerVerifiedRun)
+			}
+		default:
+			return controlplane.ActionResult{ActionID: "verified-runs"}, fmt.Errorf("unsupported verified-runs operation %q", operation)
+		}
+		return controlplane.ActionResult{ActionID: "verified-runs", Summary: "verified runs loaded", Output: output.String()}, nil
+	})
 	service.RegisterHandler("opencode", func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
 		subcommand := request.Arguments["subcommand"]
 		if subcommand == "" {
