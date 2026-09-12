@@ -169,6 +169,9 @@ type HistorySnapshot struct {
 	CostKnown            bool
 	LatencyMS            int64
 	LatencyKnown         bool
+	VerifiedOutcome      string
+	EvidenceCoverage     int
+	EvidenceTotal        int
 	Detail               string
 }
 

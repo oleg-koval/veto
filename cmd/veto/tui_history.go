@@ -68,6 +68,13 @@ func removeAllTUIHistory(home string) error {
 			return fmt.Errorf("remove mission log %s: %w", filepath.Base(path), err)
 		}
 	}
+	runIDs := make(map[string]struct{})
+	for _, receipt := range readVerifiedReceipts() {
+		runIDs[receipt.RunID] = struct{}{}
+	}
+	if err := deleteVerifiedReceipts(runIDs); err != nil {
+		return fmt.Errorf("remove verified receipts: %w", err)
+	}
 	return replaceTUIHistoryIndex(home, []tuiMissionRecord{})
 }
 
@@ -92,6 +99,9 @@ func removeSelectedTUIHistory(home string, selector tuiHistorySelector) error {
 	if len(runIDs) > 0 {
 		if err := removeMissionIndexRecords(home, runIDs); err != nil {
 			return err
+		}
+		if err := deleteVerifiedReceipts(runIDs); err != nil {
+			return fmt.Errorf("remove verified receipts: %w", err)
 		}
 	}
 	return nil

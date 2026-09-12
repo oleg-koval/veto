@@ -43,7 +43,7 @@ func main() {
 		return
 	}
 	// Notify once if new skills are pending approval (non-blocking).
-	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" && os.Args[1] != "feedback" && os.Args[1] != "analytics" && os.Args[1] != "opencode" && os.Args[1] != "hermes" && os.Args[1] != "models" && os.Args[1] != "attribution" && os.Args[1] != "tui" && os.Args[1] != "start" && os.Args[1] != "unavailable" && os.Args[1] != "experiment" {
+	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" && os.Args[1] != "feedback" && os.Args[1] != "analytics" && os.Args[1] != "verified-runs" && os.Args[1] != "opencode" && os.Args[1] != "hermes" && os.Args[1] != "models" && os.Args[1] != "attribution" && os.Args[1] != "tui" && os.Args[1] != "start" && os.Args[1] != "unavailable" && os.Args[1] != "experiment" {
 		checkPendingSkills()
 	}
 	switch os.Args[1] {
@@ -64,6 +64,8 @@ func main() {
 		cmdFeedback(os.Args[2:])
 	case "analytics":
 		cmdAnalytics(os.Args[2:])
+	case "verified-runs":
+		cmdVerifiedRuns(os.Args[2:])
 	case "opencode":
 		cmdOpenCode(os.Args[2:])
 	case "hermes":
@@ -157,6 +159,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  doctor             diagnose installation and ~/.veto integrity")
 	fmt.Fprintln(o, "  feedback           prepare a redacted bug, feature, or optimization report")
 	fmt.Fprintln(o, "  analytics          view local diagnostics and future remote-sharing preference")
+	fmt.Fprintln(o, "  verified-runs      inspect local evidence-backed outcome receipts")
 	fmt.Fprintln(o, "  opencode           connect a runtime or install the OpenCode integration")
 	fmt.Fprintln(o, "  hermes             install or diagnose the native Hermes integration")
 	fmt.Fprintln(o, "  models             list effective models, runtimes, capabilities, and costs")
@@ -187,6 +190,9 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  --provider  route only through one configured provider (used by integrations)")
 	fmt.Fprintln(o, "  --dashboard open a live routing view in your browser")
 	fmt.Fprintln(o, "  --criteria  comma-separated acceptance criteria; run a QA review after execution")
+	fmt.Fprintln(o, "  --criteria-file  versioned JSON acceptance criteria manifest")
+	fmt.Fprintln(o, "  --evidence  versioned JSON evidence manifest; requires criteria")
+	fmt.Fprintln(o, "  --verified-receipt  export a redacted receipt to a safe relative path")
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "FEEDBACK FLAGS")
 	fmt.Fprintln(o, "  --kind       bug|feature|optimization (or success for post-run reports)")

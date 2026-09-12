@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import os
 import pty
 import select
@@ -15,6 +16,12 @@ import time
 
 def exec_or_exit(binary: str, argv: list[str], env: dict[str, str], error_fd: int) -> None:
     try:
+        # os.pipe() normally creates non-inheritable descriptors, but make the
+        # contract explicit: the parent blocks waiting for EOF on this pipe,
+        # so a successful exec must close the child writer on every supported
+        # Python/runtime combination.
+        flags = fcntl.fcntl(error_fd, fcntl.F_GETFD)
+        fcntl.fcntl(error_fd, fcntl.F_SETFD, flags | fcntl.FD_CLOEXEC)
         os.execve(binary, argv, env)
     except OSError as error:
         try:
@@ -33,7 +40,11 @@ def fork_and_exec(binary: str, argv: list[str], env: dict[str, str]) -> tuple[in
 
     os.close(error_write)
     try:
-        exec_error = os.read(error_read, 4096)
+        # Do not wait indefinitely for EOF. Some PTY/runtime combinations can
+        # retain a duplicate writer despite FD_CLOEXEC, while an exec failure
+        # is reported immediately through this pipe.
+        ready, _, _ = select.select([error_read], [], [], 1)
+        exec_error = os.read(error_read, 4096) if ready else b""
     finally:
         os.close(error_read)
     if exec_error:
@@ -79,6 +90,47 @@ def wait_for_exit(pid: int, timeout: float, drain=None) -> int:
             if drain is not None:
                 drain()
     return status
+
+
+def open_run_composer(master: int, output: bytearray) -> None:
+    """Open Run through palette search, independent of catalog ordering."""
+    os.write(master, b"/")
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and b"Command palette" not in output:
+        ready, _, _ = select.select([master], [], [], 0.1)
+        if ready:
+            try:
+                output.extend(os.read(master, 8192))
+            except OSError:
+                break
+    if b"Command palette" not in output:
+        raise SystemExit(f"TUI Run palette did not render: output={bytes(output)!r}")
+    os.write(master, b"run\r")
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and b"MISSION COMPOSER \xc2\xb7 RUN" not in output:
+        ready, _, _ = select.select([master], [], [], 0.1)
+        if ready:
+            try:
+                output.extend(os.read(master, 8192))
+            except OSError:
+                break
+    if b"MISSION COMPOSER \xc2\xb7 RUN" not in output:
+        raise SystemExit(f"TUI Run composer did not render: output={bytes(output)!r}")
+
+
+def submit_run_form(master: int, output: bytearray) -> None:
+    """Accept all current optional Run fields without a fixed flag count."""
+    for _ in range(32):
+        time.sleep(0.03)
+        os.write(master, b"\r")
+        ready, _, _ = select.select([master], [], [], 0.1)
+        if ready:
+            try:
+                output.extend(os.read(master, 8192))
+            except OSError:
+                break
+        if b"LIVE ROUTING" in output or b"Running" in output:
+            break
 
 
 def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secret_probe: bool = False, home: str | None = None, term: str | None = None, command: list[str] | None = None) -> None:
@@ -199,14 +251,10 @@ def run_execution(binary: str, home: str) -> None:
         if b"COMMAND CENTER" not in output or b"Enter compose" not in output:
             raise SystemExit(f"TUI Run shell did not become ready: output={bytes(output)!r}")
 
-        # Select Run, open its composer, enter an objective, then accept the
-        # default CLI-compatible flag values through the final field.
-        os.write(master, b"jjjr")
-        time.sleep(0.5)
+        # Search for Run instead of relying on its palette position.
+        open_run_composer(master, output)
         os.write(master, b"summarize this example\r")
-        for _ in range(13):
-            time.sleep(0.05)
-            os.write(master, b"\r")
+        submit_run_form(master, output)
 
         execution_output_seen = False
         execution_completed = False
@@ -268,12 +316,9 @@ def run_cancellation(binary: str, home: str) -> None:
             os.unlink(request_signal)
         except FileNotFoundError:
             pass
-        os.write(master, b"jjjr")
-        time.sleep(0.15)
+        open_run_composer(master, output)
         os.write(master, b"debug this example\r")
-        for _ in range(13):
-            time.sleep(0.03)
-            os.write(master, b"\r")
+        submit_run_form(master, output)
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline and not os.path.exists(request_signal):
             ready, _, _ = select.select([master], [], [], 0.1)
@@ -331,9 +376,10 @@ def run_route(binary: str, home: str) -> None:
         if b"COMMAND CENTER" not in output or b"Enter compose" not in output:
             raise SystemExit(f"TUI Route shell did not become ready: output={bytes(output)!r}")
 
-        # Activate Route through its documented shortcut before submitting the
-        # objective; navigation alone must not be allowed to mask a dead action.
-        os.write(master, b"t")
+        # Activate Route through its documented Ctrl+R shortcut before
+        # submitting the objective; navigation alone must not mask a dead
+        # action, and this avoids coupling the route smoke to Run-only flags.
+        os.write(master, b"\x12")
         composer_deadline = time.monotonic() + 2
         while time.monotonic() < composer_deadline and b"MISSION COMPOSER" not in output:
             ready, _, _ = select.select([master], [], [], 0.1)
@@ -345,9 +391,20 @@ def run_route(binary: str, home: str) -> None:
         if b"MISSION COMPOSER" not in output:
             raise SystemExit(f"TUI Route composer did not render after shortcut: output={bytes(output)!r}")
         os.write(master, b"route this example\r")
-        for _ in range(13):
+        # Advance through the current form until it starts. The Run catalog is
+        # intentionally extensible, so a fixed field count turns a harmless
+        # new optional flag into a false-negative PTY failure.
+        for _ in range(32):
             time.sleep(0.03)
             os.write(master, b"\r")
+            ready, _, _ = select.select([master], [], [], 0.1)
+            if ready:
+                try:
+                    output.extend(os.read(master, 8192))
+                except OSError:
+                    break
+            if b"LIVE ROUTING" in output:
+                break
 
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:

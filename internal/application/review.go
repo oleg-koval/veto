@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/oleg-koval/veto/pkg/router"
+	"github.com/oleg-koval/veto/pkg/verifiedrun"
 )
 
 // CriterionResult is the per-criterion verdict from the reviewer.
@@ -31,6 +32,9 @@ type ReviewRequest struct {
 	Original      router.TaskSpec
 	Output        string
 	ExecutorModel string
+	// Evidence is supplied by the caller. It contains bounded summaries and
+	// digests only; Review never reads referenced artifacts or executes commands.
+	Evidence []verifiedrun.Evidence
 	// TaskID preserves the caller's review task identity for telemetry. When
 	// empty, a stable ID is derived from the review prompt.
 	TaskID string
@@ -43,7 +47,7 @@ func (r Runner) Review(ctx context.Context, request ReviewRequest) (ReviewResult
 	if len(request.Original.SuccessCriteria) == 0 {
 		return ReviewResult{}, nil
 	}
-	prompt := BuildReviewPrompt(request.Original, request.Output)
+	prompt := BuildReviewPromptWithEvidence(request.Original, request.Output, request.Evidence)
 	skip := []string(nil)
 	if request.ExecutorModel != "" {
 		skip = []string{request.ExecutorModel}
@@ -99,13 +103,34 @@ func reviewTaskID(prompt string) string {
 
 // BuildReviewPrompt constructs the JSON-only prompt sent to the reviewer.
 func BuildReviewPrompt(spec router.TaskSpec, output string) string {
+	return BuildReviewPromptWithEvidence(spec, output, nil)
+}
+
+// BuildReviewPromptWithEvidence adds caller-supplied, bounded evidence to an
+// otherwise unchanged independent review request.
+func BuildReviewPromptWithEvidence(spec router.TaskSpec, output string, evidence []verifiedrun.Evidence) string {
 	criteria := strings.Join(spec.SuccessCriteria, "\n")
+	evidenceText := "No external evidence was supplied."
+	if len(evidence) > 0 {
+		rows := make([]string, 0, len(evidence))
+		for _, item := range evidence {
+			digest := ""
+			if item.SHA256 != "" {
+				digest = " sha256=" + item.SHA256
+			}
+			rows = append(rows, fmt.Sprintf("- [%s] criterion=%q type=%s%s\n  %s", item.ID, item.Criterion, item.Type, digest, item.Summary))
+		}
+		evidenceText = strings.Join(rows, "\n")
+	}
 	return fmt.Sprintf(`You are a QA reviewer. Evaluate whether the output below meets all acceptance criteria.
 
 TASK OBJECTIVE:
 %s
 
 ACCEPTANCE CRITERIA:
+%s
+
+SUPPLIED EVIDENCE:
 %s
 
 OUTPUT TO REVIEW:
@@ -123,7 +148,7 @@ The JSON must match this exact schema:
 
 Include one entry per acceptance criterion in the same order.
 Respond with JSON only. Nothing before or after the JSON object.`,
-		spec.Objective, criteria, output)
+		spec.Objective, criteria, evidenceText, output)
 }
 
 // ParseReviewJSON extracts a ReviewResult from optional surrounding prose.

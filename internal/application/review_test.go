@@ -7,6 +7,7 @@ import (
 
 	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/oleg-koval/veto/pkg/router"
+	"github.com/oleg-koval/veto/pkg/verifiedrun"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,6 +33,13 @@ func TestReviewRoutesReviewerAndSkipsExecutor(t *testing.T) {
 	assert.NotContains(t, routerPort.routedTask.AdmissionObjective, "all tests pass")
 	assert.Contains(t, runtime.prompt, "tests pass")
 	assert.Contains(t, runtime.prompt, "all tests pass")
+}
+
+func TestBuildReviewPromptWithEvidenceUsesBoundedSummaryNotArtifactPath(t *testing.T) {
+	prompt := BuildReviewPromptWithEvidence(router.TaskSpec{Objective: "Improve checkout", SuccessCriteria: []string{"tests pass"}}, "output", []verifiedrun.Evidence{{ID: "tests", Criterion: "tests pass", Type: "test", Summary: "suite passed", SHA256: strings.Repeat("a", 64)}})
+	assert.Contains(t, prompt, "suite passed")
+	assert.Contains(t, prompt, "sha256="+strings.Repeat("a", 64))
+	assert.Contains(t, prompt, "criterion=\"tests pass\"")
 }
 
 func TestReviewAdmissionObjectiveStaysBoundedForLargeOutput(t *testing.T) {

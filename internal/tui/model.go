@@ -2979,6 +2979,7 @@ func (m *Model) historyDataRows() [][]string {
 			valueOrDash(historyMissionModel(mission)),
 			valueOrDash(historyMissionStatus(mission)),
 			valueOrDash(historyMissionRuntime(mission)),
+			valueOrDash(representative.VerifiedOutcome),
 			strconv.Itoa(len(mission.events)),
 			action,
 		})
@@ -3493,7 +3494,7 @@ func (m *Model) dataRowsAndHeaders() ([]string, [][]string) {
 	case "providers":
 		return []string{"Provider", "State", "Models", "Managed by", "Action"}, m.providerDataRows()
 	case "history":
-		return []string{"Time", "Mission", "Model", "Status", "Harness", "Events", "Action"}, m.historyDataRows()
+		return []string{"Time", "Mission", "Model", "Status", "Harness", "Verified", "Events", "Action"}, m.historyDataRows()
 	case "plans":
 		return []string{"Plan"}, m.planDataRows()
 	case "doctor":
@@ -3719,7 +3720,7 @@ func (m *Model) renderHistory(width int) string {
 	if len(page) > 0 {
 		selected = m.currentDataCursor() - start
 	}
-	content := headerStyle.Render("MISSIONS · RECENT ACTIVITY") + "\n" + m.renderDataFilter(total, len(rows)) + "\n\n" + renderSelectableDataTable([]string{"Time", "Mission", "Model", "Status", "Harness", "Events", "Action"}, page, max(20, width-8), selected) + "\n\n" + m.renderDataPager(len(rows), start, end)
+	content := headerStyle.Render("MISSIONS · RECENT ACTIVITY") + "\n" + m.renderDataFilter(total, len(rows)) + "\n\n" + renderSelectableDataTable([]string{"Time", "Mission", "Model", "Status", "Harness", "Verified", "Events", "Action"}, page, max(20, width-8), selected) + "\n\n" + m.renderDataPager(len(rows), start, end)
 	content += "\n" + mutedStyle.Render("One row per mission/run · Enter timeline · d remove selected · D remove all · F diagnose failures")
 	return workspacePanelStyle.Width(max(12, width)).Render(content)
 }

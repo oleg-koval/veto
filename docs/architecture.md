@@ -526,6 +526,17 @@ internally inconsistent, the quality gate fails closed and the command exits
 non-zero. An output is not considered verified merely because review was
 unavailable.
 
+## Verified Runs
+
+When a caller supplies `veto run --criteria-file` and `--evidence`, Veto
+validates a versioned evidence manifest before contacting providers. Every
+criterion must have a bounded, typed evidence summary. The independent review
+receives those summaries and optional digests, never artifact paths or raw
+contents. A private receipt records `verified_pass`, `verified_fail`, or
+`inconclusive`; it keeps known execution cost distinct from unavailable
+admission/review cost. Receipts are an opt-in observation mechanism and do not
+alter routing scores in v1. See [Verified Runs](verified-runs.md).
+
 `TaskSpec.SkipModels` is a general mechanism: it causes the Manager to skip those model names in the admission loop. It is also used by checkpoint resume (already-tried models are skipped on re-entry).
 
 ## Feedback reports (`cmd/veto/feedback.go`)
