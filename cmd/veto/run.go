@@ -274,7 +274,7 @@ func persistVerifiedReceipt(spec router.TaskSpec, model router.ModelCapabilities
 	}
 	criteria := make([]verifiedrun.CriterionReceipt, 0, len(spec.SuccessCriteria))
 	for index, criterion := range spec.SuccessCriteria {
-		item := verifiedrun.CriterionReceipt{Criterion: criterion, EvidenceCount: byCriterion[criterion]}
+		item := verifiedrun.CriterionReceipt{Criterion: ledger.Redact(criterion), EvidenceCount: byCriterion[criterion]}
 		if index < len(result.Criteria) {
 			item.Met = result.Criteria[index].Met
 			item.Note = ledger.Redact(result.Criteria[index].Note)
@@ -282,7 +282,8 @@ func persistVerifiedReceipt(spec router.TaskSpec, model router.ModelCapabilities
 		criteria = append(criteria, item)
 	}
 	receipt := verifiedrun.Receipt{
-		RunID: currentRunID(spec.ID), TaskID: spec.ID, CreatedAt: time.Now(),
+		Version: verifiedrun.SchemaVersion,
+		RunID:   currentRunID(spec.ID), TaskID: spec.ID, CreatedAt: time.Now(),
 		TaskKind: string(spec.Kind), Risk: string(spec.Risk), Model: model.Name, Runtime: model.Runtime,
 		Outcome: outcome, Criteria: criteria, EvidenceCoverage: len(byCriterion), EvidenceTotal: len(spec.SuccessCriteria),
 		ExecutionCostUSD: metrics.CostUSD, ExecutionCostKnown: metrics.CostKnown,

@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -44,13 +45,24 @@ func TestBuildReviewPromptWithEvidenceUsesBoundedSummaryNotArtifactPath(t *testi
 
 func TestReviewAdmissionObjectiveStaysBoundedForLargeOutput(t *testing.T) {
 	output := strings.Repeat("large generated output ", 100_000)
-	objective := buildReviewAdmissionObjective(router.TaskSpec{
+	spec := router.TaskSpec{
 		Kind: router.KindReview, SuccessCriteria: []string{"correct", "complete"},
-	}, output)
+	}
+	prompt := BuildReviewPrompt(spec, output)
+	objective := buildReviewAdmissionObjective(spec, len(prompt))
 
 	assert.Less(t, len(objective), 256)
 	assert.Contains(t, objective, "2 acceptance criteria")
 	assert.NotContains(t, objective, "large generated output")
+}
+
+func TestReviewAdmissionObjectiveIncludesEvidencePayload(t *testing.T) {
+	spec := router.TaskSpec{Kind: router.KindReview, Objective: "review", SuccessCriteria: []string{"correct"}}
+	evidence := []verifiedrun.Evidence{{ID: "tests", Criterion: "correct", Type: "test", Summary: strings.Repeat("bounded evidence ", 20)}}
+	prompt := BuildReviewPromptWithEvidence(spec, "output", evidence)
+
+	objective := buildReviewAdmissionObjective(spec, len(prompt))
+	assert.Contains(t, objective, fmt.Sprintf("approximately %d tokens", (len(prompt)+3)/4))
 }
 
 func TestReviewFailsClosedForMalformedOutput(t *testing.T) {
