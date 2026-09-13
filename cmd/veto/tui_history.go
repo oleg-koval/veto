@@ -52,6 +52,7 @@ func runTUIHistoryDelete(_ context.Context, request controlplane.ActionRequest) 
 	return controlplane.ActionResult{ActionID: "history-delete", Summary: "selected mission removed"}, nil
 }
 
+// removeAllTUIHistory deletes every mission log, receipt, and index entry under home.
 func removeAllTUIHistory(home string) error {
 	paths, err := tuiHistoryLedgerPaths(home)
 	if err != nil {
@@ -68,9 +69,23 @@ func removeAllTUIHistory(home string) error {
 			return fmt.Errorf("remove mission log %s: %w", filepath.Base(path), err)
 		}
 	}
+	receiptDir := filepath.Join(home, ".veto", "receipts")
+	entries, err := os.ReadDir(receiptDir)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("enumerate verified receipts: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		if err := os.Remove(filepath.Join(receiptDir, entry.Name())); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove verified receipt %s: %w", entry.Name(), err)
+		}
+	}
 	return replaceTUIHistoryIndex(home, []tuiMissionRecord{})
 }
 
+// removeSelectedTUIHistory deletes records and receipts matching selector.
 func removeSelectedTUIHistory(home string, selector tuiHistorySelector) error {
 	paths, err := tuiHistoryLedgerPaths(home)
 	if err != nil {
@@ -92,6 +107,9 @@ func removeSelectedTUIHistory(home string, selector tuiHistorySelector) error {
 	if len(runIDs) > 0 {
 		if err := removeMissionIndexRecords(home, runIDs); err != nil {
 			return err
+		}
+		if err := deleteVerifiedReceipts(runIDs); err != nil {
+			return fmt.Errorf("remove verified receipts: %w", err)
 		}
 	}
 	return nil

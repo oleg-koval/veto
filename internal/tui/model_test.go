@@ -790,6 +790,7 @@ func TestModelFiltersMissionRowsAndClearsFilter(t *testing.T) {
 	}
 }
 
+// TestModelGroupsMissionHistoryByRunAndFiltersWithinGroup covers mission-level history rows.
 func TestModelGroupsMissionHistoryByRunAndFiltersWithinGroup(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
 	model.activeAction = "history"
@@ -799,7 +800,7 @@ func TestModelGroupsMissionHistoryByRunAndFiltersWithinGroup(t *testing.T) {
 		{Timestamp: time.Date(2026, 9, 5, 9, 1, 0, 0, time.UTC), RunID: "run-b", Type: "execution.completed", Model: "sonnet", Runtime: "Claude CLI", Status: "success"},
 	}
 	rows := model.historyDataRows()
-	if len(rows) != 2 || !strings.HasPrefix(rows[0][1], "execution · ") || !strings.HasSuffix(rows[0][1], " · a") || rows[0][3] != "success" || rows[0][5] != "2" {
+	if len(rows) != 2 || !strings.HasPrefix(rows[0][1], "execution · ") || !strings.HasSuffix(rows[0][1], " · a") || rows[0][3] != "success" || rows[0][6] != "2" {
 		t.Fatalf("mission rows were not grouped: %#v", rows)
 	}
 	model.dataFilterQuery = "filter_pass"

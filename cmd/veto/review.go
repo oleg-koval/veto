@@ -6,6 +6,7 @@ import (
 	"github.com/oleg-koval/veto/internal/application"
 	"github.com/oleg-koval/veto/pkg/ledger"
 	"github.com/oleg-koval/veto/pkg/router"
+	"github.com/oleg-koval/veto/pkg/verifiedrun"
 )
 
 // Keep aliases for cmd package tests and existing internal callers while the
@@ -42,6 +43,19 @@ func reviewOutput(
 	output string,
 	executorModel string,
 ) (ReviewResult, error) {
+	return reviewOutputWithEvidence(ctx, reg, mgr, original, output, executorModel, nil)
+}
+
+// reviewOutputWithEvidence runs an acceptance review with bounded evidence summaries.
+func reviewOutputWithEvidence(
+	ctx context.Context,
+	reg *providerRegistry,
+	mgr *router.Manager,
+	original router.TaskSpec,
+	output string,
+	executorModel string,
+	evidence []verifiedrun.Evidence,
+) (ReviewResult, error) {
 	if len(original.SuccessCriteria) == 0 {
 		return ReviewResult{}, nil
 	}
@@ -59,7 +73,7 @@ func reviewOutput(
 	runner := newApplicationRunner(reg, mgr)
 	result, err := runner.Review(ctx, application.ReviewRequest{
 		Original: original, Output: output, ExecutorModel: executorModel,
-		TaskID: reviewTaskID,
+		TaskID: reviewTaskID, Evidence: evidence,
 	})
 	if err != nil {
 		logLifecycle(original.ID, ledger.EventReviewError, "error", err.Error())

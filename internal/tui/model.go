@@ -2958,6 +2958,7 @@ func (m *Model) filteredHistoryMissions() []historyMission {
 	return filtered
 }
 
+// historyDataRows groups recent events into mission-level table rows.
 func (m *Model) historyDataRows() [][]string {
 	missions := m.filteredHistoryMissions()
 	rows := make([][]string, 0, len(missions))
@@ -2979,6 +2980,7 @@ func (m *Model) historyDataRows() [][]string {
 			valueOrDash(historyMissionModel(mission)),
 			valueOrDash(historyMissionStatus(mission)),
 			valueOrDash(historyMissionRuntime(mission)),
+			valueOrDash(representative.VerifiedOutcome),
 			strconv.Itoa(len(mission.events)),
 			action,
 		})
@@ -3478,6 +3480,7 @@ func (m *Model) filteredFleetDataRows() []fleetDataRow {
 	return filtered
 }
 
+// dataRowsAndHeaders returns the table schema and rows for the active view.
 func (m *Model) dataRowsAndHeaders() ([]string, [][]string) {
 	switch m.activeAction {
 	case "models":
@@ -3493,7 +3496,7 @@ func (m *Model) dataRowsAndHeaders() ([]string, [][]string) {
 	case "providers":
 		return []string{"Provider", "State", "Models", "Managed by", "Action"}, m.providerDataRows()
 	case "history":
-		return []string{"Time", "Mission", "Model", "Status", "Harness", "Events", "Action"}, m.historyDataRows()
+		return []string{"Time", "Mission", "Model", "Status", "Harness", "Verified", "Events", "Action"}, m.historyDataRows()
 	case "plans":
 		return []string{"Plan"}, m.planDataRows()
 	case "doctor":
@@ -3707,6 +3710,7 @@ func (m *Model) renderNativeStatus(width int) string {
 	return b.String()
 }
 
+// renderHistory renders the paginated, filterable mission history panel.
 func (m *Model) renderHistory(width int) string {
 	if len(m.snapshot.History) == 0 {
 		return workspacePanelStyle.Width(max(12, width)).Render(mutedStyle.Render("No redacted activity yet. Completed routes and runs appear here."))
@@ -3719,7 +3723,7 @@ func (m *Model) renderHistory(width int) string {
 	if len(page) > 0 {
 		selected = m.currentDataCursor() - start
 	}
-	content := headerStyle.Render("MISSIONS · RECENT ACTIVITY") + "\n" + m.renderDataFilter(total, len(rows)) + "\n\n" + renderSelectableDataTable([]string{"Time", "Mission", "Model", "Status", "Harness", "Events", "Action"}, page, max(20, width-8), selected) + "\n\n" + m.renderDataPager(len(rows), start, end)
+	content := headerStyle.Render("MISSIONS · RECENT ACTIVITY") + "\n" + m.renderDataFilter(total, len(rows)) + "\n\n" + renderSelectableDataTable([]string{"Time", "Mission", "Model", "Status", "Harness", "Verified", "Events", "Action"}, page, max(20, width-8), selected) + "\n\n" + m.renderDataPager(len(rows), start, end)
 	content += "\n" + mutedStyle.Render("One row per mission/run · Enter timeline · d remove selected · D remove all · F diagnose failures")
 	return workspacePanelStyle.Width(max(12, width)).Render(content)
 }

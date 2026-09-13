@@ -708,6 +708,8 @@ veto route --json "summarize this PR"
 
 **Acceptance-criteria review** — `--criteria "..."` on `veto run` triggers a second routing call after execution. A different model (not the one that did the work) grades the output against each criterion and returns a structured pass/fail. Exits 1 if any criterion fails, or if the review is unavailable, malformed, incomplete, or internally inconsistent — making a requested review a fail-closed quality gate.
 
+**Verified Runs** — use `--criteria-file` and `--evidence` to bind a versioned evidence manifest to every criterion. Veto gives the bounded evidence summaries to an independent reviewer and stores a private, redacted receipt with `verified_pass`, `verified_fail`, or `inconclusive`; it never executes evidence commands itself. Inspect local outcome receipts with `veto verified-runs report`. See [Verified Runs](docs/verified-runs.md).
+
 **Multi-step plan execution** — `veto exec plan.md` runs a sequenced plan where each step is routed to the best model. If a step fails, you're asked whether to continue. Plans are just Markdown files with YAML frontmatter — write them by hand, or let veto convert any existing task list automatically. Use `--dry-run` to preview what will run before committing.
 
 **Quiet mode for scripts** — `--quiet` on `veto run` suppresses the routing pipeline and prints only model output, making it composable:

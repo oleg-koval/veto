@@ -16,6 +16,7 @@ import (
 	"github.com/oleg-koval/veto/internal/controlplane"
 	"github.com/oleg-koval/veto/pkg/dispatch"
 	"github.com/oleg-koval/veto/pkg/ledger"
+	"github.com/oleg-koval/veto/pkg/verifiedrun"
 )
 
 // loadTUISnapshot reads only bounded, redacted local metadata. It is a
@@ -229,6 +230,7 @@ func readTUIHistory() []controlplane.HistorySnapshot {
 	return readTUIHistoryContext(context.Background())
 }
 
+// readTUIHistoryContext loads recent ledger events and enriches them with mission receipts.
 func readTUIHistoryContext(ctx context.Context) []controlplane.HistorySnapshot {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -242,6 +244,10 @@ func readTUIHistoryContext(ctx context.Context) []controlplane.HistorySnapshot {
 	sort.Strings(paths)
 	result := make([]controlplane.HistorySnapshot, 0, 128)
 	missions := readTUIMissions()
+	receipts := make(map[string]verifiedrun.Receipt)
+	for _, receipt := range readVerifiedReceipts() {
+		receipts[receipt.RunID] = receipt
+	}
 	for index := len(paths) - 1; index >= 0; index-- {
 		if err := ctx.Err(); err != nil {
 			return result
@@ -269,6 +275,11 @@ func readTUIHistoryContext(ctx context.Context) []controlplane.HistorySnapshot {
 			if mission, ok := missions[event.RunID]; ok {
 				snapshot.MissionTitle = mission.Title
 				snapshot.Objective = mission.Objective
+			}
+			if receipt, ok := receipts[event.RunID]; ok {
+				snapshot.VerifiedOutcome = string(receipt.Outcome)
+				snapshot.EvidenceCoverage = receipt.EvidenceCoverage
+				snapshot.EvidenceTotal = receipt.EvidenceTotal
 			}
 			if event.Confidence != nil {
 				snapshot.Confidence, snapshot.ConfidenceKnown = *event.Confidence, true

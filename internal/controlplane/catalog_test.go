@@ -7,12 +7,13 @@ import (
 	"github.com/oleg-koval/veto/pkg/execution"
 )
 
+// TestDefaultCatalogCoversCLICommands keeps the control-plane inventory complete.
 func TestDefaultCatalogCoversCLICommands(t *testing.T) {
 	t.Parallel()
 
 	want := []string{
 		"login", "logout", "setup", "run", "exec", "route", "benchmark",
-		"verify-models", "doctor", "feedback", "analytics", "opencode", "hermes",
+		"verify-models", "doctor", "feedback", "analytics", "verified-runs", "opencode", "hermes",
 		"models", "providers", "disable", "enable", "version", "install-git-hook",
 		"start", "unavailable", "experiment",
 	}
