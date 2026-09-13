@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestVerifiedReceiptStoreRoundTripAndDelete covers protected receipt persistence and cleanup.
 func TestVerifiedReceiptStoreRoundTripAndDelete(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -30,6 +31,7 @@ func TestVerifiedReceiptStoreRoundTripAndDelete(t *testing.T) {
 	require.Empty(t, readVerifiedReceipts())
 }
 
+// TestParseVerificationFiles covers criteria and evidence manifest loading.
 func TestParseVerificationFiles(t *testing.T) {
 	dir := t.TempDir()
 	criteriaPath := filepath.Join(dir, "criteria.json")
@@ -43,6 +45,7 @@ func TestParseVerificationFiles(t *testing.T) {
 	require.Len(t, evidence, 1)
 }
 
+// TestVerifiedRunReportRequiresCompleteCostCoverage rejects partial cost aggregates.
 func TestVerifiedRunReportRequiresCompleteCostCoverage(t *testing.T) {
 	report := buildVerifiedRunReport([]verifiedrun.Receipt{
 		{Outcome: verifiedrun.OutcomeVerifiedPass, EvidenceCoverage: 1, EvidenceTotal: 1, ExecutionCostKnown: true, ExecutionCostUSD: 0.25},
@@ -53,6 +56,7 @@ func TestVerifiedRunReportRequiresCompleteCostCoverage(t *testing.T) {
 	require.Nil(t, report.CostPerVerifiedRun)
 }
 
+// TestPersistVerifiedReceiptRedactsCriteriaAndSetsVersion covers safe receipt export.
 func TestPersistVerifiedReceiptRedactsCriteriaAndSetsVersion(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

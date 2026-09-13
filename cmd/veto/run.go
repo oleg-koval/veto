@@ -264,6 +264,7 @@ func cmdRun(args []string) {
 	}
 }
 
+// persistVerifiedReceipt stores a redacted receipt and optionally exports a copy.
 func persistVerifiedReceipt(spec router.TaskSpec, model router.ModelCapabilities, metrics router.ExecutionMetrics, evidence []verifiedrun.Evidence, result ReviewResult, outcome verifiedrun.Outcome, exportPath string) {
 	if len(evidence) == 0 {
 		return

@@ -15,6 +15,7 @@ import time
 
 
 def exec_or_exit(binary: str, argv: list[str], env: dict[str, str], error_fd: int) -> None:
+    """Replace the child process or report the exec failure to its parent."""
     try:
         # os.pipe() normally creates non-inheritable descriptors, but make the
         # contract explicit: the parent blocks waiting for EOF on this pipe,
@@ -32,6 +33,7 @@ def exec_or_exit(binary: str, argv: list[str], env: dict[str, str], error_fd: in
 
 
 def fork_and_exec(binary: str, argv: list[str], env: dict[str, str]) -> tuple[int, int]:
+    """Fork a PTY child and return its process ID and controlling descriptor."""
     error_read, error_write = os.pipe()
     pid, master = pty.fork()
     if pid == 0:
@@ -228,6 +230,7 @@ def run(binary: str, args: list[str], rows: int, columns: int, mouse: bool, secr
 
 
 def run_execution(binary: str, home: str) -> None:
+    """Exercise a complete Run flow against the fake provider."""
     env = os.environ.copy()
     env.update({"HOME": home, "NO_COLOR": "1"})
     pid, master = fork_and_exec(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
@@ -289,6 +292,7 @@ def run_execution(binary: str, home: str) -> None:
 
 
 def run_cancellation(binary: str, home: str) -> None:
+    """Exercise cancellation while a fake-provider admission is pending."""
     env = os.environ.copy()
     env.update({"HOME": home, "NO_COLOR": "1"})
     pid, master = fork_and_exec(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)
@@ -353,6 +357,7 @@ def run_cancellation(binary: str, home: str) -> None:
 
 
 def run_route(binary: str, home: str) -> None:
+    """Exercise a complete Route flow through the TUI composer."""
     env = os.environ.copy()
     env.update({"HOME": home, "NO_COLOR": "1"})
     pid, master = fork_and_exec(binary, [binary, "tui", "--reduce-motion", "--no-color", "--no-mouse"], env)

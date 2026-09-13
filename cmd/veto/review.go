@@ -46,6 +46,7 @@ func reviewOutput(
 	return reviewOutputWithEvidence(ctx, reg, mgr, original, output, executorModel, nil)
 }
 
+// reviewOutputWithEvidence runs an acceptance review with bounded evidence summaries.
 func reviewOutputWithEvidence(
 	ctx context.Context,
 	reg *providerRegistry,

@@ -52,6 +52,7 @@ func runTUIHistoryDelete(_ context.Context, request controlplane.ActionRequest) 
 	return controlplane.ActionResult{ActionID: "history-delete", Summary: "selected mission removed"}, nil
 }
 
+// removeAllTUIHistory deletes every mission log, receipt, and index entry under home.
 func removeAllTUIHistory(home string) error {
 	paths, err := tuiHistoryLedgerPaths(home)
 	if err != nil {
@@ -84,6 +85,7 @@ func removeAllTUIHistory(home string) error {
 	return replaceTUIHistoryIndex(home, []tuiMissionRecord{})
 }
 
+// removeSelectedTUIHistory deletes records and receipts matching selector.
 func removeSelectedTUIHistory(home string, selector tuiHistorySelector) error {
 	paths, err := tuiHistoryLedgerPaths(home)
 	if err != nil {

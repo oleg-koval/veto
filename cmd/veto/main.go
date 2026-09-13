@@ -23,6 +23,7 @@ import (
 	"github.com/oleg-koval/veto/pkg/router"
 )
 
+// main dispatches the requested Veto command or opens the interactive TUI.
 func main() {
 	if maybeOfferAutomaticUpdate(os.Args[1:]) {
 		return
@@ -134,6 +135,7 @@ func rootHelpRequested(arg string) bool {
 	}
 }
 
+// printUsage writes the root command and flag reference.
 func printUsage(w io.Writer) {
 	o := w
 	fmt.Fprintln(o, "veto — route tasks to the right AI model, automatically")

@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// TestParseEvidenceRequiresBoundedCoverage requires evidence for every criterion.
 func TestParseEvidenceRequiresBoundedCoverage(t *testing.T) {
 	criteria, err := ParseCriteria([]byte(`{"version":1,"criteria":["tests pass","p95 improves"]}`))
 	if err != nil {
@@ -16,6 +17,7 @@ func TestParseEvidenceRequiresBoundedCoverage(t *testing.T) {
 	}
 }
 
+// TestParseEvidenceRejectsUnknownCriterionAndDigest covers invalid references and hashes.
 func TestParseEvidenceRejectsUnknownCriterionAndDigest(t *testing.T) {
 	criteria := []string{"tests pass"}
 	_, err := ParseEvidence([]byte(`{"version":1,"evidence":[{"id":"tests","criterion":"unknown","type":"test","summary":"ok"}]}`), criteria)
@@ -28,6 +30,7 @@ func TestParseEvidenceRejectsUnknownCriterionAndDigest(t *testing.T) {
 	}
 }
 
+// TestParseEvidenceRedactsSummaryBeforeReview keeps secrets out of reviewer prompts.
 func TestParseEvidenceRedactsSummaryBeforeReview(t *testing.T) {
 	evidence, err := ParseEvidence([]byte(`{"version":1,"evidence":[{"id":"tests","criterion":"tests pass","type":"test","summary":"token=sk-abcdefghi"}]}`), []string{"tests pass"})
 	if err != nil {

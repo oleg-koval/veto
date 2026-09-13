@@ -790,6 +790,7 @@ func TestModelFiltersMissionRowsAndClearsFilter(t *testing.T) {
 	}
 }
 
+// TestModelGroupsMissionHistoryByRunAndFiltersWithinGroup covers mission-level history rows.
 func TestModelGroupsMissionHistoryByRunAndFiltersWithinGroup(t *testing.T) {
 	model := NewModel(controlplane.DefaultCatalog(), Options{Motion: false, NoColor: true})
 	model.activeAction = "history"

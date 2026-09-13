@@ -230,6 +230,7 @@ func readTUIHistory() []controlplane.HistorySnapshot {
 	return readTUIHistoryContext(context.Background())
 }
 
+// readTUIHistoryContext loads recent ledger events and enriches them with mission receipts.
 func readTUIHistoryContext(ctx context.Context) []controlplane.HistorySnapshot {
 	home, err := os.UserHomeDir()
 	if err != nil {

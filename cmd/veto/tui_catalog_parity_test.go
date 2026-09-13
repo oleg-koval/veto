@@ -7,6 +7,7 @@ import (
 	"github.com/oleg-koval/veto/internal/controlplane"
 )
 
+// TestTUICatalogMatchesRootCLICommandInventory keeps the TUI and root command lists aligned.
 func TestTUICatalogMatchesRootCLICommandInventory(t *testing.T) {
 	var usage strings.Builder
 	printUsage(&usage)

@@ -15,6 +15,7 @@ import (
 
 const maxVerifiedReceipts = 500
 
+// verifiedReceiptDir returns the private per-user receipt directory.
 func verifiedReceiptDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -23,6 +24,7 @@ func verifiedReceiptDir() (string, error) {
 	return filepath.Join(home, ".veto", "receipts"), nil
 }
 
+// saveVerifiedReceipt atomically writes and protects one versioned receipt.
 func saveVerifiedReceipt(receipt verifiedrun.Receipt) error {
 	if strings.TrimSpace(receipt.RunID) == "" || strings.TrimSpace(receipt.TaskID) == "" {
 		return fmt.Errorf("verified receipt requires run and task identity")
@@ -67,6 +69,7 @@ func saveVerifiedReceipt(receipt verifiedrun.Receipt) error {
 	return trimVerifiedReceipts(dir)
 }
 
+// trimVerifiedReceipts removes the oldest receipts beyond the storage limit.
 func trimVerifiedReceipts(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -96,6 +99,7 @@ func trimVerifiedReceipts(dir string) error {
 	return nil
 }
 
+// readVerifiedReceipts loads valid current-schema receipts in newest-first order.
 func readVerifiedReceipts() []verifiedrun.Receipt {
 	dir, err := verifiedReceiptDir()
 	if err != nil {
@@ -124,6 +128,7 @@ func readVerifiedReceipts() []verifiedrun.Receipt {
 	return receipts
 }
 
+// deleteVerifiedReceipts removes receipts associated with the supplied run IDs.
 func deleteVerifiedReceipts(runIDs map[string]struct{}) error {
 	dir, err := verifiedReceiptDir()
 	if err != nil {
@@ -137,6 +142,7 @@ func deleteVerifiedReceipts(runIDs map[string]struct{}) error {
 	return nil
 }
 
+// parseCriteriaFile reads and validates a criteria manifest.
 func parseCriteriaFile(path string) ([]string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -145,6 +151,7 @@ func parseCriteriaFile(path string) ([]string, error) {
 	return verifiedrun.ParseCriteria(data)
 }
 
+// parseEvidenceFile reads and validates evidence against the active criteria.
 func parseEvidenceFile(path string, criteria []string) ([]verifiedrun.Evidence, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -164,6 +171,7 @@ type verifiedRunReport struct {
 	CostPerVerifiedRun *float64 `json:"execution_cost_per_verified_pass,omitempty"`
 }
 
+// cmdVerifiedRuns lists stored receipts or reports aggregate verification metrics.
 func cmdVerifiedRuns(args []string) {
 	if len(args) == 0 || args[0] == "list" {
 		for _, receipt := range readVerifiedReceipts() {
@@ -193,6 +201,7 @@ func cmdVerifiedRuns(args []string) {
 	}
 }
 
+// buildVerifiedRunReport aggregates outcomes, evidence, and known execution costs.
 func buildVerifiedRunReport(receipts []verifiedrun.Receipt) verifiedRunReport {
 	report := verifiedRunReport{Total: len(receipts)}
 	covered, criteria := 0, 0

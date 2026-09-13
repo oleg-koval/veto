@@ -7,6 +7,7 @@ import (
 	"github.com/oleg-koval/veto/pkg/execution"
 )
 
+// TestDefaultCatalogCoversCLICommands keeps the control-plane inventory complete.
 func TestDefaultCatalogCoversCLICommands(t *testing.T) {
 	t.Parallel()
 

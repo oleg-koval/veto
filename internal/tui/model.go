@@ -2958,6 +2958,7 @@ func (m *Model) filteredHistoryMissions() []historyMission {
 	return filtered
 }
 
+// historyDataRows groups recent events into mission-level table rows.
 func (m *Model) historyDataRows() [][]string {
 	missions := m.filteredHistoryMissions()
 	rows := make([][]string, 0, len(missions))
@@ -3479,6 +3480,7 @@ func (m *Model) filteredFleetDataRows() []fleetDataRow {
 	return filtered
 }
 
+// dataRowsAndHeaders returns the table schema and rows for the active view.
 func (m *Model) dataRowsAndHeaders() ([]string, [][]string) {
 	switch m.activeAction {
 	case "models":
@@ -3708,6 +3710,7 @@ func (m *Model) renderNativeStatus(width int) string {
 	return b.String()
 }
 
+// renderHistory renders the paginated, filterable mission history panel.
 func (m *Model) renderHistory(width int) string {
 	if len(m.snapshot.History) == 0 {
 		return workspacePanelStyle.Width(max(12, width)).Render(mutedStyle.Render("No redacted activity yet. Completed routes and runs appear here."))

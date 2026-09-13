@@ -79,6 +79,7 @@ func (r Runner) Review(ctx context.Context, request ReviewRequest) (ReviewResult
 	return result, nil
 }
 
+// buildReviewAdmissionObjective summarizes review shape without duplicating its payload.
 func buildReviewAdmissionObjective(spec router.TaskSpec, payloadBytes int) string {
 	// Routing needs the work shape and payload size, not the payload itself.
 	// The selected reviewer receives the complete prompt exactly once during

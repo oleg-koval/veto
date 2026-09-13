@@ -72,6 +72,7 @@ type Receipt struct {
 	LatencyKnown       bool               `json:"execution_latency_known"`
 }
 
+// ParseCriteria decodes and validates a versioned acceptance-criteria manifest.
 func ParseCriteria(data []byte) ([]string, error) {
 	var manifest CriteriaManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
@@ -83,6 +84,7 @@ func ParseCriteria(data []byte) ([]string, error) {
 	return validateCriteria(manifest.Criteria)
 }
 
+// ParseEvidence decodes, redacts, and validates evidence for every criterion.
 func ParseEvidence(data []byte, criteria []string) ([]Evidence, error) {
 	var manifest EvidenceManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
@@ -135,6 +137,7 @@ func ParseEvidence(data []byte, criteria []string) ([]Evidence, error) {
 	return manifest.Evidence, nil
 }
 
+// validateCriteria normalizes non-empty, unique criteria.
 func validateCriteria(criteria []string) ([]string, error) {
 	if len(criteria) == 0 {
 		return nil, fmt.Errorf("criteria manifest: at least one criterion is required")
@@ -155,6 +158,7 @@ func validateCriteria(criteria []string) ([]string, error) {
 	return result, nil
 }
 
+// validSHA256 reports whether value is a lowercase-normalizable SHA-256 digest.
 func validSHA256(value string) bool {
 	if len(value) != sha256.Size*2 {
 		return false
