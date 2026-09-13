@@ -3,6 +3,13 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0](https://github.com/oleg-koval/veto/compare/v0.11.0...v0.12.0) (2026-09-13)
+
+
+### Features
+
+* add verified run receipts ([#115](https://github.com/oleg-koval/veto/issues/115)) ([ed668b4](https://github.com/oleg-koval/veto/commit/ed668b41d54a9cfbb091d15c34b6c72e138aff50))
+
 ## [0.11.0](https://github.com/oleg-koval/veto/compare/v0.10.4...v0.11.0) (2026-09-10)
 
 
