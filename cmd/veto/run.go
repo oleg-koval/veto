@@ -68,6 +68,12 @@ func cmdRun(args []string) {
 	}
 	complexity := router.InferComplexity(objective, router.TaskKind(kind))
 
+	criteria, evidence, err := loadVerifiedRunInputs(*criteriaFlag, *criteriaFile, *evidenceFile, *verifiedReceiptPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+
 	setupLogger()
 
 	reg, err := buildProviderRegistry()
@@ -90,44 +96,6 @@ func cmdRun(args []string) {
 
 	render := NewRenderer(*quiet)
 	render.PrintTaskHeader(objective, kind, *risk, string(complexity), *maxCost, kindInferred)
-
-	var criteria []string
-	if *criteriaFlag != "" && *criteriaFile != "" {
-		fmt.Fprintln(os.Stderr, "error: use either --criteria or --criteria-file, not both")
-		os.Exit(1)
-	}
-	if *criteriaFlag != "" {
-		for _, c := range strings.Split(*criteriaFlag, ",") {
-			if t := strings.TrimSpace(c); t != "" {
-				criteria = append(criteria, t)
-			}
-		}
-	}
-	if *criteriaFile != "" {
-		var criteriaErr error
-		criteria, criteriaErr = parseCriteriaFile(*criteriaFile)
-		if criteriaErr != nil {
-			fmt.Fprintln(os.Stderr, "error:", criteriaErr)
-			os.Exit(1)
-		}
-	}
-	var evidence []verifiedrun.Evidence
-	if *evidenceFile != "" {
-		if len(criteria) == 0 {
-			fmt.Fprintln(os.Stderr, "error: --evidence requires --criteria or --criteria-file")
-			os.Exit(1)
-		}
-		var evidenceErr error
-		evidence, evidenceErr = parseEvidenceFile(*evidenceFile, criteria)
-		if evidenceErr != nil {
-			fmt.Fprintln(os.Stderr, "error:", evidenceErr)
-			os.Exit(1)
-		}
-	}
-	if *verifiedReceiptPath != "" && len(evidence) == 0 {
-		fmt.Fprintln(os.Stderr, "error: --verified-receipt requires --evidence")
-		os.Exit(1)
-	}
 
 	requiredToolList := splitTaskList(*requiredTools)
 	needsExecutableTools := *requiresExecutableTools || router.RequiresExecutableRuntime(objective)
@@ -185,7 +153,7 @@ func cmdRun(args []string) {
 	_ = store.Save()
 
 	if err != nil && response.Model.Name != "" {
-		persistVerifiedReceipt(spec, response.Model, executionMetrics, evidence, ReviewResult{}, verifiedrun.OutcomeInconclusive, *verifiedReceiptPath)
+		_ = persistVerifiedReceipt(spec, response.Model, executionMetrics, evidence, ReviewResult{}, verifiedrun.OutcomeInconclusive, *verifiedReceiptPath)
 		fmt.Fprintf(os.Stderr, "run failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -246,17 +214,20 @@ func cmdRun(args []string) {
 		}
 		result, err := reviewOutputWithEvidence(ctx, reg, mgr, spec, output, model.Name, evidence)
 		if err != nil {
-			persistVerifiedReceipt(spec, model, executionMetrics, evidence, ReviewResult{}, verifiedrun.OutcomeInconclusive, *verifiedReceiptPath)
+			_ = persistVerifiedReceipt(spec, model, executionMetrics, evidence, ReviewResult{}, verifiedrun.OutcomeInconclusive, *verifiedReceiptPath)
 			fmt.Fprintf(os.Stderr, "review failed: %v\n", err)
 			os.Exit(1)
 		}
 		render.PrintReview(result)
 		if !result.Passed {
-			persistVerifiedReceipt(spec, model, executionMetrics, evidence, result, verifiedrun.OutcomeVerifiedFail, *verifiedReceiptPath)
+			_ = persistVerifiedReceipt(spec, model, executionMetrics, evidence, result, verifiedrun.OutcomeVerifiedFail, *verifiedReceiptPath)
 			os.Exit(1)
 		}
 		if len(evidence) > 0 {
-			persistVerifiedReceipt(spec, model, executionMetrics, evidence, result, verifiedrun.OutcomeVerifiedPass, *verifiedReceiptPath)
+			if err := persistVerifiedReceipt(spec, model, executionMetrics, evidence, result, verifiedrun.OutcomeVerifiedPass, *verifiedReceiptPath); err != nil {
+				fmt.Fprintf(os.Stderr, "verified receipt failed: %v\n", err)
+				os.Exit(1)
+			}
 		}
 	}
 	if !*noFeedback {
@@ -265,9 +236,38 @@ func cmdRun(args []string) {
 }
 
 // persistVerifiedReceipt stores a redacted receipt and optionally exports a copy.
-func persistVerifiedReceipt(spec router.TaskSpec, model router.ModelCapabilities, metrics router.ExecutionMetrics, evidence []verifiedrun.Evidence, result ReviewResult, outcome verifiedrun.Outcome, exportPath string) {
+func loadVerifiedRunInputs(criteriaFlag, criteriaFile, evidenceFile, receiptPath string) ([]string, []verifiedrun.Evidence, error) {
+	if criteriaFlag != "" && criteriaFile != "" {
+		return nil, nil, errors.New("use either --criteria or --criteria-file, not both")
+	}
+	criteria := splitTaskList(criteriaFlag)
+	if criteriaFile != "" {
+		parsed, err := parseCriteriaFile(criteriaFile)
+		if err != nil {
+			return nil, nil, err
+		}
+		criteria = parsed
+	}
+	if evidenceFile == "" {
+		if receiptPath != "" {
+			return nil, nil, errors.New("--verified-receipt requires --evidence")
+		}
+		return criteria, nil, nil
+	}
+	if len(criteria) == 0 {
+		return nil, nil, errors.New("--evidence requires --criteria or --criteria-file")
+	}
+	evidence, err := parseEvidenceFile(evidenceFile, criteria)
+	if err != nil {
+		return nil, nil, err
+	}
+	return criteria, evidence, nil
+}
+
+// persistVerifiedReceipt stores a redacted receipt and optionally exports a copy.
+func persistVerifiedReceipt(spec router.TaskSpec, model router.ModelCapabilities, metrics router.ExecutionMetrics, evidence []verifiedrun.Evidence, result ReviewResult, outcome verifiedrun.Outcome, exportPath string) error {
 	if len(evidence) == 0 {
-		return
+		return nil
 	}
 	byCriterion := make(map[string]int, len(spec.SuccessCriteria))
 	for _, item := range evidence {
@@ -291,22 +291,20 @@ func persistVerifiedReceipt(spec router.TaskSpec, model router.ModelCapabilities
 		ExecutionLatencyMS: metrics.LatencyMs, LatencyKnown: metrics.LatencyKnown,
 	}
 	if err := saveVerifiedReceipt(receipt); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: save verified receipt: %v\n", err)
-		return
+		return fmt.Errorf("save verified receipt: %w", err)
 	}
 	if exportPath == "" {
-		return
+		return nil
 	}
 	data, err := json.MarshalIndent(receipt, "", "  ")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: encode verified receipt: %v\n", err)
-		return
+		return fmt.Errorf("encode verified receipt: %w", err)
 	}
 	if err := writeOutputFile(exportPath, string(data), false); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: export verified receipt: %v\n", err)
-		return
+		return fmt.Errorf("export verified receipt: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "  verified receipt exported: %s\n", exportPath)
+	return nil
 }
 
 func writeOutputFile(path, output string, force bool) error {

@@ -65,13 +65,13 @@ func TestPersistVerifiedReceiptRedactsCriteriaAndSetsVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.Chdir(workdir))
 	t.Cleanup(func() { require.NoError(t, os.Chdir(previousWorkdir)) })
-	persistVerifiedReceipt(
+	require.NoError(t, persistVerifiedReceipt(
 		router.TaskSpec{ID: "task", SuccessCriteria: []string{"token=sk-abcdefghi"}},
 		router.ModelCapabilities{Name: "model"},
 		router.ExecutionMetrics{},
 		[]verifiedrun.Evidence{{ID: "evidence", Criterion: "token=sk-abcdefghi", Type: "test", Summary: "passed"}},
 		ReviewResult{}, verifiedrun.OutcomeInconclusive, "receipt.json",
-	)
+	))
 
 	receipts := readVerifiedReceipts()
 	require.Len(t, receipts, 1)
@@ -85,4 +85,24 @@ func TestPersistVerifiedReceiptRedactsCriteriaAndSetsVersion(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &exported))
 	require.Equal(t, verifiedrun.SchemaVersion, exported.Version)
 	require.NotContains(t, exported.Criteria[0].Criterion, "sk-abcdefghi")
+}
+
+// TestPersistVerifiedReceiptFailsWhenExplicitExportCannotBeWritten covers explicit receipt delivery.
+func TestPersistVerifiedReceiptFailsWhenExplicitExportCannotBeWritten(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	workdir := t.TempDir()
+	previousWorkdir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(workdir))
+	t.Cleanup(func() { require.NoError(t, os.Chdir(previousWorkdir)) })
+	require.NoError(t, os.WriteFile("receipt.json", []byte("already exists"), 0600))
+
+	err = persistVerifiedReceipt(
+		router.TaskSpec{ID: "task", SuccessCriteria: []string{"tests pass"}},
+		router.ModelCapabilities{Name: "model"}, router.ExecutionMetrics{},
+		[]verifiedrun.Evidence{{ID: "evidence", Criterion: "tests pass", Type: "test", Summary: "passed"}},
+		ReviewResult{}, verifiedrun.OutcomeVerifiedPass, "receipt.json",
+	)
+	require.ErrorContains(t, err, "already exists")
 }
