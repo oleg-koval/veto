@@ -201,6 +201,13 @@ func registerTUIActionHandlers(service *application.ControlService, refreshPrefe
 			}
 		case "report":
 			report := buildVerifiedRunReport(receipts)
+			if request.Arguments["json"] == "true" {
+				data, err := json.Marshal(report)
+				if err != nil {
+					return controlplane.ActionResult{ActionID: "verified-runs"}, err
+				}
+				return controlplane.ActionResult{ActionID: "verified-runs", Summary: "verified runs loaded", Output: string(data)}, nil
+			}
 			fmt.Fprintf(&output, "verified runs: %d total · %d pass · %d fail · %d inconclusive\n", report.Total, report.VerifiedPass, report.VerifiedFail, report.Inconclusive)
 			fmt.Fprintf(&output, "evidence coverage: %.0f%% · execution cost coverage: %d known, %d unknown\n", report.EvidenceCoverage*100, report.KnownCostRuns, report.UnknownCostRuns)
 			if report.CostPerVerifiedRun == nil {

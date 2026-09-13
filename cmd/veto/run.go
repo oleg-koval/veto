@@ -153,7 +153,7 @@ func cmdRun(args []string) {
 	_ = store.Save()
 
 	if err != nil && response.Model.Name != "" {
-		_ = persistVerifiedReceipt(spec, response.Model, executionMetrics, evidence, ReviewResult{}, verifiedrun.OutcomeInconclusive, *verifiedReceiptPath)
+		reportVerifiedReceiptError(persistVerifiedReceipt(spec, response.Model, executionMetrics, evidence, ReviewResult{}, verifiedrun.OutcomeInconclusive, *verifiedReceiptPath))
 		fmt.Fprintf(os.Stderr, "run failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -193,6 +193,7 @@ func cmdRun(args []string) {
 
 	if *outputPath != "" {
 		if strings.TrimSpace(output) == "" {
+			reportVerifiedReceiptError(persistVerifiedReceipt(spec, model, executionMetrics, evidence, ReviewResult{}, verifiedrun.OutcomeInconclusive, *verifiedReceiptPath))
 			fmt.Fprintln(os.Stderr, "output failed: executor returned empty output")
 			os.Exit(1)
 		}
@@ -209,18 +210,19 @@ func cmdRun(args []string) {
 	// final QA: check acceptance criteria when --criteria was supplied
 	if len(criteria) > 0 {
 		if strings.TrimSpace(output) == "" {
+			reportVerifiedReceiptError(persistVerifiedReceipt(spec, model, executionMetrics, evidence, ReviewResult{}, verifiedrun.OutcomeInconclusive, *verifiedReceiptPath))
 			fmt.Fprintln(os.Stderr, "review failed: executor returned empty output")
 			os.Exit(1)
 		}
 		result, err := reviewOutputWithEvidence(ctx, reg, mgr, spec, output, model.Name, evidence)
 		if err != nil {
-			_ = persistVerifiedReceipt(spec, model, executionMetrics, evidence, ReviewResult{}, verifiedrun.OutcomeInconclusive, *verifiedReceiptPath)
+			reportVerifiedReceiptError(persistVerifiedReceipt(spec, model, executionMetrics, evidence, ReviewResult{}, verifiedrun.OutcomeInconclusive, *verifiedReceiptPath))
 			fmt.Fprintf(os.Stderr, "review failed: %v\n", err)
 			os.Exit(1)
 		}
 		render.PrintReview(result)
 		if !result.Passed {
-			_ = persistVerifiedReceipt(spec, model, executionMetrics, evidence, result, verifiedrun.OutcomeVerifiedFail, *verifiedReceiptPath)
+			reportVerifiedReceiptError(persistVerifiedReceipt(spec, model, executionMetrics, evidence, result, verifiedrun.OutcomeVerifiedFail, *verifiedReceiptPath))
 			os.Exit(1)
 		}
 		if len(evidence) > 0 {
@@ -235,7 +237,13 @@ func cmdRun(args []string) {
 	}
 }
 
-// persistVerifiedReceipt stores a redacted receipt and optionally exports a copy.
+func reportVerifiedReceiptError(err error) {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "verified receipt failed: %v\n", err)
+	}
+}
+
+// loadVerifiedRunInputs validates local manifests before contacting providers.
 func loadVerifiedRunInputs(criteriaFlag, criteriaFile, evidenceFile, receiptPath string) ([]string, []verifiedrun.Evidence, error) {
 	if criteriaFlag != "" && criteriaFile != "" {
 		return nil, nil, errors.New("use either --criteria or --criteria-file, not both")

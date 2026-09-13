@@ -113,15 +113,8 @@ func BuildReviewPromptWithEvidence(spec router.TaskSpec, output string, evidence
 	criteria := strings.Join(spec.SuccessCriteria, "\n")
 	evidenceText := "No external evidence was supplied."
 	if len(evidence) > 0 {
-		rows := make([]string, 0, len(evidence))
-		for _, item := range evidence {
-			digest := ""
-			if item.SHA256 != "" {
-				digest = " sha256=" + item.SHA256
-			}
-			rows = append(rows, fmt.Sprintf("- [%s] criterion=%q type=%s%s\n  %s", item.ID, item.Criterion, item.Type, digest, item.Summary))
-		}
-		evidenceText = strings.Join(rows, "\n")
+		data, _ := json.Marshal(evidence)
+		evidenceText = string(data)
 	}
 	return fmt.Sprintf(`You are a QA reviewer. Evaluate whether the output below meets all acceptance criteria.
 
