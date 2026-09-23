@@ -142,6 +142,10 @@ func beginLoggedRun() string {
 
 // logEvent writes a routing pipeline event as a structured JSON log line.
 func logEvent(taskID, kind, risk string, e router.ProgressEvent) {
+	if router.IsDecisionEvent(e.Kind) {
+		appendLedgerEvent(ledger.Event{RunID: currentRunID(taskID), TaskID: taskID, Type: ledger.EventType(e.Kind), Decision: e.Decision})
+		return
+	}
 	eventType, ok := ledgerType(e.Kind)
 	if !ok {
 		return

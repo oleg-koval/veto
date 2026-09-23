@@ -602,6 +602,10 @@ func (s *ControlService) publishRouteEvent(event router.ProgressEvent) {
 	if s.routeRecorder != nil {
 		s.routeRecorder(event)
 	}
+	if router.IsDecisionEvent(event.Kind) {
+		s.publish(controlplane.Event{ActionID: "route", Kind: string(event.Kind), Decision: event.Decision})
+		return
+	}
 	reasons := append([]string(nil), event.Reasons...)
 	if event.Kind == router.EventAskAccept && len(reasons) == 0 {
 		reasons = routeDecisionReasons(router.AdmissionDecision{ReasonCodes: reasons})

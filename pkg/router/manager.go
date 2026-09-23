@@ -155,13 +155,21 @@ func (m *Manager) route(ctx context.Context, task TaskSpec, admissionTimeout tim
 	}}
 	// Keep an independent authoritative shortlist even if an engine violates
 	// the read-only request contract.
+	m.emit(ProgressEvent{Kind: EventDecisionStarted, Decision: decisionProgress(len(request.Candidates), "started", nil)})
 	outcome, err := m.engine.Decide(ctx, cloneDecisionRequest(request))
+	if err == nil {
+		err = outcome.Validate(request)
+	}
 	if err != nil {
+		// Invalid or failed outcomes are untrusted: emit no model, detail, or telemetry.
+		m.emit(ProgressEvent{Kind: EventDecisionError, Decision: decisionProgress(len(request.Candidates), "error", nil)})
 		return ModelCapabilities{}, AdmissionDecision{}, fmt.Errorf("routing: %w", err)
 	}
-	if err := outcome.Validate(request); err != nil {
-		return ModelCapabilities{}, AdmissionDecision{}, fmt.Errorf("routing: %w", err)
+	status := "selected"
+	if outcome.SelectedCandidate == "" {
+		status = "no_selection"
 	}
+	m.emit(ProgressEvent{Kind: EventDecisionCompleted, Decision: decisionProgress(len(request.Candidates), status, &outcome)})
 	if outcome.SelectedCandidate == "" {
 		return ModelCapabilities{}, AdmissionDecision{}, ErrNoCandidate
 	}

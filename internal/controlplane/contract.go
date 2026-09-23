@@ -5,6 +5,8 @@ import (
 	"context"
 	"io"
 	"time"
+
+	"github.com/oleg-koval/veto/pkg/router"
 )
 
 const SchemaVersion = 1
@@ -202,6 +204,7 @@ type IntegrationSnapshot struct {
 
 // Event is an ephemeral, non-sensitive update for an active operation.
 type Event struct {
+	Decision        *router.DecisionProgress
 	Version         int
 	ActionID        string
 	Kind            string

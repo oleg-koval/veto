@@ -73,10 +73,10 @@ smoke test and removed afterward; do not commit it.
 
 ### Task 4: Wire every composition path and version decision events
 
-- [ ] Centralize or consistently update CLI, TUI, control-plane, plan, review, and test manager construction to use the sequential engine.
-- [ ] Add additive versioned decision events and redacted ledger mappings while preserving legacy admission events and output compatibility.
-- [ ] Verify normal, quiet, and JSON routing behavior plus old ledger/history compatibility.
-- [ ] Update event-ledger and architecture documentation to match actual behavior.
+- [x] Centralize or consistently update CLI, TUI, control-plane, plan, review, and test manager construction to use the sequential engine.
+- [x] Add additive versioned decision events and redacted ledger mappings while preserving legacy admission events and output compatibility.
+- [x] Verify normal, quiet, and JSON routing behavior plus old ledger/history compatibility.
+- [x] Update event-ledger and architecture documentation to match actual behavior.
 
 ### Task 5: Prove v0.13 parity and collect dogfood feedback
 

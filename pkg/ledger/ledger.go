@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/oleg-koval/veto/pkg/router"
 )
 
 // SchemaVersion is the current ledger event schema version.
@@ -22,6 +24,9 @@ type EventType string
 
 // EventType constants define the lifecycle event taxonomy.
 const (
+	EventDecisionStarted    EventType = "decision.started"
+	EventDecisionCompleted  EventType = "decision.completed"
+	EventDecisionError      EventType = "decision.error"
 	EventFilterPass         EventType = "route.filter_pass"
 	EventFilterFail         EventType = "route.filter_fail"
 	EventAdmissionStarted   EventType = "admission.started"
@@ -84,6 +89,8 @@ type Event struct {
 	FinalModel       string    `json:"final_model,omitempty"`
 	Override         bool      `json:"override,omitempty"`
 	Outcome          string    `json:"outcome,omitempty"`
+
+	Decision *router.DecisionProgress `json:"decision,omitempty"`
 }
 
 // Usage holds token consumption metrics for a model invocation.

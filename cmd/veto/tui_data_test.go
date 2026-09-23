@@ -37,3 +37,24 @@ func TestReadTUIHistoryKeepsNewestEventsAcrossFiles(t *testing.T) {
 	require.Equal(t, "new", history[0].EventID)
 	require.NotEqual(t, "old-0", history[len(history)-1].EventID)
 }
+
+func TestOldSchemaOneHistoryStillRendersAlongsideDecisionEvents(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".veto", "logs")
+	require.NoError(t, os.MkdirAll(dir, 0700))
+	lines := `{"schema_version":1,"timestamp":"2026-08-30T07:00:00Z","event_id":"old","run_id":"run","type":"admission.accepted","model":"legacy","confidence":0,"estimated_cost_usd":0}
+{"schema_version":1,"timestamp":"2026-08-30T07:00:01Z","event_id":"new","run_id":"run","type":"decision.completed","decision":{"contract_version":1,"mode":"sequential-admission","candidate_count":1,"status":"selected","selected_model":"legacy"}}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "veto-old.log"), []byte(lines), 0600))
+	history := readTUIHistory()
+	require.Len(t, history, 2)
+	require.Equal(t, "decision.completed", history[0].Type)
+	old := history[1]
+	require.Equal(t, "legacy", old.Model)
+	require.Equal(t, "admission.accepted", old.Type)
+	require.True(t, old.ConfidenceKnown)
+	require.Zero(t, old.Confidence)
+	require.True(t, old.EstimatedCostKnown)
+	require.Zero(t, old.EstimatedCostUSD)
+}

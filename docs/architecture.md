@@ -147,7 +147,7 @@ The inferred (or caller-supplied) complexity is then used by `HardFilter` via `t
 
 Orchestrates the three stages. Emits `ProgressEvent` at each step so callers can render or log without being coupled to the pipeline internals.
 
-**Sequential rank-order execution:** after filtering and ranking, the manager asks each candidate one at a time, in descending score order, passing the caller's `context.Context` straight through to `gate.Ask` — no child context or goroutines involved. As soon as a candidate accepts, the manager logs the decision, emits `EventAskAccept`, and returns immediately; no lower-ranked candidate is ever asked. This matches ADR-001: "ask each candidate in rank order, take the first that accepts with ≥70% confidence."
+**Sequential rank-order execution:** after filtering and ranking, the manager calls its decision engine once; the default sequential engine asks each candidate one at a time, in descending score order, preserving caller cancellation and the per-admission timeout at `gate.Ask`. As soon as a candidate accepts, the manager logs the decision, emits `EventAskAccept`, and returns immediately; no lower-ranked candidate is ever asked. This matches ADR-001: "ask each candidate in rank order, take the first that accepts with ≥70% confidence."
 
 ```
 candidates [A, B, C]  (A highest-ranked)
@@ -163,42 +163,40 @@ Cap: at most 3 candidates receive admission calls per run, including transport
 failures. Checkpoint resume skips tried models and can continue with the next
 bounded group in a later invocation.
 
-## Planned decision-engine boundary (v0.13)
+## Decision-engine boundary (v0.13)
 
 [ADR-006](decisions/ADR-006-provider-neutral-decision-engine.md) partially
-supersedes [ADR-001](decisions/ADR-001-self-admitting-receivers.md) to permit a
-provider-neutral batch decision boundary. This is an accepted design, not an
-implemented interface: the manager and admission flow above remain current.
-
-The [v0.13 plan](plans/2026-09-22-jev-decision-engine-v013.md) targets:
+supersedes [ADR-001](decisions/ADR-001-self-admitting-receivers.md). The implemented
+consumer-owned contract in `pkg/router` passes a version-1 `DecisionRequest`
+with at most three eligible candidates to one `DecisionEngine.Decide` call.
 
 ```text
 hard filter -> adaptive rank -> bounded eligible shortlist -> DecisionEngine -> execution
                                                              |
                                                              +-> SequentialAdmissionEngine
-                                                                 (planned v0.13 default)
+                                                                 (NewManager default)
 ```
 
-The manager will retain authority over deterministic filters, user preferences,
-and shortlist eligibility. A consumer-owned contract in `pkg/router` will pass
-normalized candidates together in one bounded request and return a normalized
-outcome. The manager must validate any selected candidate against the offered
-shortlist. Provider transports stay outside the boundary, and telemetry must
-preserve known, unknown, and zero usage/cost as distinct states.
+The manager retains filters, preferences, skip/checkpoint eligibility and ranking,
+clones the request before dispatch, and validates the outcome's version, mode,
+selected shortlist member, probabilities and known/unknown telemetry. Invalid
+outcomes fail closed. An empty eligible shortlist makes no engine call.
 
-The only planned v0.13 engine, `SequentialAdmissionEngine`, will wrap the
-existing `AdmissionGate`: ordered attempts, first accept at ≥70% confidence,
-at most three admission calls including transport failures, and compatible
-skip/checkpoint, timeout, cancellation, store, error, and event behavior.
-Batch-capable input does not mean concurrent admission. Legacy self-admission
-remains the default/fallback when no alternative is explicitly enabled; this
-slice adds no engine-selection configuration or new-engine failure fallback.
+`NewManager` installs `SequentialAdmissionEngine`, so CLI route/run, shared plan
+execution and review routing, TUI and control-plane composition inherit the same
+behavior without engine setters at individual call sites. Tests use that default
+unless explicitly testing an injected engine. `SetDecisionEngine(nil)` restores it.
 
-Alternative engines require explicit opt-in and wiring in a later release.
-Jev is not implemented. This slice adds no TypeSafe integration, API-key lookup,
-configuration, or new network calls. The offline corpus validates mechanics,
-not real-provider quality or batch-engine performance. Implementation parity,
-release, deployment, and human acceptance remain separate evidence gates.
+The sequential engine wraps `AdmissionGate`: ordered attempts, first accept at
+≥70% confidence, at most three calls including transport failures, and compatible
+skip/checkpoint, timeout, cancellation, store and legacy event behavior. Its
+normalized measured telemetry is unknown; admission estimates are not usage.
+The batch-shaped input does not make admission concurrent.
+
+Alternative engines require explicit wiring; there is no engine-selection config
+or new-engine failure fallback. Jev and TypeSafe are not implemented. This slice
+adds no API-key lookup or network calls. Focused composition/event tests do not
+constitute the full release-parity matrix, real-provider or human acceptance.
 
 ## Checkpoint/Resume (`cmd/veto/checkpoint.go`)
 
@@ -394,12 +392,30 @@ this contract; its execution path retains the real shell/read/write/edit tools.
 |-------|---------|
 | `filter_pass` | Model survived hard filter |
 | `filter_fail` | Model pruned by hard filter (with reason) |
+| `decision.started` | Valid bounded request about to enter the engine |
+| `decision.completed` | Valid outcome: selected model or no selection |
+| `decision.error` | Engine error or invalid outcome; no error detail |
 | `ask_start` | Admission gate sending prompt to model |
 | `ask_accept` | Model accepted (with confidence, est. cost, est. tokens) |
 | `ask_reject` | Model rejected (with reason codes) |
 | `ask_error` | Executor error (network, auth, rate limit) — `Detail` carries the real error message |
 
-The CLI renderer (`cmd/veto/render.go`) uses these events to drive the animated terminal display. The logger (`cmd/veto/logger.go`) uses the same events to write JSON lines to disk. Neither is coupled to the other.
+Decision events enclose the engine call and its legacy admission callbacks:
+filter/shortlist → decision.started → ask_start → admission call → store callback
+→ ask_accept/reject/error → decision.completed/error. Repeated attempts keep
+their legacy order. A cancelled attempt can end at decision.error without a
+legacy terminal event, as before. Boundary events do not update checkpoints.
+Their structural `DecisionProgress` payload carries contract version, mode,
+candidate count, status, selected model and only known normalized telemetry.
+Ledger and control-plane adapters ignore all free-form legacy fields on these
+new event kinds. The ledger envelope remains schema 1; see
+[event-ledger.md](event-ledger.md) for the additive mapping.
+
+The CLI renderer ignores decision boundary events, preserving normal, quiet and
+JSON command output. The control plane publishes their `decision.*` kinds with
+the structural payload and no message/reasons or execution-monitor updates.
+
+The CLI renderer (`cmd/veto/render.go`) uses legacy events to drive the animated terminal display. The logger (`cmd/veto/logger.go`) uses the same events to write JSON lines to disk. Neither is coupled to the other.
 
 ## `veto exec` — multi-step plan execution (`cmd/veto/exec.go`, `cmd/veto/plan.go`)
 
