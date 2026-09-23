@@ -80,10 +80,10 @@ smoke test and removed afterward; do not commit it.
 
 ### Task 5: Prove v0.13 parity and collect dogfood feedback
 
-- [ ] Run the full race suite, vet, build, offline benchmark, onboarding smoke, and `git diff --check`.
-- [ ] Compare the benchmark output and critical CLI behavior with the v0.12 baseline; explain any difference instead of silently accepting it.
-- [ ] Inspect the complete branch diff for scope, privacy, compatibility, and absence of TypeSafe runtime behavior.
-- [ ] Prepare local redacted Veto feedback reports for verified bugs, feature gaps, or optimization opportunities found during dogfooding; do not publish them.
+- [x] Run the full race suite, vet, build, offline benchmark, onboarding smoke, and `git diff --check`.
+- [x] Compare the benchmark output and critical CLI behavior with the v0.12 baseline; explain any difference instead of silently accepting it.
+- [x] Inspect the complete branch diff for scope, privacy, compatibility, and absence of TypeSafe runtime behavior.
+- [x] Prepare local redacted Veto feedback reports for verified bugs, feature gaps, or optimization opportunities found during dogfooding; do not publish them.
 
 ## Completion Criteria
 
