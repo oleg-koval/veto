@@ -73,6 +73,21 @@ veto route --json "summarize this pull request"
 - **Fail-closed review** — optional acceptance criteria reject unavailable,
   malformed, incomplete, or inconsistent reviews.
 
+## Planned decision-engine boundary (v0.13)
+
+[ADR-006](docs/decisions/ADR-006-provider-neutral-decision-engine.md) records
+an accepted architecture decision for a planned provider-neutral batch
+boundary after filtering and ranking. The boundary is not yet implemented.
+Sequential self-admission remains current behavior and the only planned v0.13
+routing strategy; legacy admission is the fallback when no future alternative is
+explicitly enabled. Alternative engines require explicit opt-in in a later
+release. Jev and TypeSafe support are not implemented or included in this slice.
+
+See the [architecture](docs/architecture.md#planned-decision-engine-boundary-v013)
+and [implementation plan](docs/plans/2026-09-22-jev-decision-engine-v013.md).
+The offline corpus validates routing mechanics only; this decision provides no
+batch-engine or real-provider quality evidence.
+
 ## Native dispatch experiment
 
 The existing TUI and CLI also expose a deliberately small native-agent

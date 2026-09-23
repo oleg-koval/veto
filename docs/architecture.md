@@ -163,6 +163,43 @@ Cap: at most 3 candidates receive admission calls per run, including transport
 failures. Checkpoint resume skips tried models and can continue with the next
 bounded group in a later invocation.
 
+## Planned decision-engine boundary (v0.13)
+
+[ADR-006](decisions/ADR-006-provider-neutral-decision-engine.md) partially
+supersedes [ADR-001](decisions/ADR-001-self-admitting-receivers.md) to permit a
+provider-neutral batch decision boundary. This is an accepted design, not an
+implemented interface: the manager and admission flow above remain current.
+
+The [v0.13 plan](plans/2026-09-22-jev-decision-engine-v013.md) targets:
+
+```text
+hard filter -> adaptive rank -> bounded eligible shortlist -> DecisionEngine -> execution
+                                                             |
+                                                             +-> SequentialAdmissionEngine
+                                                                 (planned v0.13 default)
+```
+
+The manager will retain authority over deterministic filters, user preferences,
+and shortlist eligibility. A consumer-owned contract in `pkg/router` will pass
+normalized candidates together in one bounded request and return a normalized
+outcome. The manager must validate any selected candidate against the offered
+shortlist. Provider transports stay outside the boundary, and telemetry must
+preserve known, unknown, and zero usage/cost as distinct states.
+
+The only planned v0.13 engine, `SequentialAdmissionEngine`, will wrap the
+existing `AdmissionGate`: ordered attempts, first accept at ≥70% confidence,
+at most three admission calls including transport failures, and compatible
+skip/checkpoint, timeout, cancellation, store, error, and event behavior.
+Batch-capable input does not mean concurrent admission. Legacy self-admission
+remains the default/fallback when no alternative is explicitly enabled; this
+slice adds no engine-selection configuration or new-engine failure fallback.
+
+Alternative engines require explicit opt-in and wiring in a later release.
+Jev is not implemented. This slice adds no TypeSafe integration, API-key lookup,
+configuration, or new network calls. The offline corpus validates mechanics,
+not real-provider quality or batch-engine performance. Implementation parity,
+release, deployment, and human acceptance remain separate evidence gates.
+
 ## Checkpoint/Resume (`cmd/veto/checkpoint.go`)
 
 Task identity is a SHA-256 hash of `(objective, kind, risk, maxCost)`, truncated to 8 bytes (16 hex chars). On interruption, the current `Checkpoint` (which models were tried and their outcomes) is serialized to `~/.veto/checkpoints/<hash>.json`.
