@@ -15,6 +15,9 @@ const defaultShadowTimeout = time.Second
 // ErrShadowUnavailable classifies missing optional shadow prerequisites.
 var ErrShadowUnavailable = errors.New("shadow decider unavailable")
 
+// ErrShadowMalformed classifies an invalid typed shadow response.
+var ErrShadowMalformed = errors.New("shadow response malformed")
+
 // ShadowDecider predicts from a bounded request but cannot return the
 // authoritative DecisionOutcome consumed by Manager.Route.
 type ShadowDecider interface {
@@ -200,6 +203,8 @@ func shadowEvidence(request DecisionRequest, result shadowResult) ShadowDecision
 			status, code = ShadowStatusTimeout, "TIMEOUT"
 		case errors.Is(result.err, context.Canceled):
 			status, code = ShadowStatusCanceled, "CANCELED"
+		case errors.Is(result.err, ErrShadowMalformed):
+			status, code = ShadowStatusMalformed, "MALFORMED"
 		case errors.Is(result.err, ErrShadowUnavailable):
 			status, code = ShadowStatusUnavailable, "UNAVAILABLE"
 		}
