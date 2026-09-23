@@ -59,10 +59,10 @@ smoke test and removed afterward; do not commit it.
 
 ### Task 2: Add decision-engine contracts
 
-- [ ] Add consumer-owned `DecisionEngine`, `DecisionRequest`, normalized candidate, outcome, probability, telemetry, mode, and reason contracts under `pkg/router`.
-- [ ] Validate empty, duplicate, and oversized candidate sets plus unknown selections, invalid versions, probabilities, and confidence.
-- [ ] Preserve explicit known/unknown telemetry semantics.
-- [ ] Add focused table-driven and race-safe contract tests.
+- [x] Add consumer-owned `DecisionEngine`, `DecisionRequest`, normalized candidate, outcome, probability, telemetry, mode, and reason contracts under `pkg/router`.
+- [x] Validate empty, duplicate, and oversized candidate sets plus unknown selections, invalid versions, probabilities, and confidence.
+- [x] Preserve explicit known/unknown telemetry semantics.
+- [x] Add focused table-driven and race-safe contract tests.
 
 ### Task 3: Preserve self-admission behind a sequential engine
 
