@@ -102,6 +102,7 @@ func (*CodexCLIExecutor) executionArgs(prompt string) []string {
 	// authentication continues to come from CODEX_HOME.
 	return []string{
 		"exec", "--ephemeral", "--ignore-user-config",
+		"--sandbox", "workspace-write",
 		"--config", fmt.Sprintf("model_auto_compact_token_limit=%d", codexAutoCompactTokenLimit),
 		"--json", "--color", "never", prompt,
 	}

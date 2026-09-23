@@ -57,7 +57,7 @@ if [ -n "$schema" ]; then
   printf '%s\n' '{"accept":true,"confidence":0.9,"reason_codes":[],"estimated_tokens":100,"estimated_cost_usd":0,"suggested_alternative_model":"","required_task_changes":[]}' > "$output"
 else
   case "$all" in
-    *"--ephemeral"*"--ignore-user-config"*) : ;;
+	*"--ephemeral"*"--ignore-user-config"*"--sandbox workspace-write"*) : ;;
     *) exit 6 ;;
   esac
 	case "$all" in
@@ -92,6 +92,7 @@ fi
 	assert.Equal(t, "codex-cli", exec.RuntimeID())
 	assert.Equal(t, []string{"bash", "read", "write", "edit"}, exec.EffectiveTools())
 	assert.Contains(t, exec.executionArgs("execute"), fmt.Sprintf("model_auto_compact_token_limit=%d", codexAutoCompactTokenLimit))
+	assert.Contains(t, exec.executionArgs("execute"), "workspace-write")
 
 	calls, err := os.ReadFile(logPath)
 	require.NoError(t, err)
