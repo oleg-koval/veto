@@ -66,10 +66,10 @@ smoke test and removed afterward; do not commit it.
 
 ### Task 3: Preserve self-admission behind a sequential engine
 
-- [ ] Implement `SequentialAdmissionEngine` using the existing `AdmissionGate`.
-- [ ] Refactor `Manager` to filter/rank, build the bounded engine request, call the engine, and validate the selected candidate.
-- [ ] Preserve ordered attempts, maximum three admission calls, skip/checkpoint behavior, store logging, events, timeouts, errors, and cancellation.
-- [ ] Add parity tests covering accept, reject, low confidence, parse failure, transport failure, timeout, cancellation, invalid selection, and no candidate.
+- [x] Implement `SequentialAdmissionEngine` using the existing `AdmissionGate`.
+- [x] Refactor `Manager` to filter/rank, build the bounded engine request, call the engine, and validate the selected candidate.
+- [x] Preserve ordered attempts, maximum three admission calls, skip/checkpoint behavior, store logging, events, timeouts, errors, and cancellation.
+- [x] Add parity tests covering accept, reject, low confidence, parse failure, transport failure, timeout, cancellation, invalid selection, and no candidate.
 
 ### Task 4: Wire every composition path and version decision events
 

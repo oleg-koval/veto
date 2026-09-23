@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 )
 
@@ -38,6 +39,7 @@ type DecisionRequest struct {
 	Version    int
 	Task       TaskSpec
 	Candidates []DecisionCandidate
+	admission  sequentialAdmissionOptions
 }
 
 // Validate checks the contract without modifying or reordering candidates.
@@ -142,6 +144,9 @@ type DecisionReason struct {
 // decision (including no selection). Neither implies the other's value.
 // Versions apply to outcomes as well as requests so callers fail closed.
 type DecisionOutcome struct {
+	// Admission optionally preserves the complete selected self-admission response.
+	// It must accept and may only accompany a selection.
+	Admission         *AdmissionDecision
 	Version           int
 	SelectedCandidate string
 	Probability       DecisionProbability
@@ -178,6 +183,9 @@ func (o DecisionOutcome) Validate(request DecisionRequest) error {
 			return fmt.Errorf("decision outcome: reason code is empty")
 		}
 	}
+	if o.Admission != nil && (o.SelectedCandidate == "" || !o.Admission.Accept) {
+		return fmt.Errorf("decision outcome: admission requires an accepted selection")
+	}
 	if o.SelectedCandidate == "" {
 		if o.Probability.Known {
 			return fmt.Errorf("decision outcome: probability requires a selected candidate")
@@ -190,4 +198,24 @@ func (o DecisionOutcome) Validate(request DecisionRequest) error {
 		}
 	}
 	return fmt.Errorf("decision outcome: unknown selected candidate %q", o.SelectedCandidate)
+}
+
+// cloneDecisionRequest isolates all mutable contract data from the caller.
+func cloneDecisionRequest(r DecisionRequest) DecisionRequest {
+	r.Task.Constraints = slices.Clone(r.Task.Constraints)
+	r.Task.RequiredTools = slices.Clone(r.Task.RequiredTools)
+	r.Task.SuccessCriteria = slices.Clone(r.Task.SuccessCriteria)
+	r.Task.SkipModels = slices.Clone(r.Task.SkipModels)
+	r.Candidates = slices.Clone(r.Candidates)
+	for i := range r.Candidates {
+		c := &r.Candidates[i]
+		c.Tools.Tools = slices.Clone(c.Tools.Tools)
+		c.Model.SupportsTools = slices.Clone(c.Model.SupportsTools)
+		c.Model.InputModalities = slices.Clone(c.Model.InputModalities)
+		c.Model.OutputModalities = slices.Clone(c.Model.OutputModalities)
+		c.Model.SupportedParameters = slices.Clone(c.Model.SupportedParameters)
+		c.Model.Strengths = slices.Clone(c.Model.Strengths)
+		c.Model.Weaknesses = slices.Clone(c.Model.Weaknesses)
+	}
+	return r
 }

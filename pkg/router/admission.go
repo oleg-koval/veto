@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oleg-koval/veto/pkg/execution"
@@ -58,6 +59,7 @@ type ExecutorFactory interface {
 // The model must respond with JSON only — any other format is treated as rejection.
 type AdmissionGate struct {
 	factory ExecutorFactory
+	mu      sync.RWMutex
 	timeout time.Duration
 }
 
@@ -76,7 +78,9 @@ func NewAdmissionGateWithFactory(factory ExecutorFactory) *AdmissionGate {
 // retain the default deadline.
 func (g *AdmissionGate) SetTimeout(timeout time.Duration) {
 	if timeout > 0 {
+		g.mu.Lock()
 		g.timeout = timeout
+		g.mu.Unlock()
 	}
 }
 
@@ -118,7 +122,9 @@ func (g *AdmissionGate) AskWithTimeout(ctx context.Context, task TaskSpec, model
 	// per-model cap: a hung model shouldn't block routing indefinitely
 	timeout := timeoutOverride
 	if timeout <= 0 {
+		g.mu.RLock()
 		timeout = g.timeout
+		g.mu.RUnlock()
 	}
 	if timeout <= 0 {
 		timeout = admissionModelTimeout
@@ -268,4 +274,16 @@ func parseAdmissionJSON(output string) (AdmissionDecision, bool) {
 		return AdmissionDecision{}, false
 	}
 	return AdmissionDecision(j), true
+}
+
+// tools reports the active admission transport's capabilities for the shortlist.
+func (g *AdmissionGate) tools(model ModelCapabilities) ToolCapabilities {
+	exec, ok := g.factory.For(model.Name)
+	if !ok || exec == nil {
+		return ToolCapabilities{}
+	}
+	if provider, ok := exec.(ToolProvider); ok {
+		return provider.AdmissionTools()
+	}
+	return ToolCapabilities{Known: true}
 }

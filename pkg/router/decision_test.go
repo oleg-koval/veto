@@ -55,6 +55,12 @@ func TestDecisionOutcomeValidate(t *testing.T) {
 	}{
 		{"batch selects last", func(o *DecisionOutcome) { o.SelectedCandidate = "c" }, ""},
 		{"unknown estimates and telemetry", func(o *DecisionOutcome) {}, ""},
+		{"accepted admission", func(o *DecisionOutcome) { o.Admission = &AdmissionDecision{Accept: true} }, ""},
+		{"rejected admission", func(o *DecisionOutcome) { o.Admission = &AdmissionDecision{} }, "admission requires"},
+		{"admission without selection", func(o *DecisionOutcome) {
+			o.SelectedCandidate = ""
+			o.Admission = &AdmissionDecision{Accept: true}
+		}, "admission requires"},
 		{"known zero", func(o *DecisionOutcome) {
 			o.Probability.Known, o.Confidence.Known = true, true
 			o.Telemetry = DecisionTelemetry{UsageKnown: true, CachedInputKnown: true, CostKnown: true, LatencyKnown: true}
