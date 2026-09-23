@@ -89,13 +89,15 @@ type Candidate struct {
 // RouteComparison records the authoritative and shadow decisions for one
 // route. TaskKind and Risk are bounded enums used only for aggregate slices.
 type RouteComparison struct {
-	RouteID    string           `json:"route_id"`
-	ObservedAt time.Time        `json:"observed_at"`
-	TaskKind   string           `json:"task_kind"`
-	Risk       string           `json:"risk"`
-	Candidates []Candidate      `json:"candidates"`
-	Authority  DecisionEvidence `json:"authority"`
-	Shadow     DecisionEvidence `json:"shadow"`
+	RouteID           string           `json:"route_id"`
+	ObservedAt        time.Time        `json:"observed_at"`
+	TaskKind          string           `json:"task_kind"`
+	Risk              string           `json:"risk"`
+	Candidates        []Candidate      `json:"candidates"`
+	AuthorityStrategy string           `json:"authority_strategy"`
+	ShadowStrategy    string           `json:"shadow_strategy"`
+	Authority         DecisionEvidence `json:"authority"`
+	Shadow            DecisionEvidence `json:"shadow"`
 }
 
 // ExecutionLabel supplies a later outcome for one offered candidate. It can
@@ -166,6 +168,16 @@ func (c RouteComparison) validate() error {
 	}
 	if !allowedRisks[c.Risk] {
 		return fmt.Errorf("shadow evidence: unsupported risk %q", c.Risk)
+	}
+	if c.AuthorityStrategy != "" {
+		if err := validateID("authority strategy", c.AuthorityStrategy); err != nil {
+			return err
+		}
+	}
+	if c.ShadowStrategy != "" {
+		if err := validateID("shadow strategy", c.ShadowStrategy); err != nil {
+			return err
+		}
 	}
 	if len(c.Candidates) == 0 || len(c.Candidates) > 3 {
 		return fmt.Errorf("shadow evidence: candidate count must be between 1 and 3")

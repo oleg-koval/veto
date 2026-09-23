@@ -10,7 +10,7 @@ The persisted Go types deliberately cannot represent task objectives,
 constraints, credentials, provider response bodies, free-form explanations,
 filesystem paths, or account identifiers. Routes contain opaque bounded
 candidate keys, task kind, risk, normalized decisions, machine error codes,
-and known/unknown telemetry. Labels contain only normalized outcome and
+optional bounded strategy identifiers, and known/unknown telemetry. Labels contain only normalized outcome and
 telemetry values. Unknown values use their explicit `known: false` form and a
 canonical zero value; a measured zero uses `known: true`.
 

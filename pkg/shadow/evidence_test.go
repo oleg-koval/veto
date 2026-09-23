@@ -51,6 +51,7 @@ func comparisonEvent(id string, shadowStatus DecisionStatus, shadowCandidate str
 	}
 	return Event{SchemaVersion: 1, Type: EventRouteComparison, Comparison: &RouteComparison{
 		RouteID: id, ObservedAt: time.Unix(1, 0).UTC(), TaskKind: "plan", Risk: "medium",
+		AuthorityStrategy: "sequential-admission", ShadowStrategy: "fixture-shadow",
 		Candidates: []Candidate{{Key: "c1"}, {Key: "c2"}},
 		Authority:  DecisionEvidence{Status: StatusSelected, SelectedCandidate: "c1", Probability: KnownFloat{Known: true, Value: .9}, Confidence: KnownFloat{Known: true, Value: .9}},
 		Shadow:     shadowDecision,

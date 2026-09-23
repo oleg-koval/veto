@@ -11,13 +11,15 @@ import (
 // Manager orchestrates hard-filtering, scoring, and admission gating.
 // Route returns the first candidate that passes the admission gate.
 type Manager struct {
-	registry      *Registry
-	gate          *AdmissionGate
-	engine        DecisionEngine
-	store         Store
-	maxAdmissions int
-	preferences   CandidatePreferences
-	OnEvent       func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
+	registry       *Registry
+	gate           *AdmissionGate
+	engine         DecisionEngine
+	store          Store
+	maxAdmissions  int
+	preferences    CandidatePreferences
+	shadowRecorder ShadowEvidenceRecorder
+	now            func() time.Time
+	OnEvent        func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
 }
 
 // SetAdmissionTimeout updates the per-model admission deadline for subsequent
@@ -42,6 +44,7 @@ func NewManager(registry *Registry, gate *AdmissionGate, store Store) *Manager {
 		engine:        NewSequentialAdmissionEngine(gate),
 		store:         store,
 		maxAdmissions: 3,
+		now:           time.Now,
 	}
 }
 
@@ -194,6 +197,12 @@ func (m *Manager) SetDecisionEngine(engine DecisionEngine) {
 	m.engine = engine
 }
 
+// SetShadowEvidenceRecorder connects later execution telemetry to an earlier
+// redacted shadow comparison. It does not affect routing or the legacy Store.
+func (m *Manager) SetShadowEvidenceRecorder(recorder ShadowEvidenceRecorder) {
+	m.shadowRecorder = recorder
+}
+
 // logDecision preserves the original Store API for third-party stores while
 // using task-kind-aware history when the built-in extension is available.
 func (m *Manager) logDecision(taskID, modelName string, kind TaskKind, decision AdmissionDecision) {
@@ -216,6 +225,9 @@ func (m *Manager) emit(e ProgressEvent) {
 // supports kind-aware telemetry, while preserving compatibility with legacy
 // Store implementations.
 func (m *Manager) RecordExecution(task TaskSpec, modelName string, metrics ExecutionMetrics) {
+	if m.shadowRecorder != nil {
+		safeRecordExecution(m.shadowRecorder, executionLabelRecord(task, modelName, metrics, m.now()))
+	}
 	if store, ok := m.store.(KindAwareStore); ok {
 		store.RecordExecution(task.ID, modelName, task.Kind, metrics)
 		return
