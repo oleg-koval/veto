@@ -87,8 +87,8 @@ smoke test and removed afterward; do not commit it.
 
 ## Completion Criteria
 
-- [ ] All five tasks are committed on the feature branch.
-- [ ] Required validation is green or honestly reported as unavailable/failed.
-- [ ] Reviews find no unresolved critical or major defects.
-- [ ] The main checkout branch and files remain untouched by implementation.
-- [ ] No branch is pushed and no issue, tag, or release is published.
+- [x] All five tasks are committed on the feature branch.
+- [x] Required validation is green or honestly reported as unavailable/failed.
+- [x] Reviews find no unresolved critical or major defects.
+- [x] The main checkout branch and files remain untouched by implementation.
+- [x] No branch is pushed and no issue, tag, or release is published.
