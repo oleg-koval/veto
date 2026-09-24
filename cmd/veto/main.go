@@ -44,7 +44,7 @@ func main() {
 		return
 	}
 	// Notify once if new skills are pending approval (non-blocking).
-	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" && os.Args[1] != "feedback" && os.Args[1] != "analytics" && os.Args[1] != "verified-runs" && os.Args[1] != "opencode" && os.Args[1] != "hermes" && os.Args[1] != "models" && os.Args[1] != "tui" && os.Args[1] != "start" && os.Args[1] != "unavailable" && os.Args[1] != "experiment" {
+	if os.Args[1] != "setup" && os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "benchmark" && os.Args[1] != "shadow-report" && os.Args[1] != "verify-models" && os.Args[1] != "doctor" && os.Args[1] != "feedback" && os.Args[1] != "analytics" && os.Args[1] != "verified-runs" && os.Args[1] != "opencode" && os.Args[1] != "hermes" && os.Args[1] != "models" && os.Args[1] != "tui" && os.Args[1] != "start" && os.Args[1] != "unavailable" && os.Args[1] != "experiment" {
 		checkPendingSkills()
 	}
 	switch os.Args[1] {
@@ -57,6 +57,8 @@ func main() {
 		cmdRoute(os.Args[2:])
 	case "benchmark":
 		cmdBenchmark(os.Args[2:])
+	case "shadow-report":
+		os.Exit(runShadowReport(os.Args[2:], os.Stdout, os.Stderr))
 	case "verify-models":
 		cmdVerifyModels(os.Args[2:])
 	case "doctor":
@@ -155,6 +157,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  exec               execute a veto plan file step-by-step")
 	fmt.Fprintln(o, "  route              route a task to the best available model (no execution)")
 	fmt.Fprintln(o, "  benchmark          replay an offline routing corpus and emit JSON metrics")
+	fmt.Fprintln(o, "  shadow-report      evaluate local Jev shadow evidence offline")
 	fmt.Fprintln(o, "  verify-models      verify catalog IDs against one provider account")
 	fmt.Fprintln(o, "  doctor             diagnose installation and ~/.veto integrity")
 	fmt.Fprintln(o, "  feedback           prepare a redacted bug, feature, or optimization report")
@@ -320,8 +323,7 @@ func cmdRoute(args []string) {
 	// FileStore persists accept/reject history so it compounds across runs and
 	// feeds future ranking — see NewManager wiring below.
 	store := routinghistory.NewFileStore(historyPath())
-	mgr := router.NewManager(modelReg, gate, store)
-	mgr.SetCandidatePreferences(loadCandidatePreferences())
+	mgr := newRoutingManager(modelReg, gate, store)
 
 	render := NewRenderer(*quiet)
 	render.PrintTaskHeader(objective, kind, *risk, complexity, *maxCost, kindInferred)

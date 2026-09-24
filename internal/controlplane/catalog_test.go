@@ -12,7 +12,7 @@ func TestDefaultCatalogCoversCLICommands(t *testing.T) {
 	t.Parallel()
 
 	want := []string{
-		"login", "logout", "setup", "run", "exec", "route", "benchmark",
+		"login", "logout", "setup", "run", "exec", "route", "benchmark", "shadow-report",
 		"verify-models", "doctor", "feedback", "analytics", "verified-runs", "opencode", "hermes",
 		"models", "providers", "disable", "enable", "version", "install-git-hook",
 		"start", "unavailable", "experiment",

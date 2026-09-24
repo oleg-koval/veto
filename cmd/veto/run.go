@@ -91,8 +91,7 @@ func cmdRun(args []string) {
 	gate := router.NewAdmissionGateWithFactory(reg)
 	gate.SetTimeout(*admissionTimeout)
 	store := routinghistory.NewFileStore(historyPath())
-	mgr := router.NewManager(modelReg, gate, store)
-	mgr.SetCandidatePreferences(loadCandidatePreferences())
+	mgr := newRoutingManager(modelReg, gate, store)
 
 	render := NewRenderer(*quiet)
 	render.PrintTaskHeader(objective, kind, *risk, string(complexity), *maxCost, kindInferred)
@@ -408,8 +407,7 @@ func prepareRouting() (*providerRegistry, *router.Manager, *routinghistory.FileS
 	modelReg := router.NewRegistryFromModels(reg.modelCaps())
 	gate := router.NewAdmissionGateWithFactory(reg)
 	store := routinghistory.NewFileStore(historyPath())
-	mgr := router.NewManager(modelReg, gate, store)
-	mgr.SetCandidatePreferences(loadCandidatePreferences())
+	mgr := newRoutingManager(modelReg, gate, store)
 	return reg, mgr, store, nil
 }
 
@@ -426,8 +424,7 @@ func prepareTUIRouting() (*providerRegistry, *router.Manager, *routinghistory.Fi
 	modelReg := router.NewRegistryFromModels(reg.modelCaps())
 	gate := router.NewAdmissionGateWithFactory(reg)
 	store := routinghistory.NewFileStore(historyPath())
-	mgr := router.NewManager(modelReg, gate, store)
-	mgr.SetCandidatePreferences(loadCandidatePreferences())
+	mgr := newRoutingManager(modelReg, gate, store)
 	return reg, mgr, store, nil
 }
 

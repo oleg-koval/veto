@@ -1,0 +1,81 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/oleg-koval/veto/pkg/router"
+	shadowdata "github.com/oleg-koval/veto/pkg/shadow"
+	"github.com/stretchr/testify/require"
+)
+
+func TestDecisionShadowDisabledDoesNotReadPrerequisites(t *testing.T) {
+	var lookedUp []string
+	config := loadDecisionShadowConfig(func(key string) (string, bool) {
+		lookedUp = append(lookedUp, key)
+		return "", false
+	})
+	require.False(t, config.enabled)
+	require.Equal(t, []string{envJevShadowEnabled}, lookedUp)
+}
+
+func TestDecisionShadowInvalidSwitchStaysDisabled(t *testing.T) {
+	config := loadDecisionShadowConfig(func(key string) (string, bool) {
+		if key == envJevShadowEnabled {
+			return "maybe", true
+		}
+		t.Fatal("disabled configuration read an additional environment variable")
+		return "", false
+	})
+	require.False(t, config.enabled)
+	require.Len(t, config.warnings, 1)
+}
+
+func TestEnabledShadowWithoutKeyPreservesRouteAndRecordsUnavailable(t *testing.T) {
+	evidencePath := filepath.Join(t.TempDir(), "evidence.jsonl")
+	values := map[string]string{
+		envJevShadowEnabled: "1", envJevShadowEvidence: evidencePath, envJevShadowTimeout: "20ms",
+	}
+	lookup := func(key string) (string, bool) {
+		value, ok := values[key]
+		return value, ok
+	}
+	registry := router.NewRegistryFromModels([]router.ModelCapabilities{{Name: "fixture", Tier: "large", Provider: "test"}})
+	mgr := router.NewManager(registry, router.NewAdmissionGate(experimentalShadowAdmission{}), router.NewMemoryStore())
+	var warnings bytes.Buffer
+	configureExperimentalDecisionShadow(mgr, &warnings, lookup, nil)
+
+	model, _, err := mgr.Route(t.Context(), router.TaskSpec{ID: "task-1", Kind: router.KindPlan, Risk: router.RiskMedium, Objective: "design this"})
+	require.NoError(t, err)
+	require.Equal(t, "fixture", model.Name)
+	require.Contains(t, warnings.String(), "TYPESAFE_API_KEY is not set")
+
+	file, err := os.Open(evidencePath)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, file.Close()) })
+	events, err := shadowdata.Load(file)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, shadowdata.StatusUnavailable, events[0].Comparison.Shadow.Status)
+}
+
+func TestShadowReportFixture(t *testing.T) {
+	path := filepath.Join("..", "..", "pkg", "shadow", "testdata", "shadow_v1.jsonl")
+	var stdout, stderr bytes.Buffer
+	exitCode := runShadowReport([]string{"--input", path}, &stdout, &stderr)
+	require.Zero(t, exitCode, stderr.String())
+	var report shadowdata.Report
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &report))
+	require.Equal(t, 4, report.Routes)
+	require.Empty(t, stderr.String())
+}
+
+type experimentalShadowAdmission struct{}
+
+func (experimentalShadowAdmission) Run(context.Context, string) router.AdmissionResult {
+	return router.AdmissionResult{Output: `{"accept":true,"confidence":0.9}`}
+}

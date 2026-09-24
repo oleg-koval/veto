@@ -203,6 +203,13 @@ func (m *Manager) SetShadowEvidenceRecorder(recorder ShadowEvidenceRecorder) {
 	m.shadowRecorder = recorder
 }
 
+// EnableDecisionShadow wraps the current authority with an evidence-only
+// observer and connects later execution labels to the same recorder.
+func (m *Manager) EnableDecisionShadow(decider ShadowDecider, recorder ShadowEvidenceRecorder, timeout time.Duration, strategy string) {
+	m.engine = NewShadowingDecisionEngine(m.engine, decider, recorder, timeout, strategy)
+	m.shadowRecorder = recorder
+}
+
 // logDecision preserves the original Store API for third-party stores while
 // using task-kind-aware history when the built-in extension is available.
 func (m *Manager) logDecision(taskID, modelName string, kind TaskKind, decision AdmissionDecision) {
