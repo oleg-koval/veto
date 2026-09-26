@@ -17,9 +17,11 @@ one. The repository check verifies that the fields and evidence are present; it
 does not semantically prove that the criteria are complete. Maintainers make
 that determination and retain responsibility for merge approval.
 
-Use a Conventional Commits title (`feat:`, `fix:`, `perf:`, or another supported
-type). Release Please parses the merged commit title, so a plain-language title
-will leave the change out of the next release.
+Use Conventional Commits syntax for the PR title and every commit title
+(`feat:`, `fix:`, `perf:`, or another supported type). CI checks both because
+Release Please parses commit subjects from Git history: rebase merges keep each
+commit subject, while squash merges use either the PR title or a commit title.
+A non-conventional subject can be omitted from release notes and version bumps.
 
 Contributor trust is classified by the versioned
 [policy](.github/contributor-policy.json): whitelisted logins pass this
