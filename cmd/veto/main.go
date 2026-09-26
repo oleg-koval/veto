@@ -1027,14 +1027,18 @@ func claudeCLIAuthenticationContext(parent context.Context) claudeAuthMode {
 	defer cancel()
 	cmd := osexec.CommandContext(ctx, path, "auth", "status", "--json")
 	out, err := cmd.Output()
-	if err != nil {
-		return claudeAuthNone
-	}
 
 	var report claudeAuthReport
 	if json.Unmarshal(out, &report) == nil && report.LoggedIn != nil {
+		// Claude exits non-zero when the status is logged out, while still
+		// returning a valid status report on stdout. Preserve that explicit
+		// negative result so a stale subscription marker cannot advertise an
+		// unavailable CLI transport.
 		if !*report.LoggedIn {
 			return claudeAuthLoggedOut
+		}
+		if err != nil {
+			return claudeAuthNone
 		}
 		method := strings.ToLower(strings.TrimSpace(report.AuthMethod))
 		subscription := strings.ToLower(strings.TrimSpace(report.SubscriptionType))
@@ -1047,6 +1051,9 @@ func claudeCLIAuthenticationContext(parent context.Context) claudeAuthMode {
 		default:
 			return claudeAuthUnknown
 		}
+	}
+	if err != nil {
+		return claudeAuthNone
 	}
 
 	return claudeAuthNone

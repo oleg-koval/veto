@@ -13,6 +13,7 @@ import (
 type Manager struct {
 	registry      *Registry
 	gate          *AdmissionGate
+	engine        DecisionEngine
 	store         Store
 	maxAdmissions int
 	preferences   CandidatePreferences
@@ -38,6 +39,7 @@ func NewManager(registry *Registry, gate *AdmissionGate, store Store) *Manager {
 	return &Manager{
 		registry:      registry,
 		gate:          gate,
+		engine:        NewSequentialAdmissionEngine(gate),
 		store:         store,
 		maxAdmissions: 3,
 	}
@@ -73,6 +75,10 @@ func (m *Manager) RouteWithAdmissionTimeout(ctx context.Context, task TaskSpec, 
 	return m.route(ctx, task, timeout)
 }
 
+// route filters and ranks candidates, bounds the shortlist, and validates the
+// engine result against the original request before returning a selection.
+// It preserves request-local admission deadlines and emits routing progress;
+// an empty shortlist or selection returns ErrNoCandidate.
 func (m *Manager) route(ctx context.Context, task TaskSpec, admissionTimeout time.Duration) (ModelCapabilities, AdmissionDecision, error) {
 	if task.Complexity == "" {
 		task.Complexity = InferComplexity(task.Objective, task.Kind)
@@ -132,53 +138,64 @@ func (m *Manager) route(ctx context.Context, task TaskSpec, admissionTimeout tim
 		skipSet[name] = true
 	}
 
-	// Every admission call consumes the per-run budget, including transport
-	// failures. Do not suppress sibling models that share a runtime identity:
-	// provider APIs can return model-specific failures, and another alias may
-	// still be viable.
-	attempts := 0
+	request := DecisionRequest{Version: DecisionVersion, Task: task}
 	for _, model := range ranked {
 		if skipSet[model.Name] {
 			continue
 		}
-		if attempts >= m.maxAdmissions {
+		if len(request.Candidates) >= m.maxAdmissions || len(request.Candidates) >= MaxDecisionCandidates {
 			break
 		}
-		if ctx.Err() != nil {
-			return ModelCapabilities{}, AdmissionDecision{}, fmt.Errorf("routing: %w", ctx.Err())
-		}
-		m.emit(ProgressEvent{Kind: EventAskStart, Model: model.Name})
-		attempts++
-
-		decision, err := m.gate.AskWithTimeout(ctx, task, model, admissionTimeout)
-		if err != nil {
-			if ctx.Err() != nil {
-				return ModelCapabilities{}, AdmissionDecision{}, fmt.Errorf("routing: %w", ctx.Err())
+		request.Candidates = append(request.Candidates, DecisionCandidate{Model: model, Tools: m.gate.tools(model)})
+	}
+	if len(request.Candidates) == 0 {
+		return ModelCapabilities{}, AdmissionDecision{}, ErrNoCandidate
+	}
+	if err := request.Validate(); err != nil {
+		return ModelCapabilities{}, AdmissionDecision{}, fmt.Errorf("routing: %w", err)
+	}
+	request.admission = sequentialAdmissionOptions{timeout: admissionTimeout, emit: m.emit, log: func(model string, decision AdmissionDecision) {
+		m.logDecision(task.ID, model, task.Kind, decision)
+	}}
+	// Keep an independent authoritative shortlist even if an engine violates
+	// the read-only request contract.
+	m.emit(ProgressEvent{Kind: EventDecisionStarted, Decision: decisionProgress(len(request.Candidates), "started", nil)})
+	outcome, err := m.engine.Decide(ctx, cloneDecisionRequest(request))
+	if err == nil {
+		err = outcome.Validate(request)
+	}
+	if err != nil {
+		// Invalid or failed outcomes are untrusted: emit no model, detail, or telemetry.
+		m.emit(ProgressEvent{Kind: EventDecisionError, Decision: decisionProgress(len(request.Candidates), "error", nil)})
+		return ModelCapabilities{}, AdmissionDecision{}, fmt.Errorf("routing: %w", err)
+	}
+	status := "selected"
+	if outcome.SelectedCandidate == "" {
+		status = "no_selection"
+	}
+	m.emit(ProgressEvent{Kind: EventDecisionCompleted, Decision: decisionProgress(len(request.Candidates), status, &outcome)})
+	if outcome.SelectedCandidate == "" {
+		return ModelCapabilities{}, AdmissionDecision{}, ErrNoCandidate
+	}
+	for _, candidate := range request.Candidates {
+		if candidate.Model.Name == outcome.SelectedCandidate {
+			decision := AdmissionDecision{Accept: true, Confidence: outcome.Confidence.Value, ConfidenceUnknown: !outcome.Confidence.Known}
+			if outcome.Admission != nil {
+				decision = *outcome.Admission
 			}
-			// exec/parse failure — log, show the real error, skip
-			m.logDecision(task.ID, model.Name, task.Kind, AdmissionDecision{
-				Accept:      false,
-				ReasonCodes: []string{ReasonParseFailure},
-			})
-			m.emit(ProgressEvent{Kind: EventAskError, Model: model.Name,
-				Detail: err.Error()})
-			continue
+			return candidate.Model, decision, nil
 		}
-		m.logDecision(task.ID, model.Name, task.Kind, decision)
-		if decision.Accept {
-			m.emit(ProgressEvent{
-				Kind:       EventAskAccept,
-				Model:      model.Name,
-				Confidence: decision.Confidence,
-				EstTokens:  decision.EstimatedTokens,
-				EstCost:    decision.EstimatedCostUSD,
-			})
-			return model, decision, nil
-		}
-		m.emit(ProgressEvent{Kind: EventAskReject, Model: model.Name,
-			Reasons: decision.ReasonCodes})
 	}
 	return ModelCapabilities{}, AdmissionDecision{}, ErrNoCandidate
+}
+
+// SetDecisionEngine explicitly replaces the default strategy for subsequent
+// routes. Configure before routing; nil restores sequential self-admission.
+func (m *Manager) SetDecisionEngine(engine DecisionEngine) {
+	if engine == nil {
+		engine = NewSequentialAdmissionEngine(m.gate)
+	}
+	m.engine = engine
 }
 
 // logDecision preserves the original Store API for third-party stores while

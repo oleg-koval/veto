@@ -1,7 +1,12 @@
 # ADR-001: Self-admitting receivers as the routing primitive
 
 ## Status
-Accepted
+Accepted. Partially superseded by
+[ADR-006](ADR-006-provider-neutral-decision-engine.md), which narrows the
+"separate router model" rejection below to permit a pluggable decision-engine
+boundary planned for v0.13. Sequential self-admission remains current behavior
+and is required to remain the only runtime behavior in that slice. This ADR is
+retained as historical context.
 
 ## Date
 2026-06-27

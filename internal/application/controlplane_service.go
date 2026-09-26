@@ -333,7 +333,11 @@ func (s *ControlService) Execute(ctx context.Context, request controlplane.Actio
 		}
 		s.setSnapshot(controlplane.Snapshot{ActiveAction: request.ActionID, Status: "ready", Provider: model.Provider, Model: model.Name})
 		reasons := routeDecisionReasons(decision)
-		s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "route.completed", Message: fmt.Sprintf("%s accepted (%.0f%% confidence)", model.Name, decision.Confidence*100), Model: model.Name, Confidence: decision.Confidence, ConfidenceKnown: true, Reasons: reasons})
+		message := fmt.Sprintf("%s accepted (%.0f%% confidence)", model.Name, decision.Confidence*100)
+		if decision.ConfidenceUnknown {
+			message = fmt.Sprintf("%s accepted (confidence unavailable)", model.Name)
+		}
+		s.publish(controlplane.Event{ActionID: request.ActionID, Kind: "route.completed", Message: message, Model: model.Name, Confidence: decision.Confidence, ConfidenceKnown: !decision.ConfidenceUnknown, Reasons: reasons})
 		return controlplane.ActionResult{ActionID: request.ActionID, Summary: "model selected", Model: model.Name}, nil
 	case "run":
 		if s.router == nil {
@@ -598,9 +602,16 @@ func (s *ControlService) recordRuntimeMonitor(event execution.RuntimeEvent) {
 	s.mu.Unlock()
 }
 
+// publishRouteEvent records and publishes routing progress. Decision boundary
+// events carry only their structural payload; legacy acceptance events also
+// update the selected model and monitor snapshot.
 func (s *ControlService) publishRouteEvent(event router.ProgressEvent) {
 	if s.routeRecorder != nil {
 		s.routeRecorder(event)
+	}
+	if router.IsDecisionEvent(event.Kind) {
+		s.publish(controlplane.Event{ActionID: "route", Kind: string(event.Kind), Decision: event.Decision})
+		return
 	}
 	reasons := append([]string(nil), event.Reasons...)
 	if event.Kind == router.EventAskAccept && len(reasons) == 0 {

@@ -252,3 +252,26 @@ func TestLedgerTypeMapsRouterEventsAndRejectsUnknown(t *testing.T) {
 	_, ok := ledgerType(router.EventKind("future_event"))
 	assert.False(t, ok)
 }
+
+// TestDecisionLedgerAllowlist verifies that decision logs exclude legacy
+// payload fields and distinguish measured zero from unknown telemetry.
+func TestDecisionLedgerAllowlist(t *testing.T) {
+	previous, previousFile, previousRun := eventLedger, eventLogFile, eventRunID
+	t.Cleanup(func() { eventLedger, eventLogFile, eventRunID = previous, previousFile, previousRun })
+	var buf bytes.Buffer
+	eventLedger, eventLogFile, eventRunID = ledger.NewWriter(&buf), nil, "run"
+	zero := 0
+	cost := 0.0
+	for _, kind := range []router.EventKind{router.EventDecisionStarted, router.EventDecisionCompleted, router.EventDecisionError} {
+		logEvent("task", "SECRET kind", "SECRET risk", router.ProgressEvent{Kind: kind, Model: "SECRET model", Detail: "SECRET provider error", Reasons: []string{"SECRET reason"}, Confidence: 1, EstTokens: 100, EstCost: 2, Decision: &router.DecisionProgress{Version: 1, Mode: router.DecisionModeSequentialAdmission, CandidateCount: 1, Status: "selected", TotalTokens: &zero, CostUSD: &cost}})
+	}
+	require.NotContains(t, buf.String(), "SECRET")
+	require.NotContains(t, buf.String(), "estimated_")
+	require.Contains(t, buf.String(), `"total_tokens":0`)
+	require.Contains(t, buf.String(), `"cost_usd":0`)
+	require.NotContains(t, buf.String(), `"input_tokens"`)
+	events, corrupt, err := ledger.Read(&buf)
+	require.NoError(t, err)
+	require.Zero(t, corrupt)
+	require.Len(t, events, 3)
+}

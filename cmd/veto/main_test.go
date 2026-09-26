@@ -50,6 +50,8 @@ func TestClaudeCLIAuthenticationDiscoversSubscription(t *testing.T) {
 	assert.Equal(t, claudeAuthSubscription, claudeCLIAuthentication())
 }
 
+// TestClaudeCLIAuthenticationDistinguishesAPIKeyAndLoggedOut verifies API-key
+// and logged-out status handling, including nonzero exits and malformed output.
 func TestClaudeCLIAuthenticationDistinguishesAPIKeyAndLoggedOut(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX subprocess fixture")
@@ -61,6 +63,12 @@ func TestClaudeCLIAuthenticationDistinguishesAPIKeyAndLoggedOut(t *testing.T) {
 	assert.Equal(t, claudeAuthAPIKey, claudeCLIAuthentication())
 
 	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":false}'\n"), 0700))
+	assert.Equal(t, claudeAuthLoggedOut, claudeCLIAuthentication())
+
+	// Claude reports a valid logged-out status on stdout but exits non-zero.
+	// Preserve that explicit result so stale subscription markers cannot make
+	// the unavailable CLI look routable.
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' '{\"loggedIn\":false}'\nexit 1\n"), 0700))
 	assert.Equal(t, claudeAuthLoggedOut, claudeCLIAuthentication())
 
 	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' 'not-json'\n"), 0700))

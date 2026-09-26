@@ -32,7 +32,7 @@ Optional typed fields carry reason codes, confidence, estimates, known usage,
 known cost, known latency, and bounded error detail. Unknown values are omitted
 rather than serialized as zero; accepted zero-cost estimates remain explicit.
 
-Event types are namespaced under `route`, `admission`, `execution`, `tool`,
+Event types are namespaced under `route`, `decision`, `admission`, `execution`, `tool`,
 `approval`, `artifact`, `review`, and `goal`. New fields may be added within
 schema version 1. Breaking interpretation changes require a new version.
 
@@ -41,6 +41,37 @@ those namespaces. The optional detail contains only a bounded tool/artifact
 kind and count (for example `name=patch count=2`), never tool arguments, tool
 output, paths, file contents, or raw provider events. OpenCode usage and cost
 are persisted only when OpenCode reports them.
+
+## Decision boundary events
+
+`decision.started` is emitted immediately before each engine call, after the
+filter/shortlist events. Exactly one `decision.completed` (valid selection or
+no selection) or `decision.error` (engine failure or invalid outcome) follows.
+Legacy admission events retain their order inside this boundary, including the
+live `ask_start` before the provider call and persistence before terminal events.
+No boundary events are emitted when there is no eligible request to dispatch.
+
+These events retain the schema-1 envelope and correlation IDs and add a typed
+`decision` object, independently versioned with `contract_version: 1`:
+
+```json
+{"contract_version":1,"mode":"sequential-admission","candidate_count":3,"status":"selected","selected_model":"sol"}
+```
+
+Status is `started`, `selected`, `no_selection`, or `error`. Only valid completed
+outcomes may add `selected_model` and measured `input_tokens`, `output_tokens`,
+`total_tokens`, `cached_input_tokens`, `cost_usd`, or `latency_ms`. Unknown fields
+are absent; known zero is explicit, including independently known cached input.
+The default sequential engine reports no measured decision telemetry. Admission
+estimates stay on legacy admission events and are not copied into decision usage.
+
+The mapping excludes task text, prompts/responses, credentials, raw provider
+payloads, reason details, errors and file contents. It also ignores generic
+progress-event model/reasons/detail/estimates in favor of the structural payload.
+Decision telemetry is nested to avoid conflating it with execution accounting.
+Normal/quiet/JSON routing output and checkpoint updates ignore these events.
+Old schema-1 lines without `decision` continue to read and render unchanged;
+aggregate `history.json` is unchanged.
 
 ## Privacy and recovery
 

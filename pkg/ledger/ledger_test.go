@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oleg-koval/veto/pkg/router"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -89,4 +90,24 @@ func TestEventTypesCoverPlannedLifecycle(t *testing.T) {
 	} {
 		assert.NotEmpty(t, eventType)
 	}
+}
+
+// TestOldSchemaOneAndDecisionLinesReadTogether verifies that legacy and
+// decision events share schema version one without losing known zero values.
+func TestOldSchemaOneAndDecisionLinesReadTogether(t *testing.T) {
+	old := `{"schema_version":1,"timestamp":"2026-08-30T07:00:00Z","event_id":"one","run_id":"run","type":"admission.accepted","model":"legacy","confidence":0,"estimated_cost_usd":0}`
+	var output bytes.Buffer
+	output.WriteString(old + "\n")
+	require.NoError(t, NewWriter(&output).Append(Event{RunID: "run", Type: EventDecisionCompleted, Decision: &router.DecisionProgress{Version: 1, Mode: router.DecisionModeSequentialAdmission, CandidateCount: 1, Status: "no_selection"}}))
+	events, corrupt, err := Read(&output)
+	require.NoError(t, err)
+	require.Zero(t, corrupt)
+	require.Len(t, events, 2)
+	require.Nil(t, events[0].Decision)
+	require.NotNil(t, events[0].Confidence)
+	require.Zero(t, *events[0].Confidence)
+	require.Equal(t, "legacy", events[0].Model)
+	require.Equal(t, 1, events[1].SchemaVersion)
+	require.NotNil(t, events[1].Decision)
+	require.Equal(t, "no_selection", events[1].Decision.Status)
 }

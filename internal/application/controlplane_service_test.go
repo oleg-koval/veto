@@ -42,6 +42,23 @@ func TestControlServiceRoutesAndPublishesProgress(t *testing.T) {
 	}
 }
 
+func TestControlServiceOmitsUnknownConfidencePercentage(t *testing.T) {
+	routerPort := &serviceRouter{model: router.ModelCapabilities{Name: "test-model", Provider: "test"}, decision: router.AdmissionDecision{Accept: true, ConfidenceUnknown: true}}
+	service := NewControlService(Runner{}, routerPort)
+	updates := service.Subscribe(context.Background())
+	_, err := service.Execute(context.Background(), controlplane.ActionRequest{ActionID: "route", Arguments: map[string]string{"objective": "summarize this"}})
+	if err != nil {
+		t.Fatalf("route failed: %v", err)
+	}
+	event := <-updates
+	if !strings.Contains(event.Message, "confidence unavailable") || strings.Contains(event.Message, "0%") {
+		t.Fatalf("event message = %q", event.Message)
+	}
+	if event.ConfidenceKnown {
+		t.Fatal("unknown confidence was marked known")
+	}
+}
+
 func TestControlServiceRefreshesRoutingBeforeRouteAndRun(t *testing.T) {
 	t.Parallel()
 
@@ -559,9 +576,10 @@ func TestControlServiceRejectsDuplicateActiveActionID(t *testing.T) {
 }
 
 type serviceRouter struct {
-	model  router.ModelCapabilities
-	called bool
-	task   router.TaskSpec
+	model    router.ModelCapabilities
+	decision router.AdmissionDecision
+	called   bool
+	task     router.TaskSpec
 }
 
 type timedServiceRouter struct {
@@ -577,7 +595,11 @@ func (r *timedServiceRouter) RouteWithAdmissionTimeout(ctx context.Context, task
 func (r *serviceRouter) Route(_ context.Context, task router.TaskSpec) (router.ModelCapabilities, router.AdmissionDecision, error) {
 	r.called = true
 	r.task = task
-	return r.model, router.AdmissionDecision{Accept: true}, nil
+	decision := r.decision
+	if !decision.Accept {
+		decision = router.AdmissionDecision{Accept: true}
+	}
+	return r.model, decision, nil
 }
 
 func (r *serviceRouter) RecordExecution(router.TaskSpec, string, router.ExecutionMetrics) {}
