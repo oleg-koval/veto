@@ -50,6 +50,8 @@ func TestClaudeCLIAuthenticationDiscoversSubscription(t *testing.T) {
 	assert.Equal(t, claudeAuthSubscription, claudeCLIAuthentication())
 }
 
+// TestClaudeCLIAuthenticationDistinguishesAPIKeyAndLoggedOut verifies API-key
+// and logged-out status handling, including nonzero exits and malformed output.
 func TestClaudeCLIAuthenticationDistinguishesAPIKeyAndLoggedOut(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX subprocess fixture")

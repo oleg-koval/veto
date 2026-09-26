@@ -94,6 +94,8 @@ func (e *CodexCLIExecutor) Stream(ctx context.Context, prompt string, w io.Write
 	return e.ExecuteWithEvents(ctx, prompt, ExecutionOptions{}, w, nil).Error
 }
 
+// executionArgs builds an ephemeral Codex invocation with workspace-write
+// access, JSON events, and a bounded compaction threshold, ignoring user config.
 func (*CodexCLIExecutor) executionArgs(prompt string) []string {
 	// Keep Veto runs independent from the operator's interactive Codex session.
 	// Global config can load plugins, hooks, and unrelated history into every

@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestManagerDecisionLifecycle verifies decision start and terminal events,
+// telemetry presence, and exclusion of private data from boundary events.
 func TestManagerDecisionLifecycle(t *testing.T) {
 	for _, tc := range []struct {
 		name, status                   string
@@ -84,6 +86,8 @@ func TestManagerDecisionLifecycle(t *testing.T) {
 	}
 }
 
+// TestDefaultDecisionEventsEncloseLegacyAdmission verifies that boundary
+// events enclose admission events and are absent when all models are skipped.
 func TestDefaultDecisionEventsEncloseLegacyAdmission(t *testing.T) {
 	var kinds []EventKind
 	exec := &executorMock{RunFunc: func(context.Context, string) AdmissionResult {
@@ -101,6 +105,8 @@ func TestDefaultDecisionEventsEncloseLegacyAdmission(t *testing.T) {
 	require.Equal(t, []EventKind{EventFilterPass, EventShortlist}, kinds, "no engine call when every candidate is skipped")
 }
 
+// TestDecisionTelemetryKnownFieldsAreIndependent verifies that each known
+// flag controls its own event fields, preserving zero and omitting unknowns.
 func TestDecisionTelemetryKnownFieldsAreIndependent(t *testing.T) {
 	p := decisionProgress(1, "no_selection", &DecisionOutcome{Telemetry: DecisionTelemetry{CachedInputKnown: true}})
 	data, err := json.Marshal(p)

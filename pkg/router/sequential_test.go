@@ -15,6 +15,7 @@ import (
 
 type decisionEngineFunc func(context.Context, DecisionRequest) (DecisionOutcome, error)
 
+// Decide delegates to the wrapped function so tests can supply engine outcomes.
 func (f decisionEngineFunc) Decide(ctx context.Context, r DecisionRequest) (DecisionOutcome, error) {
 	return f(ctx, r)
 }
@@ -26,18 +27,24 @@ type admissionRecord struct {
 }
 type legacyDecisionStore struct{ records []admissionRecord }
 
+// LogDecision records an admission through the legacy store contract.
 func (s *legacyDecisionStore) LogDecision(_ string, model string, d AdmissionDecision) {
 	s.records = append(s.records, admissionRecord{model: model, decision: d})
 }
+// LogResult ignores execution results in this admission-only test store.
 func (*legacyDecisionStore) LogResult(string, string, float64, string) {}
+// Signal returns an empty routing signal so history does not affect test ranking.
 func (*legacyDecisionStore) Signal(string, TaskKind) RoutingSignal     { return RoutingSignal{} }
 
 type kindDecisionStore struct{ *legacyDecisionStore }
 
+// LogDecisionForKind records an admission with its task kind for store parity checks.
 func (s kindDecisionStore) LogDecisionForKind(_ string, model string, kind TaskKind, d AdmissionDecision) {
 	s.records = append(s.records, admissionRecord{model: model, kind: kind, decision: d})
 }
 
+// parityModels returns five otherwise equivalent candidates with increasing
+// input costs, providing deterministic ranking and enough models to test the cap.
 func parityModels() []ModelCapabilities {
 	var models []ModelCapabilities
 	for i := 0; i < 5; i++ {
@@ -46,6 +53,8 @@ func parityModels() []ModelCapabilities {
 	return models
 }
 
+// TestSequentialManagerParity verifies legacy admission results, attempt
+// limits, live event ordering, and persistence for both supported store contracts.
 func TestSequentialManagerParity(t *testing.T) {
 	full := `{"accept":true,"confidence":0.91,"reason_codes":[],"estimated_tokens":123,"estimated_cost_usd":0.002,"suggested_alternative_model":"other","required_task_changes":["clarify"]}`
 	for _, tc := range []struct {
@@ -172,6 +181,8 @@ func TestSequentialManagerParity(t *testing.T) {
 	}
 }
 
+// TestManagerDecisionBoundary verifies that the manager bounds requests and
+// rejects invalid or mutated selections before returning a model.
 func TestManagerDecisionBoundary(t *testing.T) {
 	for _, tc := range []string{"valid", "unknown", "invalid version", "invalid admission", "mutated shortlist", "no selection", "engine error", "invalid request", "empty"} {
 		t.Run(tc, func(t *testing.T) {
@@ -233,6 +244,8 @@ func TestManagerDecisionBoundary(t *testing.T) {
 	}
 }
 
+// TestSequentialConcurrentTimeouts verifies that request-local deadlines stay
+// isolated while concurrent routes also update the gate's configured timeout.
 func TestSequentialConcurrentTimeouts(t *testing.T) {
 	exec := &executorMock{RunFunc: func(ctx context.Context, prompt string) AdmissionResult {
 		deadline, ok := ctx.Deadline()
@@ -274,6 +287,8 @@ func TestSequentialConcurrentTimeouts(t *testing.T) {
 	wg.Wait()
 }
 
+// TestSequentialEngineRequestReadOnly verifies that skipping and selecting
+// candidates leaves the request and its nested slices unchanged.
 func TestSequentialEngineRequestReadOnly(t *testing.T) {
 	r := DecisionRequest{Version: DecisionVersion, Task: TaskSpec{SkipModels: []string{"skip"}}, Candidates: []DecisionCandidate{{Model: ModelCapabilities{Name: "skip"}}, {Model: ModelCapabilities{Name: "accept"}}}}
 	before := cloneDecisionRequest(r)
@@ -285,6 +300,8 @@ func TestSequentialEngineRequestReadOnly(t *testing.T) {
 	require.True(t, reflect.DeepEqual(before, r))
 }
 
+// TestSequentialLegacyConfidence verifies that legacy admission confidence is
+// preserved while out-of-range values remain unknown in normalized outcomes.
 func TestSequentialLegacyConfidence(t *testing.T) {
 	for _, confidence := range []float64{.9, 1.1} {
 		t.Run(fmt.Sprint(confidence), func(t *testing.T) {

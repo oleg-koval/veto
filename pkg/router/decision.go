@@ -79,6 +79,8 @@ type DecisionProbability struct {
 	Known bool
 }
 
+// validate rejects nonfinite or out-of-range estimates and nonzero unknown
+// values, using label to identify the estimate in errors.
 func (p DecisionProbability) validate(label string) error {
 	if math.IsNaN(p.Value) || math.IsInf(p.Value, 0) || p.Value < 0 || p.Value > 1 {
 		return fmt.Errorf("decision outcome: %s must be finite and between 0 and 1", label)
@@ -107,6 +109,8 @@ type DecisionTelemetry struct {
 	LatencyKnown      bool
 }
 
+// validate checks that measurements are nonnegative, cost is finite, and
+// unknown measurements have zero values without inferring any known flags.
 func (t DecisionTelemetry) validate() error {
 	if t.InputTokens < 0 || t.OutputTokens < 0 || t.TotalTokens < 0 || t.CachedInputTokens < 0 || t.LatencyMs < 0 {
 		return fmt.Errorf("decision outcome: telemetry tokens and latency must be nonnegative")

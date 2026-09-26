@@ -38,6 +38,8 @@ func TestReadTUIHistoryKeepsNewestEventsAcrossFiles(t *testing.T) {
 	require.NotEqual(t, "old-0", history[len(history)-1].EventID)
 }
 
+// TestOldSchemaOneHistoryStillRendersAlongsideDecisionEvents verifies that
+// TUI history preserves legacy measured zeros alongside decision events.
 func TestOldSchemaOneHistoryStillRendersAlongsideDecisionEvents(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

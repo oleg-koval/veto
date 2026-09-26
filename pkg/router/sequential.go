@@ -22,6 +22,10 @@ type sequentialAdmissionOptions struct {
 	log     func(string, AdmissionDecision)
 }
 
+// Decide validates the request and asks non-skipped candidates in order until
+// one accepts, preserving admission logging, progress events, and deadlines.
+// It returns an empty selection when candidates are exhausted, or an error
+// for an invalid request or cancellation observed during admission.
 func (e *SequentialAdmissionEngine) Decide(ctx context.Context, request DecisionRequest) (DecisionOutcome, error) {
 	if err := request.Validate(); err != nil {
 		return DecisionOutcome{}, err

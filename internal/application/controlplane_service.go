@@ -598,6 +598,9 @@ func (s *ControlService) recordRuntimeMonitor(event execution.RuntimeEvent) {
 	s.mu.Unlock()
 }
 
+// publishRouteEvent records and publishes routing progress. Decision boundary
+// events carry only their structural payload; legacy acceptance events also
+// update the selected model and monitor snapshot.
 func (s *ControlService) publishRouteEvent(event router.ProgressEvent) {
 	if s.routeRecorder != nil {
 		s.routeRecorder(event)

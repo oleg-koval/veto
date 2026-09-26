@@ -12,10 +12,13 @@ import (
 
 type decisionAdmission struct{}
 
+// Run returns a fixed acceptance response for service composition tests.
 func (decisionAdmission) Run(context.Context, string) router.AdmissionResult {
 	return router.AdmissionResult{Output: `{"accept":true,"confidence":0.9}`}
 }
 
+// TestControlServiceDefaultManagerDecisionComposition verifies that route and
+// run actions publish and record the default manager's decision boundaries.
 func TestControlServiceDefaultManagerDecisionComposition(t *testing.T) {
 	for _, action := range []string{"route", "run"} {
 		t.Run(action, func(t *testing.T) {
@@ -49,6 +52,8 @@ func TestControlServiceDefaultManagerDecisionComposition(t *testing.T) {
 	}
 }
 
+// TestControlPlaneDecisionMappingExcludesLegacyDetail verifies that decision
+// boundary updates exclude legacy model, confidence, and free-text fields.
 func TestControlPlaneDecisionMappingExcludesLegacyDetail(t *testing.T) {
 	service := NewControlService(Runner{}, &serviceRouter{})
 	updates := service.Subscribe(t.Context())

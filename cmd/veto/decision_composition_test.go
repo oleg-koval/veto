@@ -65,6 +65,8 @@ func TestDecisionCompositionProcess(t *testing.T) {
 	os.Exit(0) // Preserve command stdout, without the test harness PASS line.
 }
 
+// TestDecisionCompositionAndRoutingOutput verifies that each composition root
+// uses sequential admission and preserves its command output contract.
 func TestDecisionCompositionAndRoutingOutput(t *testing.T) {
 	for _, mode := range []string{"normal", "quiet", "json", "run", "plan", "review", "tui"} {
 		t.Run(mode, func(t *testing.T) {
@@ -123,6 +125,8 @@ esac
 	}
 }
 
+// TestDecisionEventsPreserveRendererOutput verifies that decision boundary
+// events leave normal and quiet renderer output unchanged.
 func TestDecisionEventsPreserveRendererOutput(t *testing.T) {
 	legacy := []router.ProgressEvent{
 		{Kind: router.EventFilterPass, Model: "fixture"},
