@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestDecisionShadowDisabledDoesNotReadPrerequisites verifies that disabled shadow mode reads only its enable switch.
 func TestDecisionShadowDisabledDoesNotReadPrerequisites(t *testing.T) {
 	var lookedUp []string
 	config := loadDecisionShadowConfig(func(key string) (string, bool) {
@@ -23,6 +24,7 @@ func TestDecisionShadowDisabledDoesNotReadPrerequisites(t *testing.T) {
 	require.Equal(t, []string{envJevShadowEnabled}, lookedUp)
 }
 
+// TestDecisionShadowInvalidSwitchStaysDisabled verifies that an invalid switch warns without reading prerequisites.
 func TestDecisionShadowInvalidSwitchStaysDisabled(t *testing.T) {
 	config := loadDecisionShadowConfig(func(key string) (string, bool) {
 		if key == envJevShadowEnabled {
@@ -35,6 +37,7 @@ func TestDecisionShadowInvalidSwitchStaysDisabled(t *testing.T) {
 	require.Len(t, config.warnings, 1)
 }
 
+// TestEnabledShadowWithoutKeyPreservesRouteAndRecordsUnavailable checks routing and unavailable evidence when the API key is absent.
 func TestEnabledShadowWithoutKeyPreservesRouteAndRecordsUnavailable(t *testing.T) {
 	evidencePath := filepath.Join(t.TempDir(), "evidence.jsonl")
 	values := map[string]string{
@@ -63,6 +66,7 @@ func TestEnabledShadowWithoutKeyPreservesRouteAndRecordsUnavailable(t *testing.T
 	require.Equal(t, shadowdata.StatusUnavailable, events[0].Comparison.Shadow.Status)
 }
 
+// TestShadowReportFixture checks successful CLI JSON output for the offline evidence fixture.
 func TestShadowReportFixture(t *testing.T) {
 	path := filepath.Join("..", "..", "pkg", "shadow", "testdata", "shadow_v1.jsonl")
 	var stdout, stderr bytes.Buffer
@@ -76,6 +80,7 @@ func TestShadowReportFixture(t *testing.T) {
 
 type experimentalShadowAdmission struct{}
 
+// Run returns a fixed accepting admission for shadow configuration tests.
 func (experimentalShadowAdmission) Run(context.Context, string) router.AdmissionResult {
 	return router.AdmissionResult{Output: `{"accept":true,"confidence":0.9}`}
 }

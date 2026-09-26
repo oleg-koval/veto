@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestDecideShadow checks request construction, candidate mapping, probabilities, and measured telemetry.
 func TestDecideShadow(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/v1/systemone", r.URL.Path)
@@ -50,6 +51,7 @@ func TestDecideShadow(t *testing.T) {
 	require.False(t, prediction.Telemetry.CostKnown)
 }
 
+// TestDecideShadowNoSelection checks that explicit nonselection retains confidence but no success probability.
 func TestDecideShadowNoSelection(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := validResponse(noSelectionChoice)
@@ -65,6 +67,7 @@ func TestDecideShadowNoSelection(t *testing.T) {
 	require.True(t, prediction.Confidence.Known)
 }
 
+// TestDecideShadowRequiresKeyWithoutRequest checks that a missing key prevents HTTP traffic.
 func TestDecideShadowRequiresKeyWithoutRequest(t *testing.T) {
 	transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
 		t.Fatal("HTTP request must not be made")
@@ -76,6 +79,7 @@ func TestDecideShadowRequiresKeyWithoutRequest(t *testing.T) {
 	require.ErrorIs(t, err, router.ErrShadowUnavailable)
 }
 
+// TestParseResponseRejectsMalformedData checks rejection of invalid usage, selections, and typed answers.
 func TestParseResponseRejectsMalformedData(t *testing.T) {
 	keys := map[string]string{"candidate_1": "model-a", "candidate_2": "model-b"}
 	tests := map[string]func(*systemOneResponse){
@@ -118,6 +122,7 @@ func TestParseResponseRejectsMalformedData(t *testing.T) {
 	}
 }
 
+// TestDecideShadowHTTPFailureDoesNotLeakBody checks that HTTP error bodies are absent from returned errors.
 func TestDecideShadowHTTPFailureDoesNotLeakBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -131,6 +136,7 @@ func TestDecideShadowHTTPFailureDoesNotLeakBody(t *testing.T) {
 	require.NotContains(t, err.Error(), "secret")
 }
 
+// TestDecideShadowRejectsOversizedResponse checks the response size limit.
 func TestDecideShadowRejectsOversizedResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, strings.Repeat("x", maxResponseBytes+1))
@@ -142,6 +148,7 @@ func TestDecideShadowRejectsOversizedResponse(t *testing.T) {
 	require.ErrorIs(t, err, router.ErrShadowMalformed)
 }
 
+// TestDecideShadowRejectsRedirect checks that redirects never reach their target.
 func TestDecideShadowRejectsRedirect(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("redirect target must not be called")
@@ -157,6 +164,7 @@ func TestDecideShadowRejectsRedirect(t *testing.T) {
 	require.ErrorContains(t, err, "redirects are not allowed")
 }
 
+// TestDecideShadowHonorsCancellation checks propagation of context cancellation.
 func TestDecideShadowHonorsCancellation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()
@@ -170,6 +178,7 @@ func TestDecideShadowHonorsCancellation(t *testing.T) {
 	require.True(t, errors.Is(err, context.Canceled))
 }
 
+// decisionRequest builds a valid two-candidate request for adapter tests.
 func decisionRequest() router.DecisionRequest {
 	return router.DecisionRequest{
 		Version: router.DecisionVersion,
@@ -181,6 +190,7 @@ func decisionRequest() router.DecisionRequest {
 	}
 }
 
+// validResponse builds a typed response fixture for the requested choice.
 func validResponse(choice string) systemOneResponse {
 	return systemOneResponse{
 		Model: "jev-2026-09-15", Usage: &usage{InputTokens: intValue(120), OutputTokens: intValue(4)},
@@ -192,10 +202,13 @@ func validResponse(choice string) systemOneResponse {
 	}
 }
 
+// intValue returns a pointer to an integer fixture value.
 func intValue(value int) *int { return &value }
 
+// floatValue returns a pointer to a floating-point fixture value.
 func floatValue(value float64) *float64 { return &value }
 
+// raw marshals fixture data to raw JSON, panicking on invalid test input.
 func raw(value any) json.RawMessage {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -204,6 +217,7 @@ func raw(value any) json.RawMessage {
 	return data
 }
 
+// writeJSON writes a JSON response and fails the test on encoding errors.
 func writeJSON(t *testing.T, w http.ResponseWriter, value any) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")
@@ -212,4 +226,5 @@ func writeJSON(t *testing.T, w http.ResponseWriter, value any) {
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
+// RoundTrip delegates HTTP transport behavior to the test function.
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }

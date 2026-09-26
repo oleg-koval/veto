@@ -105,6 +105,7 @@ func (e *SequentialAdmissionEngine) Decide(ctx context.Context, request Decision
 	return outcome, nil
 }
 
+// mergeDecisionTelemetry initializes or sums admission measurements, preserving unknowns and rejecting overflow.
 func mergeDecisionTelemetry(total *DecisionTelemetry, current DecisionTelemetry, first bool) {
 	if first {
 		*total = current
@@ -150,6 +151,7 @@ func mergeDecisionTelemetry(total *DecisionTelemetry, current DecisionTelemetry,
 	}
 }
 
+// addNonnegativeInt returns a checked sum, or false for negative inputs or integer overflow.
 func addNonnegativeInt(left, right int) (int, bool) {
 	if left < 0 || right < 0 || right > math.MaxInt-left {
 		return 0, false

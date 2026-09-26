@@ -29,6 +29,7 @@ type FileRecorder struct {
 	failed    error
 }
 
+// NewFileRecorder constructs a recorder, using DefaultMaxEvents for a nonpositive limit.
 func NewFileRecorder(path string, maxEvents int) *FileRecorder {
 	if maxEvents <= 0 {
 		maxEvents = DefaultMaxEvents
@@ -36,6 +37,7 @@ func NewFileRecorder(path string, maxEvents int) *FileRecorder {
 	return &FileRecorder{path: path, maxEvents: maxEvents}
 }
 
+// RecordShadowComparison converts a router comparison into a validated JSONL event.
 func (r *FileRecorder) RecordShadowComparison(record router.ShadowComparisonRecord) error {
 	candidates := make([]shadowdata.Candidate, 0, len(record.Candidates))
 	for _, key := range record.Candidates {
@@ -49,6 +51,7 @@ func (r *FileRecorder) RecordShadowComparison(record router.ShadowComparisonReco
 	return r.append(shadowdata.Event{SchemaVersion: shadowdata.SchemaVersion, Type: shadowdata.EventRouteComparison, Comparison: &comparison})
 }
 
+// RecordShadowExecutionLabel appends execution evidence while preserving unknown measurements.
 func (r *FileRecorder) RecordShadowExecutionLabel(record router.ShadowExecutionLabelRecord) error {
 	label := shadowdata.ExecutionLabel{
 		RouteID: record.RouteID, ObservedAt: record.ObservedAt, Candidate: record.Candidate,
@@ -61,6 +64,7 @@ func (r *FileRecorder) RecordShadowExecutionLabel(record router.ShadowExecutionL
 	return r.append(shadowdata.Event{SchemaVersion: shadowdata.SchemaVersion, Type: shadowdata.EventExecutionLabel, Label: &label})
 }
 
+// decision converts router decision evidence to the persistence schema without inferring missing values.
 func decision(record router.ShadowDecisionRecord) shadowdata.DecisionEvidence {
 	return shadowdata.DecisionEvidence{
 		Status: shadowdata.DecisionStatus(record.Status), SelectedCandidate: record.SelectedCandidate,
@@ -75,6 +79,7 @@ func decision(record router.ShadowDecisionRecord) shadowdata.DecisionEvidence {
 	}
 }
 
+// append validates and appends a private event within the limit, retaining I/O or validation failures.
 func (r *FileRecorder) append(event shadowdata.Event) error {
 	var line bytes.Buffer
 	if err := shadowdata.Append(&line, event); err != nil {
@@ -120,6 +125,7 @@ func (r *FileRecorder) append(event shadowdata.Event) error {
 	return nil
 }
 
+// poison retains the first failure so subsequent appends fail closed.
 func (r *FileRecorder) poison(err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -128,6 +134,7 @@ func (r *FileRecorder) poison(err error) {
 	}
 }
 
+// ensureCount validates and counts existing events once; the caller must hold mu.
 func (r *FileRecorder) ensureCount() error {
 	if r.counted {
 		return nil

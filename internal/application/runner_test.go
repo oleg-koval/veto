@@ -27,6 +27,7 @@ type decisionAwareTestRouter struct {
 	decisionRecorded bool
 }
 
+// RecordExecutionForDecision captures the decision and execution metrics supplied by the runner.
 func (r *decisionAwareTestRouter) RecordExecutionForDecision(task router.TaskSpec, _ string, decision router.AdmissionDecision, metrics router.ExecutionMetrics) {
 	r.decisionRecorded = true
 	r.recordedTask = task
@@ -102,6 +103,7 @@ func TestRunnerExecuteRoutesAndRecordsTelemetry(t *testing.T) {
 	assert.Equal(t, []ExecutionEventKind{ExecutionStarted, ExecutionCompleted}, eventKinds(events))
 }
 
+// TestRunnerUsesDecisionAwareExecutionRecorderWhenAvailable checks that the runner selects the optional decision-aware recording port.
 func TestRunnerUsesDecisionAwareExecutionRecorderWhenAvailable(t *testing.T) {
 	routerPort := &decisionAwareTestRouter{testRouter: testRouter{
 		model: router.ModelCapabilities{Name: "model"}, decision: router.AdmissionDecision{Accept: true, Confidence: .8},

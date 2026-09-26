@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestEvaluateFixture checks deterministic metrics and insufficient readiness for the offline fixture.
 func TestEvaluateFixture(t *testing.T) {
 	file, err := os.Open("testdata/shadow_v1.jsonl")
 	require.NoError(t, err)
@@ -35,6 +36,7 @@ func TestEvaluateFixture(t *testing.T) {
 	require.Equal(t, ReadinessInsufficient, report.Readiness.Status)
 }
 
+// TestPromotionPolicyReadyDataset checks that a sufficiently labeled synthetic dataset passes every promotion gate.
 func TestPromotionPolicyReadyDataset(t *testing.T) {
 	kinds := []string{"plan", "debug", "review", "refactor", "code-change"}
 	dataset := Dataset{}
@@ -55,6 +57,7 @@ func TestPromotionPolicyReadyDataset(t *testing.T) {
 	require.Equal(t, ReadinessReady, report.Readiness.Status)
 }
 
+// TestCalibrationUsesConfidenceWhenSuccessProbabilityIsUnknown checks the authority confidence proxy for calibration.
 func TestCalibrationUsesConfidenceWhenSuccessProbabilityIsUnknown(t *testing.T) {
 	dataset := Dataset{Routes: []RouteRecord{{
 		Comparison: RouteComparison{
@@ -71,6 +74,7 @@ func TestCalibrationUsesConfidenceWhenSuccessProbabilityIsUnknown(t *testing.T) 
 	require.InDelta(t, .04, report.Authority.Calibration.BrierScore, 1e-12)
 }
 
+// TestPromotionPolicyRequiresPairedLabelCoverage checks that missing counterfactual labels block success and calibration gates.
 func TestPromotionPolicyRequiresPairedLabelCoverage(t *testing.T) {
 	kinds := []string{"plan", "debug", "review", "refactor", "code-change"}
 	dataset := Dataset{}
@@ -97,6 +101,7 @@ func TestPromotionPolicyRequiresPairedLabelCoverage(t *testing.T) {
 	require.Equal(t, ReadinessInsufficient, report.Readiness.Status)
 }
 
+// readyDecision builds a successful decision fixture with known cost and latency.
 func readyDecision(cost float64, latency int64) DecisionEvidence {
 	return DecisionEvidence{
 		Status: StatusSelected, SelectedCandidate: "c1",

@@ -12,6 +12,7 @@ import (
 
 type shadowDeciderFunc func(context.Context, DecisionRequest) (ShadowPrediction, error)
 
+// DecideShadow delegates shadow prediction to the test function.
 func (f shadowDeciderFunc) DecideShadow(ctx context.Context, request DecisionRequest) (ShadowPrediction, error) {
 	return f(ctx, request)
 }
@@ -24,6 +25,7 @@ type recordingShadowSink struct {
 	panic       bool
 }
 
+// RecordShadowComparison captures comparisons or simulates a configured recorder failure.
 func (r *recordingShadowSink) RecordShadowComparison(comparison ShadowComparisonRecord) error {
 	if r.panic {
 		panic("recorder")
@@ -34,6 +36,7 @@ func (r *recordingShadowSink) RecordShadowComparison(comparison ShadowComparison
 	return r.err
 }
 
+// RecordShadowExecutionLabel captures execution labels or simulates a configured recorder failure.
 func (r *recordingShadowSink) RecordShadowExecutionLabel(label ShadowExecutionLabelRecord) error {
 	if r.panic {
 		panic("recorder")
@@ -44,6 +47,7 @@ func (r *recordingShadowSink) RecordShadowExecutionLabel(label ShadowExecutionLa
 	return r.err
 }
 
+// TestShadowingDecisionEngineReturnsAuthorityUnchanged checks that shadow request mutations and predictions cannot alter the authority result.
 func TestShadowingDecisionEngineReturnsAuthorityUnchanged(t *testing.T) {
 	request := shadowRequest()
 	want := DecisionOutcome{Version: DecisionVersion, SelectedCandidate: "a", Mode: DecisionModeSequentialAdmission, Probability: DecisionProbability{Known: true, Value: .8}, Confidence: DecisionProbability{Known: true, Value: .9}}
@@ -67,6 +71,7 @@ func TestShadowingDecisionEngineReturnsAuthorityUnchanged(t *testing.T) {
 	require.Equal(t, "jev:test", comparison.ShadowStrategy)
 }
 
+// TestShadowingDecisionEnginePreservesAuthorityError checks that shadow panics and recorder errors preserve the authority error.
 func TestShadowingDecisionEnginePreservesAuthorityError(t *testing.T) {
 	wantErr := errors.New("authority failed")
 	recorder := &recordingShadowSink{err: errors.New("disk full")}
@@ -81,6 +86,7 @@ func TestShadowingDecisionEnginePreservesAuthorityError(t *testing.T) {
 	require.Equal(t, "PANIC", recorder.comparisons[0].Shadow.ErrorCode)
 }
 
+// TestShadowingDecisionEngineBoundsDelayAndIgnoresRecorderPanic checks the shadow deadline and recorder panic isolation.
 func TestShadowingDecisionEngineBoundsDelayAndIgnoresRecorderPanic(t *testing.T) {
 	recorder := &recordingShadowSink{panic: true}
 	engine := NewShadowingDecisionEngine(decisionEngineFunc(func(context.Context, DecisionRequest) (DecisionOutcome, error) {
@@ -96,6 +102,7 @@ func TestShadowingDecisionEngineBoundsDelayAndIgnoresRecorderPanic(t *testing.T)
 	require.Less(t, time.Since(started), time.Second)
 }
 
+// TestShadowingDecisionEngineRecordsMalformedAndCanceled checks evidence classification for malformed, canceled, and timed-out predictions.
 func TestShadowingDecisionEngineRecordsMalformedAndCanceled(t *testing.T) {
 	for name, decider := range map[string]ShadowDecider{
 		"malformed": shadowDeciderFunc(func(context.Context, DecisionRequest) (ShadowPrediction, error) {
@@ -121,6 +128,7 @@ func TestShadowingDecisionEngineRecordsMalformedAndCanceled(t *testing.T) {
 	}
 }
 
+// TestManagerRecordsExecutionLabelWithoutChangingStore checks that shadow labels preserve unknown success and existing store telemetry.
 func TestManagerRecordsExecutionLabelWithoutChangingStore(t *testing.T) {
 	recorder := &recordingShadowSink{}
 	store := NewMemoryStore()
@@ -136,6 +144,7 @@ func TestManagerRecordsExecutionLabelWithoutChangingStore(t *testing.T) {
 	require.True(t, store.Signal("a", KindPlan).EvalScoreKnown)
 }
 
+// TestManagerRecordsReviewOutcomeAfterTransportCompletion checks that review outcomes retain the earlier execution telemetry.
 func TestManagerRecordsReviewOutcomeAfterTransportCompletion(t *testing.T) {
 	recorder := &recordingShadowSink{}
 	registry := NewRegistryFromModels([]ModelCapabilities{{Name: "a", Tier: "large", Provider: "test"}})
@@ -155,6 +164,7 @@ func TestManagerRecordsReviewOutcomeAfterTransportCompletion(t *testing.T) {
 	require.True(t, recorder.labels[1].Telemetry.UsageKnown)
 }
 
+// TestManagerUsesUniqueRouteIDsForRepeatedTasks checks that repeated tasks correlate labels with distinct route observations.
 func TestManagerUsesUniqueRouteIDsForRepeatedTasks(t *testing.T) {
 	recorder := &recordingShadowSink{}
 	registry := NewRegistryFromModels([]ModelCapabilities{{Name: "a", Tier: "large", Provider: "test"}})
@@ -180,6 +190,7 @@ func TestManagerUsesUniqueRouteIDsForRepeatedTasks(t *testing.T) {
 	}
 }
 
+// TestLegacyRecordExecutionUsesRememberedRouteID checks route correlation through the legacy recording API.
 func TestLegacyRecordExecutionUsesRememberedRouteID(t *testing.T) {
 	recorder := &recordingShadowSink{}
 	registry := NewRegistryFromModels([]ModelCapabilities{{Name: "a", Tier: "large", Provider: "test"}})
@@ -196,6 +207,7 @@ func TestLegacyRecordExecutionUsesRememberedRouteID(t *testing.T) {
 	require.Equal(t, recorder.comparisons[0].RouteID, recorder.labels[0].RouteID)
 }
 
+// shadowRequest builds a two-candidate request for shadow isolation tests.
 func shadowRequest() DecisionRequest {
 	return DecisionRequest{Version: DecisionVersion, Task: TaskSpec{ID: "task-1", Kind: KindPlan, Risk: RiskMedium, Objective: "original"}, Candidates: []DecisionCandidate{{Model: ModelCapabilities{Name: "a"}}, {Model: ModelCapabilities{Name: "b"}}}}
 }

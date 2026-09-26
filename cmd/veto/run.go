@@ -401,6 +401,7 @@ var validKinds = map[string]bool{
 
 var validKindList = "code-change|debug|refactor|summarize|extract|review|plan"
 
+// prepareRouting builds the provider registry, routing manager, and persistent history store.
 func prepareRouting() (*providerRegistry, *router.Manager, *routinghistory.FileStore, error) {
 	reg, err := buildProviderRegistry()
 	if err != nil {

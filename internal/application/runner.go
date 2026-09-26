@@ -195,6 +195,7 @@ func (r Runner) Execute(ctx context.Context, request Request) (Response, error) 
 		OutputWritten: streamed, Streamed: streamed}, nil
 }
 
+// recordExecution uses decision-aware recording when supported, falling back to the legacy router port.
 func recordExecution(r Router, task router.TaskSpec, modelName string, decision router.AdmissionDecision, metrics router.ExecutionMetrics) {
 	if recorder, ok := r.(decisionExecutionRecorder); ok {
 		recorder.RecordExecutionForDecision(task, modelName, decision, metrics)

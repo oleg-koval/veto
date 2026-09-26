@@ -156,6 +156,7 @@ func (e Event) Validate() error {
 	}
 }
 
+// validate checks route metadata, unique candidate keys, and both decision records.
 func (c RouteComparison) validate() error {
 	if err := validateID("route_id", c.RouteID); err != nil {
 		return err
@@ -198,6 +199,7 @@ func (c RouteComparison) validate() error {
 	return c.Shadow.validate("shadow", keys, true)
 }
 
+// validate checks role-specific statuses, selection consistency, measurements, and error codes.
 func (d DecisionEvidence) validate(role string, candidates map[string]bool, shadow bool) error {
 	valid := d.Status == StatusSelected || d.Status == StatusNoSelection || d.Status == StatusError
 	if shadow {
@@ -241,6 +243,7 @@ func (d DecisionEvidence) validate(role string, candidates map[string]bool, shad
 	return nil
 }
 
+// validate checks label identity, timestamp, and canonical outcome measurements.
 func (l ExecutionLabel) validate() error {
 	if err := validateID("route_id", l.RouteID); err != nil {
 		return err
@@ -266,6 +269,7 @@ func (l ExecutionLabel) validate() error {
 	return l.Latency.validate()
 }
 
+// validate requires a finite unit-interval value and zero for an unknown measurement.
 func (v KnownFloat) validate(name string) error {
 	if math.IsNaN(v.Value) || math.IsInf(v.Value, 0) || v.Value < 0 || v.Value > 1 {
 		return fmt.Errorf("shadow evidence: %s must be finite and between 0 and 1", name)
@@ -276,6 +280,7 @@ func (v KnownFloat) validate(name string) error {
 	return nil
 }
 
+// validateNonnegative requires a finite nonnegative value and zero for an unknown measurement.
 func (v KnownFloat) validateNonnegative(name string) error {
 	if math.IsNaN(v.Value) || math.IsInf(v.Value, 0) || v.Value < 0 {
 		return fmt.Errorf("shadow evidence: %s must be finite and nonnegative", name)
@@ -286,6 +291,7 @@ func (v KnownFloat) validateNonnegative(name string) error {
 	return nil
 }
 
+// validate rejects negative token counts and nonzero unknown usage.
 func (u KnownUsage) validate() error {
 	if u.InputTokens < 0 || u.OutputTokens < 0 || u.TotalTokens < 0 {
 		return fmt.Errorf("shadow evidence: usage must be nonnegative")
@@ -296,6 +302,7 @@ func (u KnownUsage) validate() error {
 	return nil
 }
 
+// validate rejects negative latency and nonzero unknown latency.
 func (d KnownDuration) validate() error {
 	if d.Millis < 0 {
 		return fmt.Errorf("shadow evidence: latency must be nonnegative")
@@ -306,6 +313,7 @@ func (d KnownDuration) validate() error {
 	return nil
 }
 
+// validate checks usage, cost, and latency with the decision role in validation errors.
 func (t Telemetry) validate(role string) error {
 	if err := t.Usage.validate(); err != nil {
 		return fmt.Errorf("shadow evidence: %s telemetry: %w", role, err)
@@ -319,6 +327,7 @@ func (t Telemetry) validate(role string) error {
 	return nil
 }
 
+// validateID requires a bounded opaque identifier without surrounding whitespace.
 func validateID(name, value string) error {
 	if !opaqueIDPattern.MatchString(value) || strings.TrimSpace(value) != value {
 		return fmt.Errorf("shadow evidence: invalid %s", name)

@@ -37,6 +37,7 @@ type ReadinessReport struct {
 	Gates         map[string]ReadinessGate `json:"gates"`
 }
 
+// evaluateReadiness applies promotion policy gates to recorded evidence and simulated hybrid outcomes.
 func evaluateReadiness(dataset Dataset, report Report, fallbackConfidence float64) ReadinessReport {
 	gates := map[string]ReadinessGate{}
 	coveragePass := report.LabeledRoutes >= 500 && len(report.LabeledRoutesByTaskKind) >= 5
@@ -101,10 +102,12 @@ func evaluateReadiness(dataset Dataset, report Report, fallbackConfidence float6
 	return ReadinessReport{PolicyVersion: PromotionPolicyVersion, Status: status, Gates: gates}
 }
 
+// booleanGate builds a gate from a boolean result and an explicit evidence sufficiency flag.
 func booleanGate(pass, enough bool, observed float64, samples int, threshold string) ReadinessGate {
 	return numericGate(pass, enough, observed, samples, threshold)
 }
 
+// numericGate returns insufficient data until evidence is sufficient, then reports pass or fail.
 func numericGate(pass, enough bool, observed float64, samples int, threshold string) ReadinessGate {
 	status := GateInsufficientData
 	if enough {
@@ -116,6 +119,7 @@ func numericGate(pass, enough bool, observed float64, samples int, threshold str
 	return ReadinessGate{Status: status, Observed: observed, Samples: samples, Threshold: threshold}
 }
 
+// pairedDifferences collects shadow or simulated hybrid success minus authority success for known pairs.
 func pairedDifferences(dataset Dataset, hybrid bool, threshold float64) ([]float64, map[string][]float64) {
 	var all []float64
 	byKind := make(map[string][]float64)
@@ -139,6 +143,7 @@ func pairedDifferences(dataset Dataset, hybrid bool, threshold float64) ([]float
 	return all, byKind
 }
 
+// decisionSuccess returns a known binary outcome for labeled selections or recognized nonselection statuses.
 func decisionSuccess(route RouteRecord, decision DecisionEvidence) (float64, bool) {
 	if decision.Status != StatusSelected {
 		return 0, decision.Status == StatusNoSelection || decision.Status == StatusError || decision.Status == StatusUnavailable || decision.Status == StatusTimeout || decision.Status == StatusCanceled || decision.Status == StatusMalformed
@@ -153,6 +158,7 @@ func decisionSuccess(route RouteRecord, decision DecisionEvidence) (float64, boo
 	return 0, true
 }
 
+// confidenceLowerBound returns the normal-approximation 95% lower bound on the mean, or zero for fewer than two samples.
 func confidenceLowerBound(values []float64) float64 {
 	if len(values) < 2 {
 		return 0
@@ -167,6 +173,7 @@ func confidenceLowerBound(values []float64) float64 {
 	return average - 1.96*standardError
 }
 
+// mean returns the arithmetic mean, or zero for an empty slice.
 func mean(values []float64) float64 {
 	if len(values) == 0 {
 		return 0

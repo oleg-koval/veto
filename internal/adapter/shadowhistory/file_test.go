@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestFileRecorderWritesPrivateValidatedJSONL checks private file permissions and evidence round trips.
 func TestFileRecorderWritesPrivateValidatedJSONL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "evidence.jsonl")
 	recorder := NewFileRecorder(path, 3)
@@ -42,6 +43,7 @@ func TestFileRecorderWritesPrivateValidatedJSONL(t *testing.T) {
 	require.True(t, dataset.Routes[0].Labels["c-1"].Success.Value)
 }
 
+// TestFileRecorderStopsAtBound checks that the recorder rejects appends beyond the event limit.
 func TestFileRecorderStopsAtBound(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "evidence.jsonl")
 	recorder := NewFileRecorder(path, 1)
@@ -59,6 +61,7 @@ func TestFileRecorderStopsAtBound(t *testing.T) {
 	require.Equal(t, 1, bytes.Count(data, []byte{'\n'}))
 }
 
+// TestFileRecorderDoesNotOverwriteMalformedEvidence checks that invalid existing evidence is preserved.
 func TestFileRecorderDoesNotOverwriteMalformedEvidence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "evidence.jsonl")
 	require.NoError(t, os.WriteFile(path, []byte("not json\n"), 0600))
@@ -79,6 +82,7 @@ func TestFileRecorderDoesNotOverwriteMalformedEvidence(t *testing.T) {
 	require.Equal(t, "not json\n", string(data))
 }
 
+// TestFileRecorderFailsClosedAfterInvalidEvent checks that validation failure disables later appends.
 func TestFileRecorderFailsClosedAfterInvalidEvent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "evidence.jsonl")
 	recorder := NewFileRecorder(path, 2)

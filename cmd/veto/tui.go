@@ -24,6 +24,7 @@ import (
 	shadowdata "github.com/oleg-koval/veto/pkg/shadow"
 )
 
+// cmdTUI parses terminal options and starts the interactive control plane.
 func cmdTUI(args []string) error {
 	fs := flag.NewFlagSet("tui", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)

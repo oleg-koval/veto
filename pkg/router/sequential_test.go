@@ -22,6 +22,7 @@ func (f decisionEngineFunc) Decide(ctx context.Context, r DecisionRequest) (Deci
 	return f(ctx, r)
 }
 
+// TestSequentialAdmissionAggregatesMeasuredTelemetry checks that usage and cost accumulate across admission attempts.
 func TestSequentialAdmissionAggregatesMeasuredTelemetry(t *testing.T) {
 	calls := 0
 	exec := &executorMock{RunFunc: func(context.Context, string) AdmissionResult {
@@ -46,6 +47,7 @@ func TestSequentialAdmissionAggregatesMeasuredTelemetry(t *testing.T) {
 	require.True(t, outcome.Telemetry.LatencyKnown)
 }
 
+// TestSequentialAdmissionInvalidTelemetryStaysNonAuthoritative checks that invalid measurements become unknown without changing selection.
 func TestSequentialAdmissionInvalidTelemetryStaysNonAuthoritative(t *testing.T) {
 	exec := &executorMock{RunFunc: func(context.Context, string) AdmissionResult {
 		return AdmissionResult{

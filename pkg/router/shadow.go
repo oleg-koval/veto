@@ -163,6 +163,7 @@ func (e *ShadowingDecisionEngine) Decide(ctx context.Context, request DecisionRe
 	return outcome, authorityErr
 }
 
+// record converts authority and shadow outcomes to evidence with opaque candidate keys.
 func (e *ShadowingDecisionEngine) record(request DecisionRequest, authority DecisionOutcome, authorityErr error, observed shadowResult) {
 	if e.recorder == nil {
 		return
@@ -186,6 +187,7 @@ func (e *ShadowingDecisionEngine) record(request DecisionRequest, authority Deci
 	safeRecordComparison(e.recorder, comparison)
 }
 
+// authorityEvidence converts the authoritative outcome to evidence with a fixed error code on failure.
 func authorityEvidence(outcome DecisionOutcome, err error) ShadowDecisionRecord {
 	if err != nil {
 		return ShadowDecisionRecord{Status: ShadowStatusError, ErrorCode: "AUTHORITY_ERROR"}
@@ -200,6 +202,7 @@ func authorityEvidence(outcome DecisionOutcome, err error) ShadowDecisionRecord 
 	}
 }
 
+// shadowEvidence validates predictions and maps shadow failures to bounded statuses and error codes.
 func shadowEvidence(request DecisionRequest, result shadowResult) ShadowDecisionRecord {
 	if result.panicked {
 		return ShadowDecisionRecord{Status: ShadowStatusError, ErrorCode: "PANIC"}
@@ -231,6 +234,7 @@ func shadowEvidence(request DecisionRequest, result shadowResult) ShadowDecision
 	}
 }
 
+// validate checks measurements and requires any selection to belong to the offered shortlist.
 func (p ShadowPrediction) validate(request DecisionRequest) error {
 	if err := p.Probability.validate("shadow probability"); err != nil {
 		return err
@@ -266,6 +270,7 @@ func newShadowRouteID() string {
 	return "r-" + hex.EncodeToString(value[:])
 }
 
+// newShadowCandidateSecret returns a random HMAC key, or nil if entropy is unavailable.
 func newShadowCandidateSecret() []byte {
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
@@ -274,6 +279,7 @@ func newShadowCandidateSecret() []byte {
 	return secret
 }
 
+// candidateKey returns a route-scoped HMAC identifier, or empty for a missing model or secret.
 func (e *ShadowingDecisionEngine) candidateKey(routeID, modelName string) string {
 	if modelName == "" {
 		return ""
@@ -286,16 +292,19 @@ func (e *ShadowingDecisionEngine) candidateKey(routeID, modelName string) string
 	return "c-" + hex.EncodeToString(mac.Sum(nil)[:16])
 }
 
+// safeRecordComparison records a comparison while discarding recorder errors and recovering panics.
 func safeRecordComparison(recorder ShadowEvidenceRecorder, comparison ShadowComparisonRecord) {
 	defer func() { _ = recover() }()
 	_ = recorder.RecordShadowComparison(comparison)
 }
 
+// safeRecordExecution records an execution label while discarding recorder errors and recovering panics.
 func safeRecordExecution(recorder ShadowEvidenceRecorder, label ShadowExecutionLabelRecord) {
 	defer func() { _ = recover() }()
 	_ = recorder.RecordShadowExecutionLabel(label)
 }
 
+// executionLabelRecord maps execution metrics to a label, leaving unrecognized completion statuses unknown.
 func executionLabelRecord(routeID, modelName, candidate string, metrics ExecutionMetrics, observedAt time.Time) ShadowExecutionLabelRecord {
 	if routeID == "" {
 		routeID = newShadowRouteID()
@@ -317,6 +326,7 @@ func executionLabelRecord(routeID, modelName, candidate string, metrics Executio
 	}
 }
 
+// shadowExecutionKey hashes task identity and model name for in-memory execution correlation.
 func shadowExecutionKey(task TaskSpec, modelName string) string {
 	value := task.ID
 	if value == "" {

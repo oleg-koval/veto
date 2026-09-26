@@ -33,6 +33,7 @@ type decisionShadowConfig struct {
 	warnings     []string
 }
 
+// newRoutingManager builds a manager with saved candidate preferences and optional shadow evaluation.
 func newRoutingManager(registry *router.Registry, gate *router.AdmissionGate, store router.Store) *router.Manager {
 	mgr := router.NewManager(registry, gate, store)
 	mgr.SetCandidatePreferences(loadCandidatePreferences())
@@ -40,6 +41,7 @@ func newRoutingManager(registry *router.Registry, gate *router.AdmissionGate, st
 	return mgr
 }
 
+// configureExperimentalDecisionShadow attaches the opt-in shadow observer and emits configuration warnings.
 func configureExperimentalDecisionShadow(mgr *router.Manager, warnings io.Writer, lookup envLookup, httpClient *http.Client) {
 	config := loadDecisionShadowConfig(lookup)
 	if !config.enabled {
@@ -66,6 +68,7 @@ func configureExperimentalDecisionShadow(mgr *router.Manager, warnings io.Writer
 	mgr.EnableDecisionShadow(decider, recorder, config.timeout, "jev:"+config.model)
 }
 
+// loadDecisionShadowConfig reads shadow prerequisites only after the enable switch opts in.
 func loadDecisionShadowConfig(lookup envLookup) decisionShadowConfig {
 	raw, exists := lookup(envJevShadowEnabled)
 	if !exists || strings.TrimSpace(raw) == "" {
@@ -100,6 +103,7 @@ func loadDecisionShadowConfig(lookup envLookup) decisionShadowConfig {
 	return config
 }
 
+// defaultShadowEvidencePath returns the shadow JSONL path under the current user's .veto directory.
 func defaultShadowEvidencePath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".veto", "jev-shadow-v1.jsonl")

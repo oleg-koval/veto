@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestEventValidation checks rejection of invalid versions, candidates, error codes, and probability values.
 func TestEventValidation(t *testing.T) {
 	valid := comparisonEvent("route-1", StatusSelected, "c1")
 	require.NoError(t, valid.Validate())
@@ -31,6 +32,7 @@ func TestEventValidation(t *testing.T) {
 	}
 }
 
+// TestExecutionLabelKnownZeroAndUnknown checks valid known zeros and rejects a true value marked unknown.
 func TestExecutionLabelKnownZeroAndUnknown(t *testing.T) {
 	label := Event{SchemaVersion: 1, Type: EventExecutionLabel, Label: &ExecutionLabel{
 		RouteID: "route-1", Candidate: "c1", ObservedAt: time.Unix(2, 0).UTC(),
@@ -42,6 +44,7 @@ func TestExecutionLabelKnownZeroAndUnknown(t *testing.T) {
 	require.EqualError(t, label.Validate(), "shadow evidence: unknown success must be false")
 }
 
+// comparisonEvent builds a comparison fixture with configurable route identity and shadow selection.
 func comparisonEvent(id string, shadowStatus DecisionStatus, shadowCandidate string) Event {
 	shadowDecision := DecisionEvidence{Status: shadowStatus}
 	if shadowStatus == StatusSelected {

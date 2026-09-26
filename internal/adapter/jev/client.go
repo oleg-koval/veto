@@ -174,6 +174,7 @@ func (c *Client) DecideShadow(ctx context.Context, request router.DecisionReques
 	return prediction, nil
 }
 
+// buildRequest validates the shortlist and builds selection and success questions with candidate key mappings.
 func (c *Client) buildRequest(request router.DecisionRequest) (systemOneRequest, map[string]string, error) {
 	if err := request.Validate(); err != nil {
 		return systemOneRequest{}, nil, err
@@ -207,6 +208,7 @@ func (c *Client) buildRequest(request router.DecisionRequest) (systemOneRequest,
 	return systemOneRequest{State: state, Model: c.model, Questions: questions}, keys, nil
 }
 
+// parseResponse validates typed answers and usage, then maps the selected key to a model prediction.
 func parseResponse(response systemOneResponse, keys map[string]string) (router.ShadowPrediction, error) {
 	if strings.TrimSpace(response.Model) == "" || response.Usage == nil || response.Usage.InputTokens == nil || response.Usage.OutputTokens == nil ||
 		*response.Usage.InputTokens < 0 || *response.Usage.OutputTokens < 0 || *response.Usage.OutputTokens > math.MaxInt-*response.Usage.InputTokens {
@@ -267,6 +269,7 @@ func parseResponse(response systemOneResponse, keys map[string]string) (router.S
 	return prediction, nil
 }
 
+// decodeExact decodes one JSON value, rejecting unknown fields and trailing values.
 func decodeExact(data []byte, value any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -276,6 +279,7 @@ func decodeExact(data []byte, value any) error {
 	return ensureEOF(decoder)
 }
 
+// ensureEOF rejects any content after the decoded JSON value except whitespace.
 func ensureEOF(decoder *json.Decoder) error {
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
@@ -284,10 +288,12 @@ func ensureEOF(decoder *json.Decoder) error {
 	return nil
 }
 
+// unit reports whether a value is finite and within the inclusive unit interval.
 func unit(value float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 && value <= 1
 }
 
+// malformed wraps a validation detail with the malformed shadow response sentinel.
 func malformed(detail string) error {
 	return fmt.Errorf("%w: %s", router.ErrShadowMalformed, detail)
 }

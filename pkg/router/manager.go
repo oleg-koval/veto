@@ -258,6 +258,7 @@ func (m *Manager) RecordExecutionForDecision(task TaskSpec, modelName string, de
 	m.recordExecution(task, modelName, metrics, m.takeShadowRoute(task, modelName, decision.shadowRouteID))
 }
 
+// recordExecution records shadow and history telemetry and caches measurements for a later review.
 func (m *Manager) recordExecution(task TaskSpec, modelName string, metrics ExecutionMetrics, routeID string) {
 	if routeID != "" && len(task.SuccessCriteria) > 0 {
 		m.shadowRouteMu.Lock()
@@ -315,6 +316,7 @@ func (m *Manager) RecordReviewForDecision(task TaskSpec, modelName string, decis
 	safeRecordExecution(m.shadowRecorder, executionLabelRecord(decision.shadowRouteID, modelName, candidate, metrics, m.now()))
 }
 
+// rememberShadowRoute queues a nonempty route ID for later task/model execution correlation.
 func (m *Manager) rememberShadowRoute(task TaskSpec, modelName, routeID string) {
 	if routeID == "" {
 		return
@@ -328,6 +330,8 @@ func (m *Manager) rememberShadowRoute(task TaskSpec, modelName, routeID string) 
 	m.shadowRoutes[key] = append(m.shadowRoutes[key], routeID)
 }
 
+// takeShadowRoute consumes the preferred route ID or the oldest queued ID for the task/model pair.
+// A supplied preferred ID is returned even when it is absent from the queue.
 func (m *Manager) takeShadowRoute(task TaskSpec, modelName, preferred string) string {
 	key := shadowExecutionKey(task, modelName)
 	m.shadowRouteMu.Lock()

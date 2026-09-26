@@ -135,19 +135,23 @@ type decisionSample struct {
 	success     KnownBool
 }
 
+// decisionComparable reports whether a decision completed with a selection or explicit nonselection.
 func decisionComparable(decision DecisionEvidence) bool {
 	return decision.Status == StatusSelected || decision.Status == StatusNoSelection
 }
 
+// sameSelection compares decision statuses and, when selected, candidate keys.
 func sameSelection(a, b DecisionEvidence) bool {
 	return a.Status == b.Status && (a.Status != StatusSelected || a.SelectedCandidate == b.SelectedCandidate)
 }
 
+// shouldFallback simulates fallback for high risk, nonselection, or unknown or low shadow confidence.
 func shouldFallback(comparison RouteComparison, threshold float64) bool {
 	decision := comparison.Shadow
 	return comparison.Risk == "high" || decision.Status != StatusSelected || !decision.Confidence.Known || decision.Confidence.Value < threshold
 }
 
+// appendTelemetry appends only known latency and cost measurements to the supplied samples.
 func appendTelemetry(telemetry Telemetry, latencies, costs *[]float64) {
 	if telemetry.Latency.Known {
 		*latencies = append(*latencies, float64(telemetry.Latency.Millis))
@@ -157,6 +161,7 @@ func appendTelemetry(telemetry Telemetry, latencies, costs *[]float64) {
 	}
 }
 
+// sampleMetrics computes success rate, Brier score, and ten-bin calibration error, using confidence when probability is unknown.
 func sampleMetrics(samples []decisionSample) (Rate, Calibration) {
 	successes := 0
 	var brier float64
@@ -206,6 +211,7 @@ func sampleMetrics(samples []decisionSample) (Rate, Calibration) {
 	return rate(successes, len(samples)), calibration
 }
 
+// rate preserves sample counts and computes their ratio when the denominator is positive.
 func rate(count, total int) Rate {
 	r := Rate{Count: count, Total: total}
 	if total > 0 {
@@ -214,6 +220,7 @@ func rate(count, total int) Rate {
 	return r
 }
 
+// distribution computes the sample count, mean, and nearest-rank p95 without mutating the input.
 func distribution(values []float64) Distribution {
 	d := Distribution{Known: len(values)}
 	if len(values) == 0 {

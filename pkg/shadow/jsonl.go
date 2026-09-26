@@ -69,6 +69,7 @@ func Load(r io.Reader) ([]Event, error) {
 	return events, nil
 }
 
+// rejectForbiddenFields recursively rejects sensitive field names, including inside unknown additive fields.
 func rejectForbiddenFields(raw []byte) error {
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -144,6 +145,7 @@ func Materialize(events []Event) (Dataset, error) {
 	return dataset, nil
 }
 
+// offered reports whether the exact candidate key appears in the shortlist.
 func offered(candidates []Candidate, key string) bool {
 	for _, candidate := range candidates {
 		if strings.EqualFold(candidate.Key, key) && candidate.Key == key {
