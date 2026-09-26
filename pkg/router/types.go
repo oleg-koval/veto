@@ -185,8 +185,12 @@ func (m ModelCapabilities) Identity() ModelIdentity {
 // AdmissionDecision is the structured response a model returns when asked
 // whether it accepts a task. ReasonCodes must always be populated on rejection.
 type AdmissionDecision struct {
-	Accept                    bool
-	Confidence                float64
+	Accept     bool
+	Confidence float64
+	// ConfidenceUnknown preserves the distinction between an unavailable
+	// confidence and an explicitly reported zero. It is process-local
+	// metadata for decision engines that do not return a legacy admission.
+	ConfidenceUnknown         bool `json:"-"`
 	ReasonCodes               []string
 	EstimatedTokens           int
 	EstimatedCostUSD          float64

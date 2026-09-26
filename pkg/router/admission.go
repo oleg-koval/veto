@@ -273,7 +273,15 @@ func parseAdmissionJSON(output string) (AdmissionDecision, bool) {
 	if err := json.NewDecoder(strings.NewReader(output[start:])).Decode(&j); err != nil {
 		return AdmissionDecision{}, false
 	}
-	return AdmissionDecision(j), true
+	return AdmissionDecision{
+		Accept:                    j.Accept,
+		Confidence:                j.Confidence,
+		ReasonCodes:               j.ReasonCodes,
+		EstimatedTokens:           j.EstimatedTokens,
+		EstimatedCostUSD:          j.EstimatedCostUSD,
+		SuggestedAlternativeModel: j.SuggestedAlternativeModel,
+		RequiredTaskChanges:       j.RequiredTaskChanges,
+	}, true
 }
 
 // tools reports the active admission transport's capabilities for the shortlist.

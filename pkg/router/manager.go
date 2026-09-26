@@ -179,7 +179,7 @@ func (m *Manager) route(ctx context.Context, task TaskSpec, admissionTimeout tim
 	}
 	for _, candidate := range request.Candidates {
 		if candidate.Model.Name == outcome.SelectedCandidate {
-			decision := AdmissionDecision{Accept: true, Confidence: outcome.Confidence.Value}
+			decision := AdmissionDecision{Accept: true, Confidence: outcome.Confidence.Value, ConfidenceUnknown: !outcome.Confidence.Known}
 			if outcome.Admission != nil {
 				decision = *outcome.Admission
 			}
