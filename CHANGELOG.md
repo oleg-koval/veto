@@ -3,6 +3,14 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0](https://github.com/oleg-koval/veto/compare/v0.12.0...v0.13.0) (2026-09-26)
+
+
+### Features
+
+* introduce provider-neutral decision engine boundary ([#117](https://github.com/oleg-koval/veto/issues/117)) ([bb40a7f](https://github.com/oleg-koval/veto/commit/bb40a7f7dc72f04c18403789960ed263a87facac))
+* add opt-in Jev shadow evaluation ([#118](https://github.com/oleg-koval/veto/issues/118)) ([6cb19a4](https://github.com/oleg-koval/veto/commit/6cb19a41efd78343727258eb8af54b78aafa49ce))
+
 ## [0.12.0](https://github.com/oleg-koval/veto/compare/v0.11.0...v0.12.0) (2026-09-13)
 
 
