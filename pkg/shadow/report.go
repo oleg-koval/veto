@@ -1,6 +1,7 @@
 package shadow
 
 import (
+	"fmt"
 	"math"
 	"sort"
 )
@@ -62,9 +63,9 @@ type Report struct {
 // Evaluate computes metrics from recorded evidence only. A route is labeled
 // when the authority's selected candidate has a known success label. Shadow
 // success remains unknown unless its own selected candidate has a label.
-func Evaluate(dataset Dataset, fallbackConfidence float64) Report {
+func Evaluate(dataset Dataset, fallbackConfidence float64) (Report, error) {
 	if fallbackConfidence < 0 || fallbackConfidence > 1 || math.IsNaN(fallbackConfidence) {
-		fallbackConfidence = DefaultFallbackConfidence
+		return Report{}, fmt.Errorf("shadow report: fallback confidence must be finite and between 0 and 1")
 	}
 	report := Report{
 		SchemaVersion:               SchemaVersion,
@@ -126,7 +127,7 @@ func Evaluate(dataset Dataset, fallbackConfidence float64) Report {
 	report.Authority.CostUSD = distribution(authorityCosts)
 	report.Shadow.CostUSD = distribution(shadowCosts)
 	report.Readiness = evaluateReadiness(dataset, report, fallbackConfidence)
-	return report
+	return report, nil
 }
 
 type decisionSample struct {

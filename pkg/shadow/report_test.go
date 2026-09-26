@@ -2,6 +2,7 @@ package shadow
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -10,6 +11,14 @@ import (
 )
 
 // TestEvaluateFixture checks deterministic metrics and insufficient readiness for the offline fixture.
+
+func TestEvaluateRejectsInvalidFallbackConfidence(t *testing.T) {
+	for _, value := range []float64{-0.1, 1.1, math.NaN(), math.Inf(1)} {
+		_, err := Evaluate(Dataset{}, value)
+		require.Error(t, err)
+	}
+}
+
 func TestEvaluateFixture(t *testing.T) {
 	file, err := os.Open("testdata/shadow_v1.jsonl")
 	require.NoError(t, err)
@@ -19,7 +28,8 @@ func TestEvaluateFixture(t *testing.T) {
 	dataset, err := Materialize(events)
 	require.NoError(t, err)
 
-	report := Evaluate(dataset, DefaultFallbackConfidence)
+	report, err := Evaluate(dataset, DefaultFallbackConfidence)
+	require.NoError(t, err)
 	require.Equal(t, 4, report.Routes)
 	require.Equal(t, 4, report.LabeledRoutes)
 	require.Equal(t, map[string]int{"debug": 1, "plan": 3}, report.LabeledRoutesByTaskKind)
@@ -50,7 +60,8 @@ func TestPromotionPolicyReadyDataset(t *testing.T) {
 		label := ExecutionLabel{RouteID: routeID, ObservedAt: time.Unix(int64(index+2), 0), Candidate: "c1", Success: KnownBool{Known: true, Value: true}}
 		dataset.Routes = append(dataset.Routes, RouteRecord{Comparison: comparison, Labels: map[string]ExecutionLabel{"c1": label}})
 	}
-	report := Evaluate(dataset, DefaultFallbackConfidence)
+	report, err := Evaluate(dataset, DefaultFallbackConfidence)
+	require.NoError(t, err)
 	for name, gate := range report.Readiness.Gates {
 		require.Equal(t, GatePass, gate.Status, name)
 	}
@@ -68,7 +79,8 @@ func TestCalibrationUsesConfidenceWhenSuccessProbabilityIsUnknown(t *testing.T) 
 		Labels: map[string]ExecutionLabel{"c1": {Success: KnownBool{Known: true, Value: true}}},
 	}}}
 
-	report := Evaluate(dataset, DefaultFallbackConfidence)
+	report, err := Evaluate(dataset, DefaultFallbackConfidence)
+	require.NoError(t, err)
 
 	require.Equal(t, 1, report.Authority.Calibration.Samples)
 	require.InDelta(t, .04, report.Authority.Calibration.BrierScore, 1e-12)
@@ -94,7 +106,8 @@ func TestPromotionPolicyRequiresPairedLabelCoverage(t *testing.T) {
 		dataset.Routes = append(dataset.Routes, RouteRecord{Comparison: comparison, Labels: map[string]ExecutionLabel{"c1": label}})
 	}
 
-	report := Evaluate(dataset, DefaultFallbackConfidence)
+	report, err := Evaluate(dataset, DefaultFallbackConfidence)
+	require.NoError(t, err)
 
 	require.Equal(t, GateInsufficientData, report.Readiness.Gates["routing_success_noninferiority"].Status)
 	require.Equal(t, GateInsufficientData, report.Readiness.Gates["calibration"].Status)

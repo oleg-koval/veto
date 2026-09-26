@@ -138,9 +138,7 @@ func TestManagerRecordsExecutionLabelWithoutChangingStore(t *testing.T) {
 	task := TaskSpec{ID: "task-1", Kind: KindPlan, Risk: RiskMedium}
 	metrics := ExecutionMetrics{Status: "completed", ScoreKnown: true, Score: .75, CostKnown: true, CostUSD: 0}
 	mgr.RecordExecution(task, "a", metrics)
-	require.Len(t, recorder.labels, 1)
-	require.False(t, recorder.labels[0].Success.Known)
-	require.True(t, recorder.labels[0].Score.Known)
+	require.Empty(t, recorder.labels)
 	require.True(t, store.Signal("a", KindPlan).EvalScoreKnown)
 }
 

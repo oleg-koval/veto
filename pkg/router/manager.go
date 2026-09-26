@@ -12,19 +12,20 @@ import (
 // Manager orchestrates hard-filtering, scoring, and admission gating.
 // Route returns the first candidate that passes the admission gate.
 type Manager struct {
-	registry        *Registry
-	gate            *AdmissionGate
-	engine          DecisionEngine
-	store           Store
-	maxAdmissions   int
-	preferences     CandidatePreferences
-	shadowRecorder  ShadowEvidenceRecorder
-	shadowRouteMu   sync.Mutex
-	shadowRoutes    map[string][]string
-	shadowCandidate func(string, string) string
-	shadowMetrics   map[string]ExecutionMetrics
-	now             func() time.Time
-	OnEvent         func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
+	registry          *Registry
+	gate              *AdmissionGate
+	engine            DecisionEngine
+	store             Store
+	maxAdmissions     int
+	preferences       CandidatePreferences
+	shadowRecorder    ShadowEvidenceRecorder
+	shadowRouteMu     sync.Mutex
+	shadowRoutes      map[string][]string
+	shadowCandidate   func(string, string) string
+	shadowMetrics     map[string]ExecutionMetrics
+	shadowMetricOrder []string
+	now               func() time.Time
+	OnEvent           func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
 }
 
 // SetAdmissionTimeout updates the per-model admission deadline for subsequent
@@ -265,7 +266,16 @@ func (m *Manager) recordExecution(task TaskSpec, modelName string, metrics Execu
 		if m.shadowMetrics == nil {
 			m.shadowMetrics = make(map[string]ExecutionMetrics)
 		}
+		if _, exists := m.shadowMetrics[routeID]; !exists {
+			m.shadowMetricOrder = append(m.shadowMetricOrder, routeID)
+		}
 		m.shadowMetrics[routeID] = metrics
+		const maxShadowMetrics = 256
+		for len(m.shadowMetricOrder) > maxShadowMetrics {
+			oldest := m.shadowMetricOrder[0]
+			m.shadowMetricOrder = m.shadowMetricOrder[1:]
+			delete(m.shadowMetrics, oldest)
+		}
 		m.shadowRouteMu.Unlock()
 	}
 	if m.shadowRecorder != nil {
@@ -296,6 +306,12 @@ func (m *Manager) RecordReviewForDecision(task TaskSpec, modelName string, decis
 	m.shadowRouteMu.Lock()
 	metrics, ok := m.shadowMetrics[decision.shadowRouteID]
 	delete(m.shadowMetrics, decision.shadowRouteID)
+	for index, routeID := range m.shadowMetricOrder {
+		if routeID == decision.shadowRouteID {
+			m.shadowMetricOrder = append(m.shadowMetricOrder[:index], m.shadowMetricOrder[index+1:]...)
+			break
+		}
+	}
 	m.shadowRouteMu.Unlock()
 	if !ok {
 		metrics = ExecutionMetrics{}
@@ -328,6 +344,10 @@ func (m *Manager) rememberShadowRoute(task TaskSpec, modelName, routeID string) 
 		m.shadowRoutes = make(map[string][]string)
 	}
 	m.shadowRoutes[key] = append(m.shadowRoutes[key], routeID)
+	const maxShadowRoutesPerKey = 32
+	if len(m.shadowRoutes[key]) > maxShadowRoutesPerKey {
+		m.shadowRoutes[key] = m.shadowRoutes[key][len(m.shadowRoutes[key])-maxShadowRoutesPerKey:]
+	}
 }
 
 // takeShadowRoute consumes the preferred route ID or the oldest queued ID for the task/model pair.

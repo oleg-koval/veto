@@ -301,14 +301,14 @@ func safeRecordComparison(recorder ShadowEvidenceRecorder, comparison ShadowComp
 // safeRecordExecution records an execution label while discarding recorder errors and recovering panics.
 func safeRecordExecution(recorder ShadowEvidenceRecorder, label ShadowExecutionLabelRecord) {
 	defer func() { _ = recover() }()
+	if label.RouteID == "" || label.Candidate == "" {
+		return
+	}
 	_ = recorder.RecordShadowExecutionLabel(label)
 }
 
 // executionLabelRecord maps execution metrics to a label, leaving unrecognized completion statuses unknown.
 func executionLabelRecord(routeID, modelName, candidate string, metrics ExecutionMetrics, observedAt time.Time) ShadowExecutionLabelRecord {
-	if routeID == "" {
-		routeID = newShadowRouteID()
-	}
 	success := ShadowKnownBool{}
 	switch metrics.Status {
 	case "success":

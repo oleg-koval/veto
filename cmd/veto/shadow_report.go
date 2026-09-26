@@ -46,5 +46,5 @@ func evaluateShadowReport(input string, fallbackConfidence float64) (shadowdata.
 	if err != nil {
 		return shadowdata.Report{}, err
 	}
-	return shadowdata.Evaluate(dataset, fallbackConfidence), nil
+	return shadowdata.Evaluate(dataset, fallbackConfidence)
 }
