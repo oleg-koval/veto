@@ -29,6 +29,8 @@ func TestSubscriptionAdmissionSchemaFixesMarginalProviderCostAtZero(t *testing.T
 	assert.Zero(t, *cost.Maximum)
 }
 
+// TestCodexCLIUsesIsolatedStructuredAdmissionAndNormalExecution verifies
+// admission isolation and the execution flags using a local Codex CLI fixture.
 func TestCodexCLIUsesIsolatedStructuredAdmissionAndNormalExecution(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX subprocess fixture")

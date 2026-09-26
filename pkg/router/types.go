@@ -187,8 +187,9 @@ func (m ModelCapabilities) Identity() ModelIdentity {
 type AdmissionDecision struct {
 	Accept     bool
 	Confidence float64
-	// ConfidenceUnknown preserves unavailable confidence through the legacy
-	// adapter without conflating it with an explicit zero estimate.
+	// ConfidenceUnknown preserves the distinction between an unavailable
+	// confidence and an explicitly reported zero. It is process-local
+	// metadata for decision engines that do not return a legacy admission.
 	ConfidenceUnknown         bool `json:"-"`
 	ReasonCodes               []string
 	EstimatedTokens           int

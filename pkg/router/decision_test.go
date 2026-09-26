@@ -7,6 +7,8 @@ import (
 	"testing"
 )
 
+// decisionRequestForTest builds a versioned request with the supplied candidate
+// names sharing one runtime, so tests exercise model identity independently.
 func decisionRequestForTest(names ...string) DecisionRequest {
 	r := DecisionRequest{Version: DecisionVersion, Task: TaskSpec{Objective: "test decision"}}
 	for _, name := range names {
@@ -15,6 +17,8 @@ func decisionRequestForTest(names ...string) DecisionRequest {
 	return r
 }
 
+// TestDecisionRequestValidate checks version, batch size, and exact candidate
+// name constraints, including duplicates and blank names.
 func TestDecisionRequestValidate(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -44,6 +48,8 @@ func TestDecisionRequestValidate(t *testing.T) {
 	}
 }
 
+// TestDecisionOutcomeValidate checks selection, admission, mode, version, and
+// reason constraints while verifying that validation leaves its inputs intact.
 func TestDecisionOutcomeValidate(t *testing.T) {
 	t.Parallel()
 	// All parallel cases read the same request, exercising read-only validation.
@@ -116,6 +122,8 @@ func TestDecisionOutcomeValidate(t *testing.T) {
 	})
 }
 
+// TestDecisionOutcomeProbabilityValidation checks probability and confidence
+// bounds, nonfinite values, and the canonical zero required for unknown values.
 func TestDecisionOutcomeProbabilityValidation(t *testing.T) {
 	t.Parallel()
 	for _, field := range []string{"probability", "confidence"} {
@@ -152,6 +160,8 @@ func TestDecisionOutcomeProbabilityValidation(t *testing.T) {
 	}
 }
 
+// TestDecisionOutcomeTelemetryValidation checks measurement validity and
+// known flags, including zero, negative, and nonfinite values.
 func TestDecisionOutcomeTelemetryValidation(t *testing.T) {
 	t.Parallel()
 	for _, field := range []struct {
@@ -208,6 +218,8 @@ func TestDecisionOutcomeTelemetryValidation(t *testing.T) {
 	}
 }
 
+// checkDecisionError requires success when want is empty; otherwise it
+// requires an error containing the expected text.
 func checkDecisionError(t *testing.T, err error, want string) {
 	t.Helper()
 	if want == "" {

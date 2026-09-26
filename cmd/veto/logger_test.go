@@ -253,6 +253,8 @@ func TestLedgerTypeMapsRouterEventsAndRejectsUnknown(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// TestDecisionLedgerAllowlist verifies that decision logs exclude legacy
+// payload fields and distinguish measured zero from unknown telemetry.
 func TestDecisionLedgerAllowlist(t *testing.T) {
 	previous, previousFile, previousRun := eventLedger, eventLogFile, eventRunID
 	t.Cleanup(func() { eventLedger, eventLogFile, eventRunID = previous, previousFile, previousRun })

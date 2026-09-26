@@ -52,6 +52,8 @@ func IsDecisionEvent(kind EventKind) bool {
 	return kind == EventDecisionStarted || kind == EventDecisionCompleted || kind == EventDecisionError
 }
 
+// decisionProgress builds the structural boundary payload, including a
+// selection and only known telemetry when an outcome is supplied.
 func decisionProgress(count int, status string, outcome *DecisionOutcome) *DecisionProgress {
 	p := &DecisionProgress{Version: DecisionVersion, Mode: DecisionModeSequentialAdmission, CandidateCount: count, Status: status}
 	if outcome == nil {

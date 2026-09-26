@@ -304,8 +304,11 @@ func parseAdmissionJSON(output string) (AdmissionDecision, bool) {
 		return AdmissionDecision{}, false
 	}
 	return AdmissionDecision{
-		Accept: j.Accept, Confidence: j.Confidence, ReasonCodes: j.ReasonCodes,
-		EstimatedTokens: j.EstimatedTokens, EstimatedCostUSD: j.EstimatedCostUSD,
+		Accept:                    j.Accept,
+		Confidence:                j.Confidence,
+		ReasonCodes:               j.ReasonCodes,
+		EstimatedTokens:           j.EstimatedTokens,
+		EstimatedCostUSD:          j.EstimatedCostUSD,
 		SuggestedAlternativeModel: j.SuggestedAlternativeModel,
 		RequiredTaskChanges:       j.RequiredTaskChanges,
 	}, true

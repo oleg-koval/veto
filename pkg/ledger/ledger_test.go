@@ -92,6 +92,8 @@ func TestEventTypesCoverPlannedLifecycle(t *testing.T) {
 	}
 }
 
+// TestOldSchemaOneAndDecisionLinesReadTogether verifies that legacy and
+// decision events share schema version one without losing known zero values.
 func TestOldSchemaOneAndDecisionLinesReadTogether(t *testing.T) {
 	old := `{"schema_version":1,"timestamp":"2026-08-30T07:00:00Z","event_id":"one","run_id":"run","type":"admission.accepted","model":"legacy","confidence":0,"estimated_cost_usd":0}`
 	var output bytes.Buffer
