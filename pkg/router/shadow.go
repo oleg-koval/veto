@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -101,6 +102,7 @@ type ShadowingDecisionEngine struct {
 	timeout           time.Duration
 	authorityStrategy string
 	shadowStrategy    string
+	candidateSecret   []byte
 	now               func() time.Time
 }
 
@@ -115,7 +117,8 @@ func NewShadowingDecisionEngine(authority DecisionEngine, decider ShadowDecider,
 	return &ShadowingDecisionEngine{
 		authority: authority, shadow: decider, recorder: recorder, timeout: timeout,
 		authorityStrategy: string(DecisionModeSequentialAdmission), shadowStrategy: shadowStrategy,
-		now: time.Now,
+		candidateSecret: newShadowCandidateSecret(),
+		now:             time.Now,
 	}
 }
 
@@ -176,10 +179,10 @@ func (e *ShadowingDecisionEngine) record(request DecisionRequest, authority Deci
 	}
 	comparison.Candidates = make([]string, 0, len(request.Candidates))
 	for _, candidate := range request.Candidates {
-		comparison.Candidates = append(comparison.Candidates, shadowCandidateKey(comparison.RouteID, candidate.Model.Name))
+		comparison.Candidates = append(comparison.Candidates, e.candidateKey(comparison.RouteID, candidate.Model.Name))
 	}
-	comparison.Authority.SelectedCandidate = evidenceCandidateKey(comparison.RouteID, comparison.Authority.SelectedCandidate)
-	comparison.Shadow.SelectedCandidate = evidenceCandidateKey(comparison.RouteID, comparison.Shadow.SelectedCandidate)
+	comparison.Authority.SelectedCandidate = e.candidateKey(comparison.RouteID, comparison.Authority.SelectedCandidate)
+	comparison.Shadow.SelectedCandidate = e.candidateKey(comparison.RouteID, comparison.Shadow.SelectedCandidate)
 	safeRecordComparison(e.recorder, comparison)
 }
 
@@ -263,16 +266,24 @@ func newShadowRouteID() string {
 	return "r-" + hex.EncodeToString(value[:])
 }
 
-func shadowCandidateKey(routeID, modelName string) string {
-	sum := sha256.Sum256([]byte(routeID + "\x00" + modelName))
-	return "c-" + hex.EncodeToString(sum[:8])
+func newShadowCandidateSecret() []byte {
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		return nil
+	}
+	return secret
 }
 
-func evidenceCandidateKey(routeID, modelName string) string {
+func (e *ShadowingDecisionEngine) candidateKey(routeID, modelName string) string {
 	if modelName == "" {
 		return ""
 	}
-	return shadowCandidateKey(routeID, modelName)
+	if len(e.candidateSecret) == 0 {
+		return ""
+	}
+	mac := hmac.New(sha256.New, e.candidateSecret)
+	_, _ = mac.Write([]byte(routeID + "\x00" + modelName))
+	return "c-" + hex.EncodeToString(mac.Sum(nil)[:16])
 }
 
 func safeRecordComparison(recorder ShadowEvidenceRecorder, comparison ShadowComparisonRecord) {
@@ -285,19 +296,19 @@ func safeRecordExecution(recorder ShadowEvidenceRecorder, label ShadowExecutionL
 	_ = recorder.RecordShadowExecutionLabel(label)
 }
 
-func executionLabelRecord(routeID, modelName string, metrics ExecutionMetrics, observedAt time.Time) ShadowExecutionLabelRecord {
+func executionLabelRecord(routeID, modelName, candidate string, metrics ExecutionMetrics, observedAt time.Time) ShadowExecutionLabelRecord {
 	if routeID == "" {
 		routeID = newShadowRouteID()
 	}
 	success := ShadowKnownBool{}
 	switch metrics.Status {
-	case "success":
+	case "success", "completed":
 		success = ShadowKnownBool{Known: true, Value: true}
-	case "failure":
+	case "failure", "error", "truncated", "timeout", "canceled":
 		success = ShadowKnownBool{Known: true, Value: false}
 	}
 	return ShadowExecutionLabelRecord{
-		RouteID: routeID, ObservedAt: observedAt.UTC(), Candidate: shadowCandidateKey(routeID, modelName),
+		RouteID: routeID, ObservedAt: observedAt.UTC(), Candidate: candidate,
 		Success: success, Score: DecisionProbability{Known: metrics.ScoreKnown, Value: metrics.Score},
 		Telemetry: DecisionTelemetry{
 			InputTokens: metrics.InputTokens, OutputTokens: metrics.OutputTokens, TotalTokens: metrics.TotalTokens, UsageKnown: metrics.UsageKnown,

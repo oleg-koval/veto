@@ -12,17 +12,18 @@ import (
 // Manager orchestrates hard-filtering, scoring, and admission gating.
 // Route returns the first candidate that passes the admission gate.
 type Manager struct {
-	registry       *Registry
-	gate           *AdmissionGate
-	engine         DecisionEngine
-	store          Store
-	maxAdmissions  int
-	preferences    CandidatePreferences
-	shadowRecorder ShadowEvidenceRecorder
-	shadowRouteMu  sync.Mutex
-	shadowRoutes   map[string][]string
-	now            func() time.Time
-	OnEvent        func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
+	registry        *Registry
+	gate            *AdmissionGate
+	engine          DecisionEngine
+	store           Store
+	maxAdmissions   int
+	preferences     CandidatePreferences
+	shadowRecorder  ShadowEvidenceRecorder
+	shadowRouteMu   sync.Mutex
+	shadowRoutes    map[string][]string
+	shadowCandidate func(string, string) string
+	now             func() time.Time
+	OnEvent         func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
 }
 
 // SetAdmissionTimeout updates the per-model admission deadline for subsequent
@@ -184,7 +185,7 @@ func (m *Manager) route(ctx context.Context, task TaskSpec, admissionTimeout tim
 	}
 	for _, candidate := range request.Candidates {
 		if candidate.Model.Name == outcome.SelectedCandidate {
-			decision := AdmissionDecision{Accept: true, Confidence: outcome.Confidence.Value}
+			decision := AdmissionDecision{Accept: true, Confidence: outcome.Confidence.Value, ConfidenceUnknown: !outcome.Confidence.Known}
 			if outcome.Admission != nil {
 				decision = *outcome.Admission
 			}
@@ -214,7 +215,9 @@ func (m *Manager) SetShadowEvidenceRecorder(recorder ShadowEvidenceRecorder) {
 // EnableDecisionShadow wraps the current authority with an evidence-only
 // observer and connects later execution labels to the same recorder.
 func (m *Manager) EnableDecisionShadow(decider ShadowDecider, recorder ShadowEvidenceRecorder, timeout time.Duration, strategy string) {
-	m.engine = NewShadowingDecisionEngine(m.engine, decider, recorder, timeout, strategy)
+	engine := NewShadowingDecisionEngine(m.engine, decider, recorder, timeout, strategy)
+	m.engine = engine
+	m.shadowCandidate = engine.candidateKey
 	m.shadowRecorder = recorder
 }
 
@@ -252,7 +255,11 @@ func (m *Manager) RecordExecutionForDecision(task TaskSpec, modelName string, de
 
 func (m *Manager) recordExecution(task TaskSpec, modelName string, metrics ExecutionMetrics, routeID string) {
 	if m.shadowRecorder != nil {
-		safeRecordExecution(m.shadowRecorder, executionLabelRecord(routeID, modelName, metrics, m.now()))
+		candidate := ""
+		if m.shadowCandidate != nil {
+			candidate = m.shadowCandidate(routeID, modelName)
+		}
+		safeRecordExecution(m.shadowRecorder, executionLabelRecord(routeID, modelName, candidate, metrics, m.now()))
 	}
 	if store, ok := m.store.(KindAwareStore); ok {
 		store.RecordExecution(task.ID, modelName, task.Kind, metrics)
