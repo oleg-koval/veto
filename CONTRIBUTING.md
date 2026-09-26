@@ -17,6 +17,10 @@ one. The repository check verifies that the fields and evidence are present; it
 does not semantically prove that the criteria are complete. Maintainers make
 that determination and retain responsibility for merge approval.
 
+Use a Conventional Commits title (`feat:`, `fix:`, `perf:`, or another supported
+type). Release Please parses the merged commit title, so a plain-language title
+will leave the change out of the next release.
+
 Contributor trust is classified by the versioned
 [policy](.github/contributor-policy.json): whitelisted logins pass this
 governance check without issue, acceptance-evidence, reputation, or
