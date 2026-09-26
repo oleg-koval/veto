@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,8 +21,10 @@ import (
 	"github.com/oleg-koval/veto/internal/tui"
 	opencodert "github.com/oleg-koval/veto/pkg/opencode"
 	"github.com/oleg-koval/veto/pkg/router"
+	shadowdata "github.com/oleg-koval/veto/pkg/shadow"
 )
 
+// cmdTUI parses terminal options and starts the interactive control plane.
 func cmdTUI(args []string) error {
 	fs := flag.NewFlagSet("tui", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -87,6 +90,29 @@ func cmdTUI(args []string) error {
 					return controlplane.ActionResult{ActionID: "benchmark"}, writeErr
 				}
 				return controlplane.ActionResult{ActionID: "benchmark", Summary: "benchmark complete", Output: output.String()}, nil
+			})
+			service.RegisterHandler("shadow-report", func(_ context.Context, request controlplane.ActionRequest) (controlplane.ActionResult, error) {
+				input := request.Arguments["input"]
+				if input == "" {
+					input = defaultShadowEvidencePath()
+				}
+				threshold := shadowdata.DefaultFallbackConfidence
+				if raw := request.Arguments["fallback-confidence"]; raw != "" {
+					parsed, parseErr := strconv.ParseFloat(raw, 64)
+					if parseErr != nil {
+						return controlplane.ActionResult{ActionID: "shadow-report"}, fmt.Errorf("invalid fallback confidence: %w", parseErr)
+					}
+					threshold = parsed
+				}
+				report, reportErr := evaluateShadowReport(input, threshold)
+				if reportErr != nil {
+					return controlplane.ActionResult{ActionID: "shadow-report"}, reportErr
+				}
+				encoded, encodeErr := json.Marshal(report)
+				if encodeErr != nil {
+					return controlplane.ActionResult{ActionID: "shadow-report"}, encodeErr
+				}
+				return controlplane.ActionResult{ActionID: "shadow-report", Summary: "shadow report complete", Output: string(encoded)}, nil
 			})
 			service.RegisterHandler("version", func(context.Context, controlplane.ActionRequest) (controlplane.ActionResult, error) {
 				summary := "veto " + resolvedVersion()

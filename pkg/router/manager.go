@@ -5,19 +5,27 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Manager orchestrates hard-filtering, scoring, and admission gating.
 // Route returns the first candidate that passes the admission gate.
 type Manager struct {
-	registry      *Registry
-	gate          *AdmissionGate
-	engine        DecisionEngine
-	store         Store
-	maxAdmissions int
-	preferences   CandidatePreferences
-	OnEvent       func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
+	registry          *Registry
+	gate              *AdmissionGate
+	engine            DecisionEngine
+	store             Store
+	maxAdmissions     int
+	preferences       CandidatePreferences
+	shadowRecorder    ShadowEvidenceRecorder
+	shadowRouteMu     sync.Mutex
+	shadowRoutes      map[string][]string
+	shadowCandidate   func(string, string) string
+	shadowMetrics     map[string]ExecutionMetrics
+	shadowMetricOrder []string
+	now               func() time.Time
+	OnEvent           func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
 }
 
 // SetAdmissionTimeout updates the per-model admission deadline for subsequent
@@ -42,6 +50,7 @@ func NewManager(registry *Registry, gate *AdmissionGate, store Store) *Manager {
 		engine:        NewSequentialAdmissionEngine(gate),
 		store:         store,
 		maxAdmissions: 3,
+		now:           time.Now,
 	}
 }
 
@@ -139,6 +148,9 @@ func (m *Manager) route(ctx context.Context, task TaskSpec, admissionTimeout tim
 	}
 
 	request := DecisionRequest{Version: DecisionVersion, Task: task}
+	if m.shadowRecorder != nil {
+		request.shadowRouteID = newShadowRouteID()
+	}
 	for _, model := range ranked {
 		if skipSet[model.Name] {
 			continue
@@ -183,6 +195,8 @@ func (m *Manager) route(ctx context.Context, task TaskSpec, admissionTimeout tim
 			if outcome.Admission != nil {
 				decision = *outcome.Admission
 			}
+			decision.shadowRouteID = request.shadowRouteID
+			m.rememberShadowRoute(task, candidate.Model.Name, request.shadowRouteID)
 			return candidate.Model, decision, nil
 		}
 	}
@@ -196,6 +210,21 @@ func (m *Manager) SetDecisionEngine(engine DecisionEngine) {
 		engine = NewSequentialAdmissionEngine(m.gate)
 	}
 	m.engine = engine
+}
+
+// SetShadowEvidenceRecorder connects later execution telemetry to an earlier
+// redacted shadow comparison. It does not affect routing or the legacy Store.
+func (m *Manager) SetShadowEvidenceRecorder(recorder ShadowEvidenceRecorder) {
+	m.shadowRecorder = recorder
+}
+
+// EnableDecisionShadow wraps the current authority with an evidence-only
+// observer and connects later execution labels to the same recorder.
+func (m *Manager) EnableDecisionShadow(decider ShadowDecider, recorder ShadowEvidenceRecorder, timeout time.Duration, strategy string) {
+	engine := NewShadowingDecisionEngine(m.engine, decider, recorder, timeout, strategy)
+	m.engine = engine
+	m.shadowCandidate = engine.candidateKey
+	m.shadowRecorder = recorder
 }
 
 // logDecision preserves the original Store API for third-party stores while
@@ -220,6 +249,42 @@ func (m *Manager) emit(e ProgressEvent) {
 // supports kind-aware telemetry, while preserving compatibility with legacy
 // Store implementations.
 func (m *Manager) RecordExecution(task TaskSpec, modelName string, metrics ExecutionMetrics) {
+	m.recordExecution(task, modelName, metrics, m.takeShadowRoute(task, modelName, ""))
+}
+
+// RecordExecutionForDecision preserves the unique observation ID returned by
+// Route. Application runners use this optional extension; legacy callers keep
+// the existing RecordExecution API and deterministic correlation behavior.
+func (m *Manager) RecordExecutionForDecision(task TaskSpec, modelName string, decision AdmissionDecision, metrics ExecutionMetrics) {
+	m.recordExecution(task, modelName, metrics, m.takeShadowRoute(task, modelName, decision.shadowRouteID))
+}
+
+// recordExecution records shadow and history telemetry and caches measurements for a later review.
+func (m *Manager) recordExecution(task TaskSpec, modelName string, metrics ExecutionMetrics, routeID string) {
+	if routeID != "" && len(task.SuccessCriteria) > 0 {
+		m.shadowRouteMu.Lock()
+		if m.shadowMetrics == nil {
+			m.shadowMetrics = make(map[string]ExecutionMetrics)
+		}
+		if _, exists := m.shadowMetrics[routeID]; !exists {
+			m.shadowMetricOrder = append(m.shadowMetricOrder, routeID)
+		}
+		m.shadowMetrics[routeID] = metrics
+		const maxShadowMetrics = 256
+		for len(m.shadowMetricOrder) > maxShadowMetrics {
+			oldest := m.shadowMetricOrder[0]
+			m.shadowMetricOrder = m.shadowMetricOrder[1:]
+			delete(m.shadowMetrics, oldest)
+		}
+		m.shadowRouteMu.Unlock()
+	}
+	if m.shadowRecorder != nil {
+		candidate := ""
+		if m.shadowCandidate != nil {
+			candidate = m.shadowCandidate(routeID, modelName)
+		}
+		safeRecordExecution(m.shadowRecorder, executionLabelRecord(routeID, modelName, candidate, metrics, m.now()))
+	}
 	if store, ok := m.store.(KindAwareStore); ok {
 		store.RecordExecution(task.ID, modelName, task.Kind, metrics)
 		return
@@ -229,6 +294,93 @@ func (m *Manager) RecordExecution(task TaskSpec, modelName string, metrics Execu
 		score = 0
 	}
 	m.store.LogResult(task.ID, modelName, score, metrics.Status)
+}
+
+// RecordReviewForDecision replaces an execution label's unknown transport
+// outcome with a definitive acceptance-review result. Execution telemetry is
+// retained, while the legacy Store is intentionally untouched.
+func (m *Manager) RecordReviewForDecision(task TaskSpec, modelName string, decision AdmissionDecision, passed bool, score float64) {
+	if m.shadowRecorder == nil || decision.shadowRouteID == "" {
+		return
+	}
+	m.shadowRouteMu.Lock()
+	metrics, ok := m.shadowMetrics[decision.shadowRouteID]
+	delete(m.shadowMetrics, decision.shadowRouteID)
+	for index, routeID := range m.shadowMetricOrder {
+		if routeID == decision.shadowRouteID {
+			m.shadowMetricOrder = append(m.shadowMetricOrder[:index], m.shadowMetricOrder[index+1:]...)
+			break
+		}
+	}
+	m.shadowRouteMu.Unlock()
+	if !ok {
+		metrics = ExecutionMetrics{}
+	}
+	metrics.Status = "reviewed"
+	metrics.Score = score
+	metrics.ScoreKnown = true
+	if passed {
+		metrics.Status = "success"
+	}
+	if !passed {
+		metrics.Status = "failure"
+	}
+	candidate := ""
+	if m.shadowCandidate != nil {
+		candidate = m.shadowCandidate(decision.shadowRouteID, modelName)
+	}
+	safeRecordExecution(m.shadowRecorder, executionLabelRecord(decision.shadowRouteID, modelName, candidate, metrics, m.now()))
+}
+
+// rememberShadowRoute queues a nonempty route ID for later task/model execution correlation.
+func (m *Manager) rememberShadowRoute(task TaskSpec, modelName, routeID string) {
+	if routeID == "" {
+		return
+	}
+	key := shadowExecutionKey(task, modelName)
+	m.shadowRouteMu.Lock()
+	defer m.shadowRouteMu.Unlock()
+	if m.shadowRoutes == nil {
+		m.shadowRoutes = make(map[string][]string)
+	}
+	m.shadowRoutes[key] = append(m.shadowRoutes[key], routeID)
+	const maxShadowRoutesPerKey = 32
+	if len(m.shadowRoutes[key]) > maxShadowRoutesPerKey {
+		m.shadowRoutes[key] = m.shadowRoutes[key][len(m.shadowRoutes[key])-maxShadowRoutesPerKey:]
+	}
+}
+
+// takeShadowRoute consumes the preferred route ID or the oldest queued ID for the task/model pair.
+// A supplied preferred ID is returned even when it is absent from the queue.
+func (m *Manager) takeShadowRoute(task TaskSpec, modelName, preferred string) string {
+	key := shadowExecutionKey(task, modelName)
+	m.shadowRouteMu.Lock()
+	defer m.shadowRouteMu.Unlock()
+	routes := m.shadowRoutes[key]
+	if preferred != "" {
+		for index, routeID := range routes {
+			if routeID == preferred {
+				routes = append(routes[:index], routes[index+1:]...)
+				if len(routes) == 0 {
+					delete(m.shadowRoutes, key)
+				} else {
+					m.shadowRoutes[key] = routes
+				}
+				return preferred
+			}
+		}
+		return preferred
+	}
+	if len(routes) == 0 {
+		return ""
+	}
+	routeID := routes[0]
+	if len(routes) == 1 {
+		delete(m.shadowRoutes, key)
+	} else {
+		m.shadowRoutes[key] = routes[1:]
+	}
+	return routeID
 }
 
 // ErrNoCandidate is returned when no model accepts the task.

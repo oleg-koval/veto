@@ -190,13 +190,51 @@ unless explicitly testing an injected engine. `SetDecisionEngine(nil)` restores 
 The sequential engine wraps `AdmissionGate`: ordered attempts, first accept at
 ≥70% confidence, at most three calls including transport failures, and compatible
 skip/checkpoint, timeout, cancellation, store and legacy event behavior. Its
-normalized measured telemetry is unknown; admission estimates are not usage.
+normalized telemetry uses provider-reported usage/cost and locally observed
+latency; missing or invalid measurements remain unknown, and admission
+estimates are never substituted for usage.
 The batch-shaped input does not make admission concurrent.
 
 Alternative engines require explicit wiring; there is no engine-selection config
-or new-engine failure fallback. Jev and TypeSafe are not implemented. This slice
-adds no API-key lookup or network calls. Focused composition/event tests do not
+or new-engine failure fallback. In the v0.13 slice, Jev and TypeSafe were not
+implemented and no API-key lookup or network call was added. Focused composition/event tests do not
 constitute the full release-parity matrix, real-provider or human acceptance.
+
+## Jev shadow boundary (v0.14 experimental)
+
+The v0.14 experiment wraps the current authoritative engine with
+`ShadowingDecisionEngine`. Its observer implements `ShadowDecider`, a separate
+interface that returns `ShadowPrediction` rather than `DecisionOutcome`. This
+type boundary prevents a shadow prediction from becoming the manager's route.
+
+Authority and shadow work start concurrently. Veto waits at most the explicit
+shadow timeout, records a normalized comparison, and returns the authority's
+outcome or error unchanged. Shadow errors, malformed output, cancellation,
+timeout, recorder errors, and recorder panics are evidence-only failures.
+
+The TypeSafe adapter uses one `POST /v1/systemone` request: a choice question
+selects an opaque candidate key or `none`, and one `noul` question per candidate
+estimates task success. Responses are bounded and strictly validated; redirects
+are rejected. API response bodies and free-form errors never enter evidence.
+
+Composition is opt-in through `VETO_EXPERIMENTAL_JEV_SHADOW=1`. Only then does
+the CLI read `TYPESAFE_API_KEY` and configure the adapter. Disabled composition
+retains the v0.13 sequential engine and creates no evidence file. Enabled mode
+without a key warns and records `unavailable` while sequential routing remains
+authoritative.
+
+The outer `shadowhistory` adapter translates router-owned observation DTOs into
+the version-1 redacted JSONL schema in `pkg/shadow`. Execution results append
+separate label events. The offline evaluator materializes latest-label-wins
+views and applies promotion policy v1; it never loads credentials or providers.
+Each routing attempt gets a random local observation ID so rerunning the same
+deterministic Veto task cannot create duplicate route records or expose a hash
+derived from the objective. Sequential admission confidence is used only as a
+documented calibration proxy when that authority has no task-success
+probability; Jev uses its candidate-success estimate. Paired success gates
+require labels for at least 95% of authority-labeled routes.
+See [ADR-007](decisions/ADR-007-jev-shadow-evaluation.md) and
+[the evidence contract](jev-shadow-data.md).
 
 ## Checkpoint/Resume (`cmd/veto/checkpoint.go`)
 

@@ -196,6 +196,9 @@ type AdmissionDecision struct {
 	EstimatedCostUSD          float64
 	SuggestedAlternativeModel string
 	RequiredTaskChanges       []string
+	// shadowRouteID links the selected decision to its later execution label.
+	// It is process-local metadata and is intentionally not serialized.
+	shadowRouteID string
 }
 
 // RoutingSignal holds historical performance data for a model+kind pair,

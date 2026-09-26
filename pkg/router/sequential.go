@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"math"
 	"time"
 )
 
@@ -65,7 +66,8 @@ func (e *SequentialAdmissionEngine) Decide(ctx context.Context, request Decision
 		emit(ProgressEvent{Kind: EventAskStart, Model: model.Name})
 		attempts++
 
-		decision, err := e.gate.AskWithTimeout(ctx, task, model, request.admission.timeout)
+		decision, telemetry, err := e.gate.AskWithTimeoutMeasured(ctx, task, model, request.admission.timeout)
+		mergeDecisionTelemetry(&outcome.Telemetry, telemetry, attempts == 1)
 		if err != nil {
 			if ctx.Err() != nil {
 				return DecisionOutcome{}, ctx.Err()
@@ -101,4 +103,58 @@ func (e *SequentialAdmissionEngine) Decide(ctx context.Context, request Decision
 			Reasons: decision.ReasonCodes})
 	}
 	return outcome, nil
+}
+
+// mergeDecisionTelemetry initializes or sums admission measurements, preserving unknowns and rejecting overflow.
+func mergeDecisionTelemetry(total *DecisionTelemetry, current DecisionTelemetry, first bool) {
+	if first {
+		*total = current
+		return
+	}
+	if total.UsageKnown && current.UsageKnown {
+		input, inputOK := addNonnegativeInt(total.InputTokens, current.InputTokens)
+		output, outputOK := addNonnegativeInt(total.OutputTokens, current.OutputTokens)
+		combined, totalOK := addNonnegativeInt(total.TotalTokens, current.TotalTokens)
+		if inputOK && outputOK && totalOK {
+			total.InputTokens, total.OutputTokens, total.TotalTokens = input, output, combined
+		} else {
+			total.InputTokens, total.OutputTokens, total.TotalTokens, total.UsageKnown = 0, 0, 0, false
+		}
+	} else {
+		total.InputTokens, total.OutputTokens, total.TotalTokens, total.UsageKnown = 0, 0, 0, false
+	}
+	if total.CachedInputKnown && current.CachedInputKnown {
+		if value, ok := addNonnegativeInt(total.CachedInputTokens, current.CachedInputTokens); ok {
+			total.CachedInputTokens = value
+		} else {
+			total.CachedInputTokens, total.CachedInputKnown = 0, false
+		}
+	} else {
+		total.CachedInputTokens, total.CachedInputKnown = 0, false
+	}
+	if total.CostKnown && current.CostKnown {
+		total.CostUSD += current.CostUSD
+		if math.IsInf(total.CostUSD, 0) || math.IsNaN(total.CostUSD) {
+			total.CostUSD, total.CostKnown = 0, false
+		}
+	} else {
+		total.CostUSD, total.CostKnown = 0, false
+	}
+	if total.LatencyKnown && current.LatencyKnown {
+		if current.LatencyMs <= math.MaxInt64-total.LatencyMs {
+			total.LatencyMs += current.LatencyMs
+		} else {
+			total.LatencyMs, total.LatencyKnown = 0, false
+		}
+	} else {
+		total.LatencyMs, total.LatencyKnown = 0, false
+	}
+}
+
+// addNonnegativeInt returns a checked sum, or false for negative inputs or integer overflow.
+func addNonnegativeInt(left, right int) (int, bool) {
+	if left < 0 || right < 0 || right > math.MaxInt-left {
+		return 0, false
+	}
+	return left + right, true
 }

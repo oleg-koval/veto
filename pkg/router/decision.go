@@ -40,6 +40,10 @@ type DecisionRequest struct {
 	Task       TaskSpec
 	Candidates []DecisionCandidate
 	admission  sequentialAdmissionOptions
+	// shadowRouteID is an execution-attempt identifier created by Manager only
+	// when an evidence recorder is configured. It is deliberately outside the
+	// public decision contract and is never sent to an authority or provider.
+	shadowRouteID string
 }
 
 // Validate checks the contract without modifying or reordering candidates.

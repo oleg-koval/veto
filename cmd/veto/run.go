@@ -91,8 +91,7 @@ func cmdRun(args []string) {
 	gate := router.NewAdmissionGateWithFactory(reg)
 	gate.SetTimeout(*admissionTimeout)
 	store := routinghistory.NewFileStore(historyPath())
-	mgr := router.NewManager(modelReg, gate, store)
-	mgr.SetCandidatePreferences(loadCandidatePreferences())
+	mgr := newRoutingManager(modelReg, gate, store)
 
 	render := NewRenderer(*quiet)
 	render.PrintTaskHeader(objective, kind, *risk, string(complexity), *maxCost, kindInferred)
@@ -222,9 +221,11 @@ func cmdRun(args []string) {
 		}
 		render.PrintReview(result)
 		if !result.Passed {
+			mgr.RecordReviewForDecision(spec, model.Name, response.Decision, false, result.Score)
 			reportVerifiedReceiptError(persistVerifiedReceipt(spec, model, executionMetrics, evidence, result, verifiedrun.OutcomeVerifiedFail, *verifiedReceiptPath))
 			os.Exit(1)
 		}
+		mgr.RecordReviewForDecision(spec, model.Name, response.Decision, true, result.Score)
 		if len(evidence) > 0 {
 			if err := persistVerifiedReceipt(spec, model, executionMetrics, evidence, result, verifiedrun.OutcomeVerifiedPass, *verifiedReceiptPath); err != nil {
 				fmt.Fprintf(os.Stderr, "verified receipt failed: %v\n", err)
@@ -400,6 +401,7 @@ var validKinds = map[string]bool{
 
 var validKindList = "code-change|debug|refactor|summarize|extract|review|plan"
 
+// prepareRouting builds the provider registry, routing manager, and persistent history store.
 func prepareRouting() (*providerRegistry, *router.Manager, *routinghistory.FileStore, error) {
 	reg, err := buildProviderRegistry()
 	if err != nil {
@@ -408,8 +410,7 @@ func prepareRouting() (*providerRegistry, *router.Manager, *routinghistory.FileS
 	modelReg := router.NewRegistryFromModels(reg.modelCaps())
 	gate := router.NewAdmissionGateWithFactory(reg)
 	store := routinghistory.NewFileStore(historyPath())
-	mgr := router.NewManager(modelReg, gate, store)
-	mgr.SetCandidatePreferences(loadCandidatePreferences())
+	mgr := newRoutingManager(modelReg, gate, store)
 	return reg, mgr, store, nil
 }
 
@@ -426,8 +427,7 @@ func prepareTUIRouting() (*providerRegistry, *router.Manager, *routinghistory.Fi
 	modelReg := router.NewRegistryFromModels(reg.modelCaps())
 	gate := router.NewAdmissionGateWithFactory(reg)
 	store := routinghistory.NewFileStore(historyPath())
-	mgr := router.NewManager(modelReg, gate, store)
-	mgr.SetCandidatePreferences(loadCandidatePreferences())
+	mgr := newRoutingManager(modelReg, gate, store)
 	return reg, mgr, store, nil
 }
 
@@ -459,6 +459,11 @@ func routeAndCapture(ctx context.Context, reg *providerRegistry, mgr *router.Man
 }
 
 func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr *router.Manager, render *Renderer, spec router.TaskSpec, skills []string, options execution.ExecutionOptions) (string, string, error) {
+	model, output, _, err := routeAndCaptureWithOptionsDecision(ctx, reg, mgr, render, spec, skills, options)
+	return model, output, err
+}
+
+func routeAndCaptureWithOptionsDecision(ctx context.Context, reg *providerRegistry, mgr *router.Manager, render *Renderer, spec router.TaskSpec, skills []string, options execution.ExecutionOptions) (string, string, router.AdmissionDecision, error) {
 	prev := mgr.OnEvent
 	mgr.OnEvent = func(e router.ProgressEvent) {
 		render.OnEvent(e)
@@ -470,9 +475,9 @@ func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr 
 		Task: spec, Skills: skills, Options: options,
 	})
 	if err != nil {
-		return response.Model.Name, response.Output, err
+		return response.Model.Name, response.Output, response.Decision, err
 	}
-	return response.Model.Name, response.Output, nil
+	return response.Model.Name, response.Output, response.Decision, nil
 }
 
 // newApplicationRunner wires delivery-side telemetry adapters around the
