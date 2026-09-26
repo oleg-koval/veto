@@ -131,10 +131,28 @@ func TestManagerRecordsExecutionLabelWithoutChangingStore(t *testing.T) {
 	metrics := ExecutionMetrics{Status: "completed", ScoreKnown: true, Score: .75, CostKnown: true, CostUSD: 0}
 	mgr.RecordExecution(task, "a", metrics)
 	require.Len(t, recorder.labels, 1)
-	require.True(t, recorder.labels[0].Success.Known)
-	require.True(t, recorder.labels[0].Success.Value)
+	require.False(t, recorder.labels[0].Success.Known)
 	require.True(t, recorder.labels[0].Score.Known)
 	require.True(t, store.Signal("a", KindPlan).EvalScoreKnown)
+}
+
+func TestManagerRecordsReviewOutcomeAfterTransportCompletion(t *testing.T) {
+	recorder := &recordingShadowSink{}
+	registry := NewRegistryFromModels([]ModelCapabilities{{Name: "a", Tier: "large", Provider: "test"}})
+	mgr := NewManager(registry, NewAdmissionGate(&executorMock{RunFunc: func(context.Context, string) AdmissionResult {
+		return AdmissionResult{Output: `{"accept":true,"confidence":0.9}`}
+	}}), NewMemoryStore())
+	mgr.EnableDecisionShadow(nil, recorder, time.Second, "jev:test")
+	task := TaskSpec{ID: "reviewed-task", Kind: KindPlan, Risk: RiskMedium, SuccessCriteria: []string{"tests pass"}}
+	model, decision, err := mgr.Route(t.Context(), task)
+	require.NoError(t, err)
+	mgr.RecordExecutionForDecision(task, model.Name, decision, ExecutionMetrics{Status: "completed", UsageKnown: true, TotalTokens: 3})
+	mgr.RecordReviewForDecision(task, model.Name, decision, false, 0)
+	require.Len(t, recorder.labels, 2)
+	require.True(t, recorder.labels[1].Success.Known)
+	require.False(t, recorder.labels[1].Success.Value)
+	require.True(t, recorder.labels[1].Score.Known)
+	require.True(t, recorder.labels[1].Telemetry.UsageKnown)
 }
 
 func TestManagerUsesUniqueRouteIDsForRepeatedTasks(t *testing.T) {

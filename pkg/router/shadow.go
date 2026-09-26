@@ -302,7 +302,7 @@ func executionLabelRecord(routeID, modelName, candidate string, metrics Executio
 	}
 	success := ShadowKnownBool{}
 	switch metrics.Status {
-	case "success", "completed":
+	case "success":
 		success = ShadowKnownBool{Known: true, Value: true}
 	case "failure", "error", "truncated", "timeout", "canceled":
 		success = ShadowKnownBool{Known: true, Value: false}

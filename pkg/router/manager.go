@@ -22,6 +22,7 @@ type Manager struct {
 	shadowRouteMu   sync.Mutex
 	shadowRoutes    map[string][]string
 	shadowCandidate func(string, string) string
+	shadowMetrics   map[string]ExecutionMetrics
 	now             func() time.Time
 	OnEvent         func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
 }
@@ -258,6 +259,14 @@ func (m *Manager) RecordExecutionForDecision(task TaskSpec, modelName string, de
 }
 
 func (m *Manager) recordExecution(task TaskSpec, modelName string, metrics ExecutionMetrics, routeID string) {
+	if routeID != "" && len(task.SuccessCriteria) > 0 {
+		m.shadowRouteMu.Lock()
+		if m.shadowMetrics == nil {
+			m.shadowMetrics = make(map[string]ExecutionMetrics)
+		}
+		m.shadowMetrics[routeID] = metrics
+		m.shadowRouteMu.Unlock()
+	}
 	if m.shadowRecorder != nil {
 		candidate := ""
 		if m.shadowCandidate != nil {
@@ -274,6 +283,36 @@ func (m *Manager) recordExecution(task TaskSpec, modelName string, metrics Execu
 		score = 0
 	}
 	m.store.LogResult(task.ID, modelName, score, metrics.Status)
+}
+
+// RecordReviewForDecision replaces an execution label's unknown transport
+// outcome with a definitive acceptance-review result. Execution telemetry is
+// retained, while the legacy Store is intentionally untouched.
+func (m *Manager) RecordReviewForDecision(task TaskSpec, modelName string, decision AdmissionDecision, passed bool, score float64) {
+	if m.shadowRecorder == nil || decision.shadowRouteID == "" {
+		return
+	}
+	m.shadowRouteMu.Lock()
+	metrics, ok := m.shadowMetrics[decision.shadowRouteID]
+	delete(m.shadowMetrics, decision.shadowRouteID)
+	m.shadowRouteMu.Unlock()
+	if !ok {
+		metrics = ExecutionMetrics{}
+	}
+	metrics.Status = "reviewed"
+	metrics.Score = score
+	metrics.ScoreKnown = true
+	if passed {
+		metrics.Status = "success"
+	}
+	if !passed {
+		metrics.Status = "failure"
+	}
+	candidate := ""
+	if m.shadowCandidate != nil {
+		candidate = m.shadowCandidate(decision.shadowRouteID, modelName)
+	}
+	safeRecordExecution(m.shadowRecorder, executionLabelRecord(decision.shadowRouteID, modelName, candidate, metrics, m.now()))
 }
 
 func (m *Manager) rememberShadowRoute(task TaskSpec, modelName, routeID string) {

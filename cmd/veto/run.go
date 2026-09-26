@@ -221,9 +221,11 @@ func cmdRun(args []string) {
 		}
 		render.PrintReview(result)
 		if !result.Passed {
+			mgr.RecordReviewForDecision(spec, model.Name, response.Decision, false, result.Score)
 			reportVerifiedReceiptError(persistVerifiedReceipt(spec, model, executionMetrics, evidence, result, verifiedrun.OutcomeVerifiedFail, *verifiedReceiptPath))
 			os.Exit(1)
 		}
+		mgr.RecordReviewForDecision(spec, model.Name, response.Decision, true, result.Score)
 		if len(evidence) > 0 {
 			if err := persistVerifiedReceipt(spec, model, executionMetrics, evidence, result, verifiedrun.OutcomeVerifiedPass, *verifiedReceiptPath); err != nil {
 				fmt.Fprintf(os.Stderr, "verified receipt failed: %v\n", err)
