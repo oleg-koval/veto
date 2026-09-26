@@ -94,24 +94,24 @@ type question struct {
 type systemOneResponse struct {
 	Model   string                     `json:"model"`
 	Answers map[string]json.RawMessage `json:"answers"`
-	Usage   usage                      `json:"usage"`
+	Usage   *usage                     `json:"usage"`
 }
 
 type usage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens  *int `json:"input_tokens"`
+	OutputTokens *int `json:"output_tokens"`
 }
 
 type choiceAnswer struct {
 	Type          string             `json:"type"`
 	Choice        string             `json:"choice"`
-	Confidence    float64            `json:"confidence"`
+	Confidence    *float64           `json:"confidence"`
 	Probabilities map[string]float64 `json:"probabilities"`
 }
 
 type noulAnswer struct {
-	Type string  `json:"type"`
-	Noul float64 `json:"noul"`
+	Type string   `json:"type"`
+	Noul *float64 `json:"noul"`
 }
 
 // DecideShadow performs one typed System One call for the whole shortlist.
@@ -167,8 +167,8 @@ func (c *Client) DecideShadow(ctx context.Context, request router.DecisionReques
 		return router.ShadowPrediction{}, err
 	}
 	prediction.Telemetry = router.DecisionTelemetry{
-		InputTokens: decoded.Usage.InputTokens, OutputTokens: decoded.Usage.OutputTokens,
-		TotalTokens: decoded.Usage.InputTokens + decoded.Usage.OutputTokens, UsageKnown: true,
+		InputTokens: *decoded.Usage.InputTokens, OutputTokens: *decoded.Usage.OutputTokens,
+		TotalTokens: *decoded.Usage.InputTokens + *decoded.Usage.OutputTokens, UsageKnown: true,
 		LatencyMs: latency.Milliseconds(), LatencyKnown: true,
 	}
 	return prediction, nil
@@ -208,7 +208,8 @@ func (c *Client) buildRequest(request router.DecisionRequest) (systemOneRequest,
 }
 
 func parseResponse(response systemOneResponse, keys map[string]string) (router.ShadowPrediction, error) {
-	if strings.TrimSpace(response.Model) == "" || response.Usage.InputTokens < 0 || response.Usage.OutputTokens < 0 {
+	if strings.TrimSpace(response.Model) == "" || response.Usage == nil || response.Usage.InputTokens == nil || response.Usage.OutputTokens == nil ||
+		*response.Usage.InputTokens < 0 || *response.Usage.OutputTokens < 0 || *response.Usage.OutputTokens > math.MaxInt-*response.Usage.InputTokens {
 		return router.ShadowPrediction{}, malformed("missing model or invalid usage")
 	}
 	if len(response.Answers) != len(keys)+1 {
@@ -222,7 +223,7 @@ func parseResponse(response systemOneResponse, keys map[string]string) (router.S
 	if err := decodeExact(selectionRaw, &selection); err != nil || selection.Type != "choice" {
 		return router.ShadowPrediction{}, malformed("invalid selection answer")
 	}
-	if !unit(selection.Confidence) {
+	if selection.Confidence == nil || !unit(*selection.Confidence) {
 		return router.ShadowPrediction{}, malformed("invalid selection confidence")
 	}
 	expectedChoices := make(map[string]bool, len(keys)+1)
@@ -252,13 +253,13 @@ func parseResponse(response systemOneResponse, keys map[string]string) (router.S
 			return router.ShadowPrediction{}, malformed("missing candidate success answer")
 		}
 		var answer noulAnswer
-		if err := decodeExact(raw, &answer); err != nil || answer.Type != "noul" || !unit(answer.Noul) {
+		if err := decodeExact(raw, &answer); err != nil || answer.Type != "noul" || answer.Noul == nil || !unit(*answer.Noul) {
 			return router.ShadowPrediction{}, malformed("invalid candidate success answer")
 		}
-		success[key] = answer.Noul
+		success[key] = *answer.Noul
 	}
 
-	prediction := router.ShadowPrediction{Confidence: router.DecisionProbability{Known: true, Value: selection.Confidence}}
+	prediction := router.ShadowPrediction{Confidence: router.DecisionProbability{Known: true, Value: *selection.Confidence}}
 	if selection.Choice != noSelectionChoice {
 		prediction.SelectedCandidate = keys[selection.Choice]
 		prediction.Probability = router.DecisionProbability{Known: true, Value: success[selection.Choice]}

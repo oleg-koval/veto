@@ -28,6 +28,10 @@ type timedRouter interface {
 	RouteWithAdmissionTimeout(context.Context, router.TaskSpec, time.Duration) (router.ModelCapabilities, router.AdmissionDecision, error)
 }
 
+type decisionExecutionRecorder interface {
+	RecordExecutionForDecision(router.TaskSpec, string, router.AdmissionDecision, router.ExecutionMetrics)
+}
+
 // RuntimeResolver is the application-facing execution port. It deliberately
 // returns the stable runtime contract rather than a provider implementation.
 type RuntimeResolver interface {
@@ -176,7 +180,7 @@ func (r Runner) Execute(ctx context.Context, request Request) (Response, error) 
 			status = "truncated"
 		}
 		metrics := ExecutionMetrics(model, result, time.Since(started), status)
-		r.Router.RecordExecution(request.Task, model.Name, metrics)
+		recordExecution(r.Router, request.Task, model.Name, decision, metrics)
 		r.emit(ExecutionEvent{Kind: ExecutionFailed, TaskID: request.Task.ID, Model: model,
 			Metrics: metrics, Detail: err.Error()})
 		return Response{Model: model, Decision: decision, Output: output, Result: result, Streamed: streamed}, err
@@ -185,10 +189,18 @@ func (r Runner) Execute(ctx context.Context, request Request) (Response, error) 
 	// A zero exit/transport completion says only that the native runtime
 	// returned output. It is not evidence that the coding task was correct.
 	metrics := ExecutionMetrics(model, result, time.Since(started), "completed")
-	r.Router.RecordExecution(request.Task, model.Name, metrics)
+	recordExecution(r.Router, request.Task, model.Name, decision, metrics)
 	r.emit(ExecutionEvent{Kind: ExecutionCompleted, TaskID: request.Task.ID, Model: model, Metrics: metrics})
 	return Response{Model: model, Decision: decision, Output: output, Result: result,
 		OutputWritten: streamed, Streamed: streamed}, nil
+}
+
+func recordExecution(r Router, task router.TaskSpec, modelName string, decision router.AdmissionDecision, metrics router.ExecutionMetrics) {
+	if recorder, ok := r.(decisionExecutionRecorder); ok {
+		recorder.RecordExecutionForDecision(task, modelName, decision, metrics)
+		return
+	}
+	r.RecordExecution(task, modelName, metrics)
 }
 
 func (r Runner) emit(event ExecutionEvent) {

@@ -22,6 +22,18 @@ type testRouter struct {
 	recordedTask router.TaskSpec
 }
 
+type decisionAwareTestRouter struct {
+	testRouter
+	decisionRecorded bool
+}
+
+func (r *decisionAwareTestRouter) RecordExecutionForDecision(task router.TaskSpec, _ string, decision router.AdmissionDecision, metrics router.ExecutionMetrics) {
+	r.decisionRecorded = true
+	r.recordedTask = task
+	r.decision = decision
+	r.recorded = append(r.recorded, metrics)
+}
+
 func (r *testRouter) Route(_ context.Context, task router.TaskSpec) (router.ModelCapabilities, router.AdmissionDecision, error) {
 	r.routedTask = task
 	return r.model, r.decision, r.routeErr
@@ -88,6 +100,19 @@ func TestRunnerExecuteRoutesAndRecordsTelemetry(t *testing.T) {
 	assert.True(t, routerPort.recorded[0].CostKnown)
 	assert.Equal(t, "completed", routerPort.recorded[0].Status)
 	assert.Equal(t, []ExecutionEventKind{ExecutionStarted, ExecutionCompleted}, eventKinds(events))
+}
+
+func TestRunnerUsesDecisionAwareExecutionRecorderWhenAvailable(t *testing.T) {
+	routerPort := &decisionAwareTestRouter{testRouter: testRouter{
+		model: router.ModelCapabilities{Name: "model"}, decision: router.AdmissionDecision{Accept: true, Confidence: .8},
+	}}
+	runner := Runner{Router: routerPort, Runtime: testResolver{runtime: &testRuntime{result: execution.Result{Output: "done"}, known: true}}}
+
+	_, err := runner.Execute(t.Context(), Request{Task: router.TaskSpec{ID: "task"}})
+
+	require.NoError(t, err)
+	require.True(t, routerPort.decisionRecorded)
+	require.Len(t, routerPort.recorded, 1)
 }
 
 func TestRunnerExecutePreservesToolRuntimePrompt(t *testing.T) {

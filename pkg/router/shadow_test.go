@@ -136,6 +136,47 @@ func TestManagerRecordsExecutionLabelWithoutChangingStore(t *testing.T) {
 	require.True(t, store.Signal("a", KindPlan).EvalScoreKnown)
 }
 
+func TestManagerUsesUniqueRouteIDsForRepeatedTasks(t *testing.T) {
+	recorder := &recordingShadowSink{}
+	registry := NewRegistryFromModels([]ModelCapabilities{{Name: "a", Tier: "large", Provider: "test"}})
+	mgr := NewManager(registry, NewAdmissionGate(&executorMock{RunFunc: func(context.Context, string) AdmissionResult {
+		return AdmissionResult{Output: `{"accept":true,"confidence":0.9}`}
+	}}), NewMemoryStore())
+	mgr.EnableDecisionShadow(shadowDeciderFunc(func(context.Context, DecisionRequest) (ShadowPrediction, error) {
+		return ShadowPrediction{SelectedCandidate: "a", Probability: DecisionProbability{Known: true, Value: .9}, Confidence: DecisionProbability{Known: true, Value: .9}}, nil
+	}), recorder, time.Second, "jev:test")
+	task := TaskSpec{ID: "same-task", Kind: KindPlan, Risk: RiskMedium}
+
+	for range 2 {
+		model, decision, err := mgr.Route(t.Context(), task)
+		require.NoError(t, err)
+		mgr.RecordExecutionForDecision(task, model.Name, decision, ExecutionMetrics{Status: "success"})
+	}
+
+	require.Len(t, recorder.comparisons, 2)
+	require.Len(t, recorder.labels, 2)
+	require.NotEqual(t, recorder.comparisons[0].RouteID, recorder.comparisons[1].RouteID)
+	for index := range recorder.comparisons {
+		require.Equal(t, recorder.comparisons[index].RouteID, recorder.labels[index].RouteID)
+	}
+}
+
+func TestLegacyRecordExecutionUsesRememberedRouteID(t *testing.T) {
+	recorder := &recordingShadowSink{}
+	registry := NewRegistryFromModels([]ModelCapabilities{{Name: "a", Tier: "large", Provider: "test"}})
+	mgr := NewManager(registry, NewAdmissionGate(&executorMock{RunFunc: func(context.Context, string) AdmissionResult {
+		return AdmissionResult{Output: `{"accept":true,"confidence":0.9}`}
+	}}), NewMemoryStore())
+	mgr.EnableDecisionShadow(nil, recorder, time.Second, "jev:test")
+	task := TaskSpec{ID: "task", Kind: KindPlan, Risk: RiskMedium}
+	model, _, err := mgr.Route(t.Context(), task)
+	require.NoError(t, err)
+
+	mgr.RecordExecution(task, model.Name, ExecutionMetrics{Status: "success"})
+
+	require.Equal(t, recorder.comparisons[0].RouteID, recorder.labels[0].RouteID)
+}
+
 func shadowRequest() DecisionRequest {
 	return DecisionRequest{Version: DecisionVersion, Task: TaskSpec{ID: "task-1", Kind: KindPlan, Risk: RiskMedium, Objective: "original"}, Candidates: []DecisionCandidate{{Model: ModelCapabilities{Name: "a"}}, {Model: ModelCapabilities{Name: "b"}}}}
 }

@@ -24,8 +24,9 @@ type Distribution struct {
 	P95     float64 `json:"p95"`
 }
 
-// Calibration summarizes probabilities for candidates with known success
-// labels. ECE uses ten fixed [0.0, 0.1), ... [0.9, 1.0] bins.
+// Calibration summarizes task-success probabilities for candidates with known
+// labels. When an authority has no probability, its decision confidence is an
+// explicit baseline proxy. ECE uses ten fixed bins.
 type Calibration struct {
 	Samples    int     `json:"samples"`
 	BrierScore float64 `json:"brier_score"`
@@ -55,6 +56,7 @@ type Report struct {
 	FallbackConfidenceThreshold float64         `json:"fallback_confidence_threshold"`
 	Authority                   DecisionMetrics `json:"authority"`
 	Shadow                      DecisionMetrics `json:"shadow"`
+	Readiness                   ReadinessReport `json:"readiness"`
 }
 
 // Evaluate computes metrics from recorded evidence only. A route is labeled
@@ -86,14 +88,14 @@ func Evaluate(dataset Dataset, fallbackConfidence float64) Report {
 				report.Authority.Labeled++
 				report.LabeledRoutes++
 				report.LabeledRoutesByTaskKind[comparison.TaskKind]++
-				authoritySamples = append(authoritySamples, decisionSample{probability: authority.Probability, success: label.Success})
+				authoritySamples = append(authoritySamples, decisionSample{probability: authority.Probability, confidence: authority.Confidence, success: label.Success})
 			}
 		}
 		if shadowDecision.Status == StatusSelected {
 			report.Shadow.Selections++
 			if label, ok := record.Labels[shadowDecision.SelectedCandidate]; ok && label.Success.Known {
 				report.Shadow.Labeled++
-				shadowSamples = append(shadowSamples, decisionSample{probability: shadowDecision.Probability, success: label.Success})
+				shadowSamples = append(shadowSamples, decisionSample{probability: shadowDecision.Probability, confidence: shadowDecision.Confidence, success: label.Success})
 			}
 		}
 
@@ -123,11 +125,13 @@ func Evaluate(dataset Dataset, fallbackConfidence float64) Report {
 	report.Shadow.LatencyMs = distribution(shadowLatencies)
 	report.Authority.CostUSD = distribution(authorityCosts)
 	report.Shadow.CostUSD = distribution(shadowCosts)
+	report.Readiness = evaluateReadiness(dataset, report, fallbackConfidence)
 	return report
 }
 
 type decisionSample struct {
 	probability KnownFloat
+	confidence  KnownFloat
 	success     KnownBool
 }
 
@@ -166,21 +170,25 @@ func sampleMetrics(samples []decisionSample) (Rate, Calibration) {
 		if sample.success.Value {
 			successes++
 		}
-		if !sample.probability.Known {
+		estimate := sample.probability
+		if !estimate.Known {
+			estimate = sample.confidence
+		}
+		if !estimate.Known {
 			continue
 		}
 		outcome := 0.0
 		if sample.success.Value {
 			outcome = 1
 		}
-		delta := sample.probability.Value - outcome
+		delta := estimate.Value - outcome
 		brier += delta * delta
-		index := int(sample.probability.Value * 10)
+		index := int(estimate.Value * 10)
 		if index == 10 {
 			index = 9
 		}
 		bins[index].count++
-		bins[index].confidence += sample.probability.Value
+		bins[index].confidence += estimate.Value
 		bins[index].outcomes += outcome
 		calibrationSamples++
 	}

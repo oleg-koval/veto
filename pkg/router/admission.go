@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -18,7 +19,8 @@ const admissionModelTimeout = 20 * time.Second
 // AdmissionResult is the result returned by the admission boundary. It remains
 // an alias of the stable execution result so existing executors whose Run
 // method returns executor.Result continue to satisfy Executor. Admission uses
-// only Output and Error; full-task telemetry remains an execution concern.
+// Output and Error for routing and carries measured usage/cost only as
+// decision telemetry; it never treats those measurements as execution data.
 type AdmissionResult = execution.Result
 
 // ToolCapabilities describes the tools available to an admission probe.
@@ -114,10 +116,17 @@ func (g *AdmissionGate) Ask(ctx context.Context, task TaskSpec, model ModelCapab
 // AskWithTimeout runs one admission check with a request-local timeout. A
 // non-positive timeout uses the gate's configured default.
 func (g *AdmissionGate) AskWithTimeout(ctx context.Context, task TaskSpec, model ModelCapabilities, timeoutOverride time.Duration) (AdmissionDecision, error) {
+	decision, _, err := g.AskWithTimeoutMeasured(ctx, task, model, timeoutOverride)
+	return decision, err
+}
+
+// AskWithTimeoutMeasured preserves provider-reported decision-call usage/cost
+// and observed latency. It never substitutes admission estimates for telemetry.
+func (g *AdmissionGate) AskWithTimeoutMeasured(ctx context.Context, task TaskSpec, model ModelCapabilities, timeoutOverride time.Duration) (AdmissionDecision, DecisionTelemetry, error) {
 	exec, ok := g.factory.For(model.Name)
 	if !ok {
 		return AdmissionDecision{Accept: false, ReasonCodes: []string{ReasonParseFailure}},
-			fmt.Errorf("no executor registered for model %q", model.Name)
+			DecisionTelemetry{}, fmt.Errorf("no executor registered for model %q", model.Name)
 	}
 	// per-model cap: a hung model shouldn't block routing indefinitely
 	timeout := timeoutOverride
@@ -146,23 +155,44 @@ func (g *AdmissionGate) AskWithTimeout(ctx context.Context, task TaskSpec, model
 	}
 
 	prompt := buildAdmissionPromptWithToolStatus(task, model, effectiveTools, toolsKnown)
+	started := time.Now()
 	result := exec.Run(mCtx, prompt)
+	telemetry := DecisionTelemetry{
+		InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens, TotalTokens: result.Usage.TotalTokens,
+		UsageKnown: result.Usage.Known, CachedInputTokens: result.Usage.CachedInputTokens, CachedInputKnown: result.Usage.CachedInputKnown,
+		CostUSD: result.CostUSD, CostKnown: result.CostKnown, LatencyMs: time.Since(started).Milliseconds(), LatencyKnown: true,
+	}
+	if !telemetry.UsageKnown {
+		telemetry.InputTokens, telemetry.OutputTokens, telemetry.TotalTokens = 0, 0, 0
+	} else if telemetry.InputTokens < 0 || telemetry.OutputTokens < 0 || telemetry.TotalTokens < 0 {
+		telemetry.InputTokens, telemetry.OutputTokens, telemetry.TotalTokens, telemetry.UsageKnown = 0, 0, 0, false
+	}
+	if !telemetry.CachedInputKnown {
+		telemetry.CachedInputTokens = 0
+	} else if telemetry.CachedInputTokens < 0 {
+		telemetry.CachedInputTokens, telemetry.CachedInputKnown = 0, false
+	}
+	if !telemetry.CostKnown {
+		telemetry.CostUSD = 0
+	} else if math.IsNaN(telemetry.CostUSD) || math.IsInf(telemetry.CostUSD, 0) || telemetry.CostUSD < 0 {
+		telemetry.CostUSD, telemetry.CostKnown = 0, false
+	}
 	if result.Error != nil {
 		return AdmissionDecision{Accept: false, ReasonCodes: []string{ReasonParseFailure}},
-			result.Error
+			telemetry, result.Error
 	}
 
 	if decision, ok := parseAdmissionJSON(result.Output); ok {
 		if decision.Accept && task.MaxCostUSD > 0 && decision.EstimatedCostUSD > task.MaxCostUSD {
 			return AdmissionDecision{Accept: false, Confidence: decision.Confidence,
-				ReasonCodes: []string{ReasonCostCeiling}, EstimatedCostUSD: decision.EstimatedCostUSD}, nil
+				ReasonCodes: []string{ReasonCostCeiling}, EstimatedCostUSD: decision.EstimatedCostUSD}, telemetry, nil
 		}
 		if decision.Accept && decision.Confidence < 0.7 {
-			return AdmissionDecision{Accept: false, ReasonCodes: []string{ReasonLowConfidence}}, nil
+			return AdmissionDecision{Accept: false, ReasonCodes: []string{ReasonLowConfidence}}, telemetry, nil
 		}
-		return decision, nil
+		return decision, telemetry, nil
 	}
-	return AdmissionDecision{Accept: false, ReasonCodes: []string{ReasonParseFailure}}, nil
+	return AdmissionDecision{Accept: false, ReasonCodes: []string{ReasonParseFailure}}, telemetry, nil
 }
 
 // buildAdmissionPrompt constructs the prompt sent to the candidate model.
@@ -273,7 +303,12 @@ func parseAdmissionJSON(output string) (AdmissionDecision, bool) {
 	if err := json.NewDecoder(strings.NewReader(output[start:])).Decode(&j); err != nil {
 		return AdmissionDecision{}, false
 	}
-	return AdmissionDecision(j), true
+	return AdmissionDecision{
+		Accept: j.Accept, Confidence: j.Confidence, ReasonCodes: j.ReasonCodes,
+		EstimatedTokens: j.EstimatedTokens, EstimatedCostUSD: j.EstimatedCostUSD,
+		SuggestedAlternativeModel: j.SuggestedAlternativeModel,
+		RequiredTaskChanges:       j.RequiredTaskChanges,
+	}, true
 }
 
 // tools reports the active admission transport's capabilities for the shortlist.

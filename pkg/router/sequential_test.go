@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,6 +19,48 @@ type decisionEngineFunc func(context.Context, DecisionRequest) (DecisionOutcome,
 
 func (f decisionEngineFunc) Decide(ctx context.Context, r DecisionRequest) (DecisionOutcome, error) {
 	return f(ctx, r)
+}
+
+func TestSequentialAdmissionAggregatesMeasuredTelemetry(t *testing.T) {
+	calls := 0
+	exec := &executorMock{RunFunc: func(context.Context, string) AdmissionResult {
+		calls++
+		result := AdmissionResult{Usage: execution.Usage{Known: true, InputTokens: calls * 10, OutputTokens: calls, TotalTokens: calls * 11}, CostKnown: true, CostUSD: float64(calls) * .001}
+		if calls == 1 {
+			result.Output = rejectJSON(ReasonWeakKind)
+		} else {
+			result.Output = `{"accept":true,"confidence":0.9}`
+		}
+		return result
+	}}
+	engine := NewSequentialAdmissionEngine(NewAdmissionGate(exec))
+	outcome, err := engine.Decide(t.Context(), DecisionRequest{Version: DecisionVersion, Task: TaskSpec{Kind: KindPlan, Risk: RiskMedium}, Candidates: []DecisionCandidate{{Model: ModelCapabilities{Name: "a"}}, {Model: ModelCapabilities{Name: "b"}}}})
+	require.NoError(t, err)
+	require.True(t, outcome.Telemetry.UsageKnown)
+	require.Equal(t, 30, outcome.Telemetry.InputTokens)
+	require.Equal(t, 3, outcome.Telemetry.OutputTokens)
+	require.Equal(t, 33, outcome.Telemetry.TotalTokens)
+	require.True(t, outcome.Telemetry.CostKnown)
+	require.InDelta(t, .003, outcome.Telemetry.CostUSD, 1e-12)
+	require.True(t, outcome.Telemetry.LatencyKnown)
+}
+
+func TestSequentialAdmissionInvalidTelemetryStaysNonAuthoritative(t *testing.T) {
+	exec := &executorMock{RunFunc: func(context.Context, string) AdmissionResult {
+		return AdmissionResult{
+			Output:    `{"accept":true,"confidence":0.9}`,
+			Usage:     execution.Usage{Known: true, InputTokens: -1, CachedInputKnown: true, CachedInputTokens: -1},
+			CostKnown: true, CostUSD: math.NaN(),
+		}
+	}}
+	engine := NewSequentialAdmissionEngine(NewAdmissionGate(exec))
+	outcome, err := engine.Decide(t.Context(), DecisionRequest{Version: DecisionVersion, Task: TaskSpec{Kind: KindPlan, Risk: RiskMedium}, Candidates: []DecisionCandidate{{Model: ModelCapabilities{Name: "a"}}}})
+	require.NoError(t, err)
+	require.Equal(t, "a", outcome.SelectedCandidate)
+	require.False(t, outcome.Telemetry.UsageKnown)
+	require.False(t, outcome.Telemetry.CachedInputKnown)
+	require.False(t, outcome.Telemetry.CostKnown)
+	require.True(t, outcome.Telemetry.LatencyKnown)
 }
 
 type admissionRecord struct {

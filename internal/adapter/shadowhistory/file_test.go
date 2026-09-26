@@ -63,15 +63,33 @@ func TestFileRecorderDoesNotOverwriteMalformedEvidence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "evidence.jsonl")
 	require.NoError(t, os.WriteFile(path, []byte("not json\n"), 0600))
 	recorder := NewFileRecorder(path, 2)
-	err := recorder.RecordShadowComparison(router.ShadowComparisonRecord{
+	record := router.ShadowComparisonRecord{
 		RouteID: "r-1", ObservedAt: time.Unix(1, 0).UTC(), TaskKind: router.KindPlan, Risk: router.RiskMedium,
 		Candidates: []string{"c-1"}, AuthorityStrategy: "sequential-admission", ShadowStrategy: "jev:test",
 		Authority: router.ShadowDecisionRecord{Status: router.ShadowStatusNoSelection},
 		Shadow:    router.ShadowDecisionRecord{Status: router.ShadowStatusNoSelection},
-	})
+	}
+	err := recorder.RecordShadowComparison(record)
 	require.Error(t, err)
 	require.False(t, errors.Is(err, ErrEvidenceLimit))
+	record.RouteID = "r-2"
+	require.Error(t, recorder.RecordShadowComparison(record), "every append must fail closed while existing evidence is malformed")
 	data, readErr := os.ReadFile(path)
 	require.NoError(t, readErr)
 	require.Equal(t, "not json\n", string(data))
+}
+
+func TestFileRecorderFailsClosedAfterInvalidEvent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "evidence.jsonl")
+	recorder := NewFileRecorder(path, 2)
+	invalid := router.ShadowComparisonRecord{
+		RouteID: "", ObservedAt: time.Unix(1, 0).UTC(), TaskKind: router.KindPlan, Risk: router.RiskMedium,
+		Candidates: []string{"c-1"}, Authority: router.ShadowDecisionRecord{Status: router.ShadowStatusNoSelection},
+		Shadow: router.ShadowDecisionRecord{Status: router.ShadowStatusNoSelection},
+	}
+	require.Error(t, recorder.RecordShadowComparison(invalid))
+	invalid.RouteID = "r-1"
+	require.Error(t, recorder.RecordShadowComparison(invalid))
+	_, err := os.Stat(path)
+	require.ErrorIs(t, err, os.ErrNotExist)
 }

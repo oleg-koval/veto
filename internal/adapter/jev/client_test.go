@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -79,16 +80,26 @@ func TestParseResponseRejectsMalformedData(t *testing.T) {
 	keys := map[string]string{"candidate_1": "model-a", "candidate_2": "model-b"}
 	tests := map[string]func(*systemOneResponse){
 		"missing model":  func(r *systemOneResponse) { r.Model = "" },
-		"negative usage": func(r *systemOneResponse) { r.Usage.InputTokens = -1 },
+		"missing usage":  func(r *systemOneResponse) { r.Usage = nil },
+		"negative usage": func(r *systemOneResponse) { r.Usage.InputTokens = intValue(-1) },
+		"usage overflow": func(r *systemOneResponse) {
+			r.Usage.InputTokens, r.Usage.OutputTokens = intValue(math.MaxInt), intValue(1)
+		},
 		"missing answer": func(r *systemOneResponse) { delete(r.Answers, "success_candidate_1") },
 		"unknown choice": func(r *systemOneResponse) {
-			r.Answers[selectionQuestion] = raw(choiceAnswer{Type: "choice", Choice: "other", Confidence: .9, Probabilities: map[string]float64{"candidate_1": .3, "candidate_2": .3, "none": .4}})
+			r.Answers[selectionQuestion] = raw(choiceAnswer{Type: "choice", Choice: "other", Confidence: floatValue(.9), Probabilities: map[string]float64{"candidate_1": .3, "candidate_2": .3, "none": .4}})
+		},
+		"missing confidence": func(r *systemOneResponse) {
+			r.Answers[selectionQuestion] = raw(choiceAnswer{Type: "choice", Choice: "candidate_1", Probabilities: map[string]float64{"candidate_1": .3, "candidate_2": .3, "none": .4}})
 		},
 		"bad confidence": func(r *systemOneResponse) {
-			r.Answers[selectionQuestion] = raw(choiceAnswer{Type: "choice", Choice: "candidate_1", Confidence: 2, Probabilities: map[string]float64{"candidate_1": .3, "candidate_2": .3, "none": .4}})
+			r.Answers[selectionQuestion] = raw(choiceAnswer{Type: "choice", Choice: "candidate_1", Confidence: floatValue(2), Probabilities: map[string]float64{"candidate_1": .3, "candidate_2": .3, "none": .4}})
 		},
 		"bad probability sum": func(r *systemOneResponse) {
-			r.Answers[selectionQuestion] = raw(choiceAnswer{Type: "choice", Choice: "candidate_1", Confidence: .9, Probabilities: map[string]float64{"candidate_1": .1, "candidate_2": .1, "none": .1}})
+			r.Answers[selectionQuestion] = raw(choiceAnswer{Type: "choice", Choice: "candidate_1", Confidence: floatValue(.9), Probabilities: map[string]float64{"candidate_1": .1, "candidate_2": .1, "none": .1}})
+		},
+		"missing noul": func(r *systemOneResponse) {
+			r.Answers["success_candidate_1"] = raw(noulAnswer{Type: "noul"})
 		},
 		"wrong success type": func(r *systemOneResponse) {
 			r.Answers["success_candidate_1"] = raw(map[string]any{"type": "choice", "noul": .5})
@@ -172,14 +183,18 @@ func decisionRequest() router.DecisionRequest {
 
 func validResponse(choice string) systemOneResponse {
 	return systemOneResponse{
-		Model: "jev-2026-09-15", Usage: usage{InputTokens: 120, OutputTokens: 4},
+		Model: "jev-2026-09-15", Usage: &usage{InputTokens: intValue(120), OutputTokens: intValue(4)},
 		Answers: map[string]json.RawMessage{
-			selectionQuestion:     raw(choiceAnswer{Type: "choice", Choice: choice, Confidence: .91, Probabilities: map[string]float64{"candidate_1": .2, "candidate_2": .7, "none": .1}}),
-			"success_candidate_1": raw(noulAnswer{Type: "noul", Noul: .4}),
-			"success_candidate_2": raw(noulAnswer{Type: "noul", Noul: .73}),
+			selectionQuestion:     raw(choiceAnswer{Type: "choice", Choice: choice, Confidence: floatValue(.91), Probabilities: map[string]float64{"candidate_1": .2, "candidate_2": .7, "none": .1}}),
+			"success_candidate_1": raw(noulAnswer{Type: "noul", Noul: floatValue(.4)}),
+			"success_candidate_2": raw(noulAnswer{Type: "noul", Noul: floatValue(.73)}),
 		},
 	}
 }
+
+func intValue(value int) *int { return &value }
+
+func floatValue(value float64) *float64 { return &value }
 
 func raw(value any) json.RawMessage {
 	data, err := json.Marshal(value)

@@ -11,6 +11,15 @@ import (
 
 const maxEventBytes = 1024 * 1024
 
+var forbiddenEvidenceFields = map[string]bool{
+	"objective": true, "admission_objective": true, "constraints": true,
+	"credential": true, "credentials": true, "api_key": true, "authorization": true,
+	"secret": true, "response": true, "response_body": true, "raw_response": true,
+	"provider_response_body": true, "detail": true, "explanation": true,
+	"free_form_explanation": true, "filesystem_path": true, "path": true,
+	"account_id": true, "account_identifier": true,
+}
+
 // Append writes one validated event as one JSON line.
 func Append(w io.Writer, event Event) error {
 	if err := event.Validate(); err != nil {
@@ -34,6 +43,9 @@ func Load(r io.Reader) ([]Event, error) {
 		if len(raw) == 0 {
 			continue
 		}
+		if err := rejectForbiddenFields(raw); err != nil {
+			return nil, fmt.Errorf("shadow evidence load line %d: %w", line, err)
+		}
 		var event Event
 		decoder := json.NewDecoder(bytes.NewReader(raw))
 		if err := decoder.Decode(&event); err != nil {
@@ -55,6 +67,38 @@ func Load(r io.Reader) ([]Event, error) {
 		return nil, fmt.Errorf("shadow evidence load: %w", err)
 	}
 	return events, nil
+}
+
+func rejectForbiddenFields(raw []byte) error {
+	var value any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return err
+	}
+	var visit func(any) error
+	visit = func(current any) error {
+		switch typed := current.(type) {
+		case map[string]any:
+			for key, child := range typed {
+				normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(key), "-", "_"))
+				if forbiddenEvidenceFields[normalized] {
+					return fmt.Errorf("shadow evidence: forbidden field %q", key)
+				}
+				if err := visit(child); err != nil {
+					return err
+				}
+			}
+		case []any:
+			for _, child := range typed {
+				if err := visit(child); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	return visit(value)
 }
 
 // RouteRecord is a materialized comparison with its latest candidate labels.

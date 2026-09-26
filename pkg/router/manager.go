@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,6 +19,8 @@ type Manager struct {
 	maxAdmissions  int
 	preferences    CandidatePreferences
 	shadowRecorder ShadowEvidenceRecorder
+	shadowRouteMu  sync.Mutex
+	shadowRoutes   map[string][]string
 	now            func() time.Time
 	OnEvent        func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
 }
@@ -138,6 +141,9 @@ func (m *Manager) route(ctx context.Context, task TaskSpec, admissionTimeout tim
 	}
 
 	request := DecisionRequest{Version: DecisionVersion, Task: task}
+	if m.shadowRecorder != nil {
+		request.shadowRouteID = newShadowRouteID()
+	}
 	for _, model := range ranked {
 		if skipSet[model.Name] {
 			continue
@@ -182,6 +188,8 @@ func (m *Manager) route(ctx context.Context, task TaskSpec, admissionTimeout tim
 			if outcome.Admission != nil {
 				decision = *outcome.Admission
 			}
+			decision.shadowRouteID = request.shadowRouteID
+			m.rememberShadowRoute(task, candidate.Model.Name, request.shadowRouteID)
 			return candidate.Model, decision, nil
 		}
 	}
@@ -232,8 +240,19 @@ func (m *Manager) emit(e ProgressEvent) {
 // supports kind-aware telemetry, while preserving compatibility with legacy
 // Store implementations.
 func (m *Manager) RecordExecution(task TaskSpec, modelName string, metrics ExecutionMetrics) {
+	m.recordExecution(task, modelName, metrics, m.takeShadowRoute(task, modelName, ""))
+}
+
+// RecordExecutionForDecision preserves the unique observation ID returned by
+// Route. Application runners use this optional extension; legacy callers keep
+// the existing RecordExecution API and deterministic correlation behavior.
+func (m *Manager) RecordExecutionForDecision(task TaskSpec, modelName string, decision AdmissionDecision, metrics ExecutionMetrics) {
+	m.recordExecution(task, modelName, metrics, m.takeShadowRoute(task, modelName, decision.shadowRouteID))
+}
+
+func (m *Manager) recordExecution(task TaskSpec, modelName string, metrics ExecutionMetrics, routeID string) {
 	if m.shadowRecorder != nil {
-		safeRecordExecution(m.shadowRecorder, executionLabelRecord(task, modelName, metrics, m.now()))
+		safeRecordExecution(m.shadowRecorder, executionLabelRecord(routeID, modelName, metrics, m.now()))
 	}
 	if store, ok := m.store.(KindAwareStore); ok {
 		store.RecordExecution(task.ID, modelName, task.Kind, metrics)
@@ -244,6 +263,50 @@ func (m *Manager) RecordExecution(task TaskSpec, modelName string, metrics Execu
 		score = 0
 	}
 	m.store.LogResult(task.ID, modelName, score, metrics.Status)
+}
+
+func (m *Manager) rememberShadowRoute(task TaskSpec, modelName, routeID string) {
+	if routeID == "" {
+		return
+	}
+	key := shadowExecutionKey(task, modelName)
+	m.shadowRouteMu.Lock()
+	defer m.shadowRouteMu.Unlock()
+	if m.shadowRoutes == nil {
+		m.shadowRoutes = make(map[string][]string)
+	}
+	m.shadowRoutes[key] = append(m.shadowRoutes[key], routeID)
+}
+
+func (m *Manager) takeShadowRoute(task TaskSpec, modelName, preferred string) string {
+	key := shadowExecutionKey(task, modelName)
+	m.shadowRouteMu.Lock()
+	defer m.shadowRouteMu.Unlock()
+	routes := m.shadowRoutes[key]
+	if preferred != "" {
+		for index, routeID := range routes {
+			if routeID == preferred {
+				routes = append(routes[:index], routes[index+1:]...)
+				if len(routes) == 0 {
+					delete(m.shadowRoutes, key)
+				} else {
+					m.shadowRoutes[key] = routes
+				}
+				return preferred
+			}
+		}
+		return preferred
+	}
+	if len(routes) == 0 {
+		return ""
+	}
+	routeID := routes[0]
+	if len(routes) == 1 {
+		delete(m.shadowRoutes, key)
+	} else {
+		m.shadowRoutes[key] = routes[1:]
+	}
+	return routeID
 }
 
 // ErrNoCandidate is returned when no model accepts the task.

@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -163,8 +164,12 @@ func (e *ShadowingDecisionEngine) record(request DecisionRequest, authority Deci
 	if e.recorder == nil {
 		return
 	}
+	routeID := request.shadowRouteID
+	if routeID == "" {
+		routeID = newShadowRouteID()
+	}
 	comparison := ShadowComparisonRecord{
-		RouteID: shadowRouteID(request.Task), ObservedAt: e.now().UTC(),
+		RouteID: routeID, ObservedAt: e.now().UTC(),
 		TaskKind: request.Task.Kind, Risk: request.Task.Risk,
 		AuthorityStrategy: e.authorityStrategy, ShadowStrategy: e.shadowStrategy,
 		Authority: authorityEvidence(authority, authorityErr), Shadow: shadowEvidence(request, observed),
@@ -247,13 +252,15 @@ func (p ShadowPrediction) validate(request DecisionRequest) error {
 	return fmt.Errorf("shadow prediction: unknown candidate %q", p.SelectedCandidate)
 }
 
-func shadowRouteID(task TaskSpec) string {
-	value := task.ID
-	if value == "" {
-		value = strings.Join([]string{task.Objective, string(task.Kind), string(task.Risk)}, "\x00")
+// newShadowRouteID returns a random, non-identifying ID for one routing
+// attempt. Entropy failure returns an empty ID; evidence validation then fails
+// closed without affecting the authoritative route.
+func newShadowRouteID() string {
+	var value [12]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return ""
 	}
-	sum := sha256.Sum256([]byte(value))
-	return "r-" + hex.EncodeToString(sum[:12])
+	return "r-" + hex.EncodeToString(value[:])
 }
 
 func shadowCandidateKey(routeID, modelName string) string {
@@ -278,8 +285,10 @@ func safeRecordExecution(recorder ShadowEvidenceRecorder, label ShadowExecutionL
 	_ = recorder.RecordShadowExecutionLabel(label)
 }
 
-func executionLabelRecord(task TaskSpec, modelName string, metrics ExecutionMetrics, observedAt time.Time) ShadowExecutionLabelRecord {
-	routeID := shadowRouteID(task)
+func executionLabelRecord(routeID, modelName string, metrics ExecutionMetrics, observedAt time.Time) ShadowExecutionLabelRecord {
+	if routeID == "" {
+		routeID = newShadowRouteID()
+	}
 	success := ShadowKnownBool{}
 	switch metrics.Status {
 	case "success":
@@ -295,4 +304,13 @@ func executionLabelRecord(task TaskSpec, modelName string, metrics ExecutionMetr
 			CostUSD: metrics.CostUSD, CostKnown: metrics.CostKnown, LatencyMs: metrics.LatencyMs, LatencyKnown: metrics.LatencyKnown,
 		},
 	}
+}
+
+func shadowExecutionKey(task TaskSpec, modelName string) string {
+	value := task.ID
+	if value == "" {
+		value = strings.Join([]string{task.Objective, string(task.Kind), string(task.Risk)}, "\x00")
+	}
+	sum := sha256.Sum256([]byte(value + "\x00" + modelName))
+	return hex.EncodeToString(sum[:])
 }

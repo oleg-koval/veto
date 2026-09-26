@@ -89,6 +89,35 @@ The offline corpus and local tests validate routing mechanics and compatibility
 only; they provide no alternative-engine, real-provider quality, release,
 deployment, or human-acceptance evidence.
 
+## Jev shadow evaluation (v0.14 experimental)
+
+Veto can optionally compare the authoritative sequential decision with one
+non-authoritative Jev call. Shadow mode cannot choose or reject a route: Jev
+implements a separate `ShadowDecider` port, while only `DecisionEngine` returns
+the outcome consumed by the router.
+
+```bash
+export VETO_EXPERIMENTAL_JEV_SHADOW=1
+export TYPESAFE_API_KEY=... # read only after the experiment is enabled
+veto route "summarize this change"
+veto shadow-report
+```
+
+The experiment is disabled by default and Veto remains fully usable without a
+TypeSafe account. Evidence is private, redacted JSONL at
+`~/.veto/jev-shadow-v1.jsonl`; it excludes objectives, credentials, provider
+response bodies, and free-form explanations. `veto shadow-report` evaluates
+that file offline and reports agreement, labeled success, latency, cost
+coverage, calibration, availability, simulated fallback, and v0.15 readiness.
+Missing measurements produce `insufficient_data`, never a zero or a pass.
+
+Optional settings are `TYPESAFE_MODEL` (default `jev-latest`),
+`VETO_JEV_SHADOW_TIMEOUT` (default `1s`), and
+`VETO_JEV_SHADOW_EVIDENCE`. This implementation follows TypeSafe's OpenAPI
+0.2.0 `POST /v1/systemone` contract as read on 2026-09-23. It does not create a
+TypeSafe account, store the key, make a live call unless explicitly enabled,
+or grant Jev routing control.
+
 ## Native dispatch experiment
 
 The existing TUI and CLI also expose a deliberately small native-agent

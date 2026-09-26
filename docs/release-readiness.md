@@ -15,6 +15,8 @@ go build ./cmd/veto
 VETO_BINARY="$PWD/veto" ./scripts/onboarding-smoke.sh
 go run ./cmd/veto benchmark --corpus internal/eval/testdata/routing_corpus.json > /tmp/veto-benchmark.json
 python3 -m json.tool /tmp/veto-benchmark.json >/dev/null
+go run ./cmd/veto shadow-report --input pkg/shadow/testdata/shadow_v1.jsonl > /tmp/veto-shadow-report.json
+python3 -m json.tool /tmp/veto-shadow-report.json >/dev/null
 release_dist=$(mktemp -d)
 ./scripts/package-release.sh v0.0.0 "${release_dist}"
 ./scripts/render-homebrew-formula.sh v0.0.0 "${release_dist}/SHA256SUMS" "${release_dist}/veto.rb"
@@ -60,6 +62,12 @@ only if its account-visible model inventory may be shared safely.
 - Run real-provider calibration with labeled outcomes before publishing
   routing quality or savings claims. The offline benchmark reports mechanics
   and confidence metrics only.
+- Treat the checked-in Jev shadow fixture as parser/reporting evidence only.
+  A real TypeSafe account, real labeled shadow traffic, billed cost, and human
+  acceptance remain separate gates. Do not implement v0.15 routing control
+  unless promotion policy v1 is fully evaluable and passes.
+- Review the separate [Jev shadow dogfood findings](jev-shadow-dogfood.md);
+  local feedback artifacts are unpublished and do not count as resolved issues.
 - Confirm the exact provider model IDs and pricing visible to the release
   account. Catalog entries are configuration, not proof of account access or
   current pricing.

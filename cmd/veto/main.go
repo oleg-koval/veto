@@ -231,6 +231,13 @@ func printUsage(w io.Writer) {
 	fmt.Fprintf(o, "  OPENROUTER_API_KEY    %s\n", catalogModelDescription("openrouter"))
 	fmt.Fprintln(o, "  XAI_API_KEY           Grok 4.5, 4.3, 3, 3-mini (xAI)")
 	fmt.Fprintln(o, "  (or run 'veto login' — veto stores keys in ~/.veto/credentials.json)")
+	fmt.Fprintln(o)
+	fmt.Fprintln(o, "JEV SHADOW (EXPERIMENTAL)")
+	fmt.Fprintln(o, "  VETO_EXPERIMENTAL_JEV_SHADOW=1  enable evidence-only comparison")
+	fmt.Fprintln(o, "  TYPESAFE_API_KEY                read only when shadow mode is enabled")
+	fmt.Fprintln(o, "  TYPESAFE_MODEL                  model alias (default: jev-latest)")
+	fmt.Fprintln(o, "  VETO_JEV_SHADOW_TIMEOUT         independent timeout (default: 1s)")
+	fmt.Fprintln(o, "  VETO_JEV_SHADOW_EVIDENCE        private JSONL path override")
 }
 
 // cmdRoute routes a task through the admission pipeline with live progress display.

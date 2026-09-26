@@ -26,6 +26,7 @@ type FileRecorder struct {
 	maxEvents int
 	counted   bool
 	events    int
+	failed    error
 }
 
 func NewFileRecorder(path string, maxEvents int) *FileRecorder {
@@ -77,45 +78,63 @@ func decision(record router.ShadowDecisionRecord) shadowdata.DecisionEvidence {
 func (r *FileRecorder) append(event shadowdata.Event) error {
 	var line bytes.Buffer
 	if err := shadowdata.Append(&line, event); err != nil {
+		r.poison(err)
 		return err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.failed != nil {
+		return r.failed
+	}
 	if err := r.ensureCount(); err != nil {
+		r.failed = err
 		return err
 	}
 	if r.events >= r.maxEvents {
 		return ErrEvidenceLimit
 	}
 	if err := os.MkdirAll(filepath.Dir(r.path), 0700); err != nil {
-		return fmt.Errorf("shadow evidence: create directory: %w", err)
+		r.failed = fmt.Errorf("shadow evidence: create directory: %w", err)
+		return r.failed
 	}
 	file, err := os.OpenFile(r.path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0600)
 	if err != nil {
-		return fmt.Errorf("shadow evidence: open: %w", err)
+		r.failed = fmt.Errorf("shadow evidence: open: %w", err)
+		return r.failed
 	}
 	if err := file.Chmod(0600); err != nil {
 		_ = file.Close()
-		return fmt.Errorf("shadow evidence: permissions: %w", err)
+		r.failed = fmt.Errorf("shadow evidence: permissions: %w", err)
+		return r.failed
 	}
 	if _, err := file.Write(line.Bytes()); err != nil {
 		_ = file.Close()
-		return fmt.Errorf("shadow evidence: append: %w", err)
+		r.failed = fmt.Errorf("shadow evidence: append: %w", err)
+		return r.failed
 	}
 	if err := file.Close(); err != nil {
-		return fmt.Errorf("shadow evidence: close: %w", err)
+		r.failed = fmt.Errorf("shadow evidence: close: %w", err)
+		return r.failed
 	}
 	r.events++
 	return nil
+}
+
+func (r *FileRecorder) poison(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.failed == nil {
+		r.failed = err
+	}
 }
 
 func (r *FileRecorder) ensureCount() error {
 	if r.counted {
 		return nil
 	}
-	r.counted = true
 	file, err := os.Open(r.path)
 	if os.IsNotExist(err) {
+		r.counted = true
 		return nil
 	}
 	if err != nil {
@@ -127,6 +146,7 @@ func (r *FileRecorder) ensureCount() error {
 		return err
 	}
 	r.events = len(events)
+	r.counted = true
 	return nil
 }
 
