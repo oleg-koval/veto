@@ -459,6 +459,11 @@ func routeAndCapture(ctx context.Context, reg *providerRegistry, mgr *router.Man
 }
 
 func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr *router.Manager, render *Renderer, spec router.TaskSpec, skills []string, options execution.ExecutionOptions) (string, string, error) {
+	model, output, _, err := routeAndCaptureWithOptionsDecision(ctx, reg, mgr, render, spec, skills, options)
+	return model, output, err
+}
+
+func routeAndCaptureWithOptionsDecision(ctx context.Context, reg *providerRegistry, mgr *router.Manager, render *Renderer, spec router.TaskSpec, skills []string, options execution.ExecutionOptions) (string, string, router.AdmissionDecision, error) {
 	prev := mgr.OnEvent
 	mgr.OnEvent = func(e router.ProgressEvent) {
 		render.OnEvent(e)
@@ -470,9 +475,9 @@ func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr 
 		Task: spec, Skills: skills, Options: options,
 	})
 	if err != nil {
-		return response.Model.Name, response.Output, err
+		return response.Model.Name, response.Output, response.Decision, err
 	}
-	return response.Model.Name, response.Output, nil
+	return response.Model.Name, response.Output, response.Decision, nil
 }
 
 // newApplicationRunner wires delivery-side telemetry adapters around the

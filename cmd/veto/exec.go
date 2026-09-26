@@ -103,7 +103,7 @@ func cmdExec(args []string) {
 		skillNames, skillBodies := resolveSkills(stepCtx, reg, mgr, spec)
 		render.PrintSkills(skillNames)
 
-		modelName, output, execErr := routeAndCaptureWithOptions(stepCtx, reg, mgr, render, spec, skillBodies, execution.ExecutionOptions{MaxOutputTokens: *maxOutputTokens})
+		modelName, output, decision, execErr := routeAndCaptureWithOptionsDecision(stepCtx, reg, mgr, render, spec, skillBodies, execution.ExecutionOptions{MaxOutputTokens: *maxOutputTokens})
 		cancel()
 
 		if execErr != nil {
@@ -132,6 +132,7 @@ func cmdExec(args []string) {
 					fmt.Fprintf(os.Stderr, "\n  Step %d review failed: %v\n", n, reviewErr)
 				} else {
 					render.PrintReview(result)
+					mgr.RecordReviewForDecision(spec, modelName, decision, false, result.Score)
 					fmt.Fprintf(os.Stderr, "\n  Step %d review failed: criteria not met\n", n)
 				}
 				if !handleStepFailure(failureMode, *quiet, n) {
@@ -140,6 +141,7 @@ func cmdExec(args []string) {
 				}
 				continue
 			}
+			mgr.RecordReviewForDecision(spec, modelName, decision, true, result.Score)
 			render.PrintReview(result)
 		} else if step.SuccessCriteria != "" && !*quiet {
 			fmt.Printf("  ✓  %s\n", step.SuccessCriteria)
