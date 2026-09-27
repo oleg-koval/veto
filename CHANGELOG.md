@@ -3,6 +3,13 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1](https://github.com/oleg-koval/veto/compare/v0.14.0...v0.14.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* harden Jev shadow readiness and exec flag parsing ([#121](https://github.com/oleg-koval/veto/issues/121)) ([c16dec6](https://github.com/oleg-koval/veto/commit/c16dec6f262d5f4629ad74ab011b3758c7f8d5e7))
+
 ## [0.14.0](https://github.com/oleg-koval/veto/compare/v0.13.0...v0.14.0) (2026-09-26)
 
 
