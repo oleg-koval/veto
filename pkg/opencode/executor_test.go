@@ -79,6 +79,34 @@ func TestServerRuntimeStreamsEventsUsageArtifactsAndCleansUp(t *testing.T) {
 	assert.Equal(t, map[string]any{"providerID": "openai", "modelID": "gpt-5"}, fake.lastPrompt["model"])
 }
 
+func TestRuntimeRejectsUnsupportedExecutionOutputLimitBeforeTransport(t *testing.T) {
+	for _, mode := range []Mode{ModeCLI, ModeAttach} {
+		t.Run(string(mode), func(t *testing.T) {
+			transportCalled := false
+			runtime := NewRuntime(
+				Config{Mode: mode, Server: "http://127.0.0.1:4096"},
+				Discovery{Mode: mode},
+				Model{Provider: "openai", ID: "gpt-5"},
+				Dependencies{
+					Stream: func(context.Context, string, []string, []string, io.Writer, io.Writer) error {
+						transportCalled = true
+						return nil
+					},
+					Do: func(*http.Request) (*http.Response, error) {
+						transportCalled = true
+						return nil, errors.New("unexpected HTTP request")
+					},
+				},
+			)
+			require.NoError(t, runtime.ValidateExecutionOptions(execution.ExecutionOptions{}))
+			require.NoError(t, runtime.ValidateExecutionOptions(execution.ExecutionOptions{MaxOutputTokens: execution.DefaultExecutionMaxTokens}))
+			result := runtime.Execute(context.Background(), "work", execution.ExecutionOptions{MaxOutputTokens: 1024})
+			require.ErrorContains(t, result.Error, "does not support custom --max-output-tokens")
+			assert.False(t, transportCalled)
+		})
+	}
+}
+
 func TestServerAdmissionIsIsolatedIdentifiableAndToolDenied(t *testing.T) {
 	fake := newFakeSessionServer(t, func(f *fakeSessionServer, sessionID string) {
 		f.send(sessionID, "message.part.updated", map[string]any{

@@ -59,11 +59,10 @@ func (r Runner) Review(ctx context.Context, request ReviewRequest) (ReviewResult
 	response, err := r.Execute(ctx, Request{Task: router.TaskSpec{
 		ID: taskID, Kind: router.KindReview, Objective: prompt,
 		AdmissionObjective: buildReviewAdmissionObjective(request.Original, len(prompt)),
-		// The execution budget stays out of the TaskSpec, as it does for
-		// execution routing: models that declare no context window are hard
-		// filtered by MaxTokens, which made every locally configured model
-		// unroutable for review. The admission gate still enforces the real
-		// context limit.
+		// The execution budget stays out of MaxTokens: models that declare
+		// no context window are hard filtered by it, which made every locally
+		// configured model unroutable for review. The admission gate still
+		// enforces the real context limit.
 		Risk: router.RiskLow, SkipModels: skip,
 	}})
 	if err != nil {

@@ -736,10 +736,11 @@ type admissionExecutorAdapter struct {
 }
 
 var (
-	_ router.Executor                = admissionExecutorAdapter{}
-	_ router.ToolProvider            = admissionExecutorAdapter{}
-	_ router.RuntimeIdentityProvider = admissionExecutorAdapter{}
-	_ router.ExecutorFactory         = (*providerRegistry)(nil)
+	_ router.Executor                 = admissionExecutorAdapter{}
+	_ router.ToolProvider             = admissionExecutorAdapter{}
+	_ router.RuntimeIdentityProvider  = admissionExecutorAdapter{}
+	_ router.ExecutionOptionValidator = admissionExecutorAdapter{}
+	_ router.ExecutorFactory          = (*providerRegistry)(nil)
 )
 
 func (a admissionExecutorAdapter) Run(ctx context.Context, prompt string) router.AdmissionResult {
@@ -766,6 +767,13 @@ func (a admissionExecutorAdapter) AdmissionRuntimeID() string {
 		return ""
 	}
 	return a.runtime.RuntimeID()
+}
+
+func (a admissionExecutorAdapter) ValidateExecutionOptions(options execution.ExecutionOptions) error {
+	if validator, ok := a.runtime.(execution.ExecutionOptionValidator); ok {
+		return validator.ValidateExecutionOptions(options)
+	}
+	return nil
 }
 
 func (r *providerRegistry) For(name string) (router.Executor, bool) {

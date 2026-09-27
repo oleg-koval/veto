@@ -95,6 +95,7 @@ func TestRunnerExecuteRoutesAndRecordsTelemetry(t *testing.T) {
 	assert.Equal(t, "done", response.Output)
 	assert.Equal(t, "test", response.Model.Runtime)
 	assert.Equal(t, 123, runtime.options.MaxOutputTokens)
+	assert.Equal(t, 123, routerPort.routedTask.ExecutionMaxOutputTokens)
 	assert.Contains(t, runtime.prompt, "## Relevant skills")
 	assert.Contains(t, runtime.prompt, "Output the requested content directly")
 	require.Len(t, routerPort.recorded, 1)

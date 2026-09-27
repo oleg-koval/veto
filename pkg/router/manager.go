@@ -28,6 +28,10 @@ type Manager struct {
 	OnEvent           func(ProgressEvent) // nil = no-op; wire a Renderer or logger here
 }
 
+// ErrUnsupportedExecutionOptions means every otherwise eligible model failed
+// preflight for an explicit full-task execution requirement.
+var ErrUnsupportedExecutionOptions = errors.New("no model supports requested execution options")
+
 // SetAdmissionTimeout updates the per-model admission deadline for subsequent
 // routes. It is used by the in-process control plane to honor CLI-compatible
 // request flags without exposing the gate implementation.
@@ -111,6 +115,18 @@ func (m *Manager) route(ctx context.Context, task TaskSpec, admissionTimeout tim
 	// Store history is the routing signal source. This is deliberately kept
 	// separate from the static registry so persisted outcomes affect later runs.
 	ranked := m.preferences.Prioritize(RankCandidates(task, eligible, m.store))
+	// A runtime that cannot honor an explicit execution option must not win
+	// admission and fail only after the task has been routed to it.
+	preflightReasons := make(map[string]string)
+	executable := make([]ModelCapabilities, 0, len(ranked))
+	for _, model := range ranked {
+		if !m.gate.SupportsExecutionOptions(task, model) {
+			preflightReasons[model.Name] = ReasonExecutionOption
+			continue
+		}
+		executable = append(executable, model)
+	}
+	ranked = executable
 
 	// emit per-model filter events so the CLI can show what was pruned and why
 	passSet := make(map[string]bool, len(ranked))
@@ -122,6 +138,9 @@ func (m *Manager) route(ctx context.Context, task TaskSpec, admissionTimeout tim
 			m.emit(ProgressEvent{Kind: EventFilterPass, Model: c.Name})
 		} else {
 			reason := FilterReason(c, task)
+			if preflightReasons[c.Name] != "" {
+				reason = preflightReasons[c.Name]
+			}
 			if reason == "" {
 				reason = ReasonPolicyExcluded
 			}
@@ -138,6 +157,9 @@ func (m *Manager) route(ctx context.Context, task TaskSpec, admissionTimeout tim
 	}
 
 	if len(ranked) == 0 {
+		if len(preflightReasons) > 0 {
+			return ModelCapabilities{}, AdmissionDecision{}, ErrUnsupportedExecutionOptions
+		}
 		return ModelCapabilities{}, AdmissionDecision{}, ErrNoCandidate
 	}
 

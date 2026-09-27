@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleg-koval/veto/pkg/execution"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -152,6 +153,55 @@ type runtimeFactory map[string]Executor
 func (f runtimeFactory) For(modelName string) (Executor, bool) {
 	exec, ok := f[modelName]
 	return exec, ok
+}
+
+type optionPreflightExecutor struct {
+	calls  *int
+	reject bool
+}
+
+func (e optionPreflightExecutor) Run(context.Context, string) AdmissionResult {
+	(*e.calls)++
+	return AdmissionResult{Output: acceptJSON()}
+}
+
+func (e optionPreflightExecutor) ValidateExecutionOptions(options execution.ExecutionOptions) error {
+	if e.reject && options.MaxOutputTokens != execution.DefaultExecutionMaxTokens {
+		return errors.New("unsupported output budget")
+	}
+	return nil
+}
+
+func TestManagerFiltersUnsupportedExecutionOptionsBeforeAdmission(t *testing.T) {
+	models := []ModelCapabilities{
+		{Name: "incompatible", Tier: tierMid, CostPer1kInputUSD: .001},
+		{Name: "compatible", Tier: tierMid, CostPer1kInputUSD: .002},
+	}
+	incompatibleCalls, compatibleCalls := 0, 0
+	gate := NewAdmissionGateWithFactory(runtimeFactory{
+		"incompatible": optionPreflightExecutor{calls: &incompatibleCalls, reject: true},
+		"compatible":   optionPreflightExecutor{calls: &compatibleCalls},
+	})
+	mgr := NewManager(NewRegistryFromModels(models), gate, NewMemoryStore())
+	var rejected bool
+	mgr.OnEvent = func(event ProgressEvent) {
+		if event.Kind == EventFilterFail && event.Model == "incompatible" {
+			rejected = assert.Equal(t, []string{ReasonExecutionOption}, event.Reasons)
+		}
+	}
+	model, _, err := mgr.Route(t.Context(), TaskSpec{ID: "custom-output", Kind: KindPlan, ExecutionMaxOutputTokens: 16000})
+	require.NoError(t, err)
+	assert.Equal(t, "compatible", model.Name)
+	assert.Equal(t, 0, incompatibleCalls)
+	assert.Equal(t, 1, compatibleCalls)
+	assert.True(t, rejected)
+	onlyIncompatible := NewManager(NewRegistryFromModels(models[:1]), gate, NewMemoryStore())
+	_, _, err = onlyIncompatible.Route(t.Context(), TaskSpec{ID: "only-incompatible", Kind: KindPlan, ExecutionMaxOutputTokens: 16000})
+	assert.ErrorIs(t, err, ErrUnsupportedExecutionOptions)
+	assert.Equal(t, 0, incompatibleCalls)
+	_, _, err = onlyIncompatible.Route(t.Context(), TaskSpec{ID: "route-only", Kind: KindPlan})
+	require.NoError(t, err)
+	assert.Equal(t, 1, incompatibleCalls, "route-only calls must retain their prior eligibility")
 }
 
 type runtimeExecutor struct {

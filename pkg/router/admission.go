@@ -38,6 +38,13 @@ type Executor interface {
 	Run(ctx context.Context, prompt string) AdmissionResult
 }
 
+// ExecutionOptionValidator is an optional admission-side projection of the
+// runtime's full-task option support. It prevents an ineligible runtime from
+// receiving an admission call for a task it cannot execute.
+type ExecutionOptionValidator interface {
+	ValidateExecutionOptions(execution.ExecutionOptions) error
+}
+
 // ToolProvider optionally reports the tools available to the admission probe.
 // Runtimes that do not implement it are treated as text-only.
 type ToolProvider interface {
@@ -100,6 +107,20 @@ func (g *AdmissionGate) RuntimeIdentity(model ModelCapabilities) string {
 		}
 	}
 	return "model:" + model.Name
+}
+
+// SupportsExecutionOptions checks only explicit execution requirements.
+// Unknown adapters retain their existing behavior for compatibility.
+func (g *AdmissionGate) SupportsExecutionOptions(task TaskSpec, model ModelCapabilities) bool {
+	if task.ExecutionMaxOutputTokens <= 0 {
+		return true
+	}
+	exec, ok := g.factory.For(model.Name)
+	if !ok || exec == nil {
+		return true
+	}
+	validator, ok := exec.(ExecutionOptionValidator)
+	return !ok || validator.ValidateExecutionOptions(execution.ExecutionOptions{MaxOutputTokens: task.ExecutionMaxOutputTokens}) == nil
 }
 
 type singleFactory struct{ exec Executor }
