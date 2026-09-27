@@ -18,6 +18,8 @@ import (
 	"golang.org/x/term"
 )
 
+// cmdExec loads a plan and previews or executes its steps, applying failure handling
+// and acceptance-criteria reviews during execution.
 func cmdExec(args []string) {
 	fs := flag.NewFlagSet("exec", flag.ExitOnError)
 	quiet := fs.Bool("quiet", false, "suppress routing pipeline — print model output only")
@@ -215,6 +217,8 @@ func parseExecPlanArgs(fs *flag.FlagSet, args []string) (string, error) {
 	return planFile, nil
 }
 
+// loadOrConvertPlan parses and validates a plan, offering interactive conversion
+// for invalid input and saving a valid conversion to the plans directory.
 func loadOrConvertPlan(ctx context.Context, planFile string, data []byte, reg *providerRegistry, mgr *router.Manager, quiet bool) (*VetoPlan, error) {
 	plan, parseErr := ParsePlan(data)
 	var violations []string

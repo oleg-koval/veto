@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+// TestParseExecPlanArgs checks flag placement, end-of-flags handling, and rejection
+// of missing plan paths, extra arguments, and unknown flags.
 func TestParseExecPlanArgs(t *testing.T) {
 	tests := []struct {
 		name    string
