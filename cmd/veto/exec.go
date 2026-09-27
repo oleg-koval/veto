@@ -21,7 +21,7 @@ import (
 // cmdExec loads a plan and previews or executes its steps, applying failure handling
 // and acceptance-criteria reviews during execution.
 func cmdExec(args []string) {
-	fs := flag.NewFlagSet("exec", flag.ExitOnError)
+	fs := flag.NewFlagSet("exec", flag.ContinueOnError)
 	quiet := fs.Bool("quiet", false, "suppress routing pipeline — print model output only")
 	dryRun := fs.Bool("dry-run", false, "print steps without executing")
 	timeout := fs.Duration("timeout", 60*time.Second, "per-step timeout")
@@ -208,7 +208,16 @@ func parseExecPlanArgs(fs *flag.FlagSet, args []string) (string, error) {
 		}
 		return planFile, nil
 	}
-	if err := fs.Parse(remaining[1:]); err != nil {
+	tail := remaining[1:]
+	for i, arg := range tail {
+		if arg == "--" {
+			break
+		}
+		if (arg == "--on-failure" || arg == "-on-failure") && i+1 < len(tail) && strings.HasPrefix(tail[i+1], "-") {
+			return "", fmt.Errorf("flag needs an argument: %s", arg)
+		}
+	}
+	if err := fs.Parse(tail); err != nil {
 		return "", err
 	}
 	if len(fs.Args()) != 0 {

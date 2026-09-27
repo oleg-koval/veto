@@ -27,6 +27,7 @@ func TestParseExecPlanArgs(t *testing.T) {
 		{name: "missing plan", args: []string{"--dry-run"}, wantErr: "provide a plan file"},
 		{name: "extra plan", args: []string{"plan.md", "other.md"}, wantErr: "unexpected argument"},
 		{name: "unknown trailing flag", args: []string{"plan.md", "--unknown"}, wantErr: "flag provided but not defined"},
+		{name: "on-failure cannot consume dry-run", args: []string{"plan.md", "--on-failure", "--dry-run"}, wantErr: "flag needs an argument"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -49,5 +50,19 @@ func TestParseExecPlanArgs(t *testing.T) {
 				t.Fatalf("got path=%q dry-run=%t quiet=%t timeout=%q", path, *dryRun, *quiet, *timeout)
 			}
 		})
+	}
+}
+
+func TestParseExecPlanArgsMissingOnFailurePreservesDryRun(t *testing.T) {
+	fs := flag.NewFlagSet("exec", flag.ContinueOnError)
+	dryRun := fs.Bool("dry-run", false, "")
+	fs.String("on-failure", "", "")
+
+	_, err := parseExecPlanArgs(fs, []string{"--dry-run", "plan.md", "--on-failure", "--quiet"})
+	if err == nil || !strings.Contains(err.Error(), "flag needs an argument") {
+		t.Fatalf("error = %v, want missing on-failure value", err)
+	}
+	if !*dryRun {
+		t.Fatal("--dry-run was lost after the missing --on-failure value")
 	}
 }
