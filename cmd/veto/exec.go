@@ -18,22 +18,22 @@ import (
 	"golang.org/x/term"
 )
 
+// cmdExec loads a plan and previews or executes its steps, applying failure handling
+// and acceptance-criteria reviews during execution.
 func cmdExec(args []string) {
-	fs := flag.NewFlagSet("exec", flag.ExitOnError)
+	fs := flag.NewFlagSet("exec", flag.ContinueOnError)
 	quiet := fs.Bool("quiet", false, "suppress routing pipeline — print model output only")
 	dryRun := fs.Bool("dry-run", false, "print steps without executing")
 	timeout := fs.Duration("timeout", 60*time.Second, "per-step timeout")
 	maxOutputTokens := fs.Int("max-output-tokens", execution.DefaultExecutionMaxTokens, "maximum output tokens per step")
 	onFailure := fs.String("on-failure", "", "abort-ask|abort|continue (default from config or abort-ask)")
 	noFeedback := fs.Bool("no-feedback", false, "disable the opt-in post-run feedback prompt")
-	_ = fs.Parse(args)
-
-	if len(fs.Args()) == 0 {
-		fmt.Fprintln(os.Stderr, "error: provide a plan file")
+	planFile, err := parseExecPlanArgs(fs, args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
 		fmt.Fprintln(os.Stderr, "usage: veto exec <plan.md> [--dry-run] [--quiet] [--on-failure abort-ask|abort|continue]")
 		os.Exit(1)
 	}
-	planFile := fs.Args()[0]
 
 	data, err := os.ReadFile(planFile)
 	if err != nil {
@@ -190,6 +190,44 @@ func cmdExec(args []string) {
 	}
 }
 
+// parseExecPlanArgs accepts flags on either side of the one plan path.
+// flag.FlagSet stops at the first positional argument, so parse the tail too.
+func parseExecPlanArgs(fs *flag.FlagSet, args []string) (string, error) {
+	if err := fs.Parse(args); err != nil {
+		return "", err
+	}
+	remaining := fs.Args()
+	if len(remaining) == 0 {
+		return "", fmt.Errorf("provide a plan file")
+	}
+	planFile := remaining[0]
+	// A -- before the plan path ends flag parsing for the whole command.
+	if consumed := len(args) - len(remaining); consumed > 0 && args[consumed-1] == "--" {
+		if len(remaining) != 1 {
+			return "", fmt.Errorf("unexpected argument after plan file: %q", remaining[1])
+		}
+		return planFile, nil
+	}
+	tail := remaining[1:]
+	for i, arg := range tail {
+		if arg == "--" {
+			break
+		}
+		if (arg == "--on-failure" || arg == "-on-failure") && i+1 < len(tail) && strings.HasPrefix(tail[i+1], "-") {
+			return "", fmt.Errorf("flag needs an argument: %s", arg)
+		}
+	}
+	if err := fs.Parse(tail); err != nil {
+		return "", err
+	}
+	if len(fs.Args()) != 0 {
+		return "", fmt.Errorf("unexpected argument after plan file: %q", fs.Args()[0])
+	}
+	return planFile, nil
+}
+
+// loadOrConvertPlan parses and validates a plan, offering interactive conversion
+// for invalid input and saving a valid conversion to the plans directory.
 func loadOrConvertPlan(ctx context.Context, planFile string, data []byte, reg *providerRegistry, mgr *router.Manager, quiet bool) (*VetoPlan, error) {
 	plan, parseErr := ParsePlan(data)
 	var violations []string

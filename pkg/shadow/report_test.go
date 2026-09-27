@@ -114,6 +114,46 @@ func TestPromotionPolicyRequiresPairedLabelCoverage(t *testing.T) {
 	require.Equal(t, ReadinessInsufficient, report.Readiness.Status)
 }
 
+// TestPromotionPolicyRequiresEveryDivergentOutcome closes the gap where fewer
+// than 5% unlabeled Jev-only selections could otherwise clear paired coverage.
+func TestPromotionPolicyRequiresEveryDivergentOutcome(t *testing.T) {
+	kinds := []string{"plan", "debug", "review", "refactor", "code-change"}
+	dataset := Dataset{}
+	for index := 0; index < 500; index++ {
+		routeID := fmt.Sprintf("divergence-%d", index)
+		comparison := RouteComparison{
+			RouteID: routeID, TaskKind: kinds[index%len(kinds)], Risk: "low",
+			Candidates: []Candidate{{Key: "c1"}, {Key: "c2"}},
+			Authority:  readyDecision(.01, 600), Shadow: readyDecision(.001, 100),
+		}
+		if index == 0 {
+			comparison.Shadow.SelectedCandidate = "c2"
+		}
+		labels := map[string]ExecutionLabel{
+			"c1": {RouteID: routeID, Candidate: "c1", Success: KnownBool{Known: true, Value: true}},
+		}
+		dataset.Routes = append(dataset.Routes, RouteRecord{Comparison: comparison, Labels: labels})
+	}
+
+	report, err := Evaluate(dataset, DefaultFallbackConfidence)
+	require.NoError(t, err)
+	require.Equal(t, PromotionPolicyVersion, report.Readiness.PolicyVersion)
+	require.Equal(t, 499, report.Shadow.Labeled)
+	require.Equal(t, GateInsufficientData, report.Readiness.Gates["divergent_outcome_coverage"].Status)
+	require.Equal(t, ReadinessInsufficient, report.Readiness.Status)
+
+	dataset.Routes[0].Labels["c2"] = ExecutionLabel{RouteID: "divergence-0", Candidate: "c2", Success: KnownBool{Known: false}}
+	report, err = Evaluate(dataset, DefaultFallbackConfidence)
+	require.NoError(t, err)
+	require.Equal(t, GateInsufficientData, report.Readiness.Gates["divergent_outcome_coverage"].Status)
+
+	dataset.Routes[0].Labels["c2"] = ExecutionLabel{RouteID: "divergence-0", Candidate: "c2", Success: KnownBool{Known: true, Value: true}}
+	report, err = Evaluate(dataset, DefaultFallbackConfidence)
+	require.NoError(t, err)
+	require.Equal(t, GatePass, report.Readiness.Gates["divergent_outcome_coverage"].Status)
+	require.Equal(t, ReadinessReady, report.Readiness.Status)
+}
+
 // readyDecision builds a successful decision fixture with known cost and latency.
 func readyDecision(cost float64, latency int64) DecisionEvidence {
 	return DecisionEvidence{

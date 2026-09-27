@@ -27,7 +27,7 @@ calibration, availability, and simulated-fallback metrics without loading
 credentials or contacting a provider. Synthetic results validate the harness,
 not Jev quality and not production readiness.
 
-## Promotion policy v1
+## Promotion policy v2
 
 `veto shadow-report` returns `insufficient_data`, `not_ready`, or
 `ready_for_opt_in_experiment`. Missing labels or known measurements are never a
@@ -40,6 +40,15 @@ error at most 0.05; p95 latency at most 750 ms with 95% coverage; at most 1%
 shadow errors/unavailability; 95% cost coverage and a shadow/authority average
 cost ratio at most 0.10; and a simulated hybrid fallback rate at most 20% while
 meeting the same success constraints.
+
+Policy v2 also requires a known outcome for every shadow-selected candidate
+that differs from a labeled authoritative selection. Policy v1 allowed up to
+5% of authority-labeled routes to lack a pair, so those unknown divergent
+choices could have been silently excluded from the success comparison. Missing
+divergent outcomes now make readiness `insufficient_data`, even when the
+overall 95% paired-label gate passes. The report checks label presence, not
+how a label was obtained; follow the [paired-label protocol](jev-shadow-labeling.md)
+before treating a ready report as evidence for a v0.15 experiment.
 
 Calibration uses a decision's explicit task-success probability when present.
 Sequential admission does not expose one, so its accepted-decision confidence
