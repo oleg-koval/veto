@@ -2,7 +2,7 @@ package shadow
 
 import "math"
 
-const PromotionPolicyVersion = 1
+const PromotionPolicyVersion = 2
 
 type GateStatus string
 
@@ -29,7 +29,7 @@ type ReadinessGate struct {
 	Threshold string     `json:"threshold"`
 }
 
-// ReadinessReport applies promotion policy v1. Passing means only that v0.15
+// ReadinessReport applies promotion policy v2. Passing means only that v0.15
 // may begin as an opt-in experiment; it never enables hybrid routing.
 type ReadinessReport struct {
 	PolicyVersion int                      `json:"policy_version"`
@@ -49,6 +49,12 @@ func evaluateReadiness(dataset Dataset, report Report, fallbackConfidence float6
 	direct, directByKind := pairedDifferences(dataset, false, fallbackConfidence)
 	lower := confidenceLowerBound(direct)
 	pairedCoverageEnough := report.LabeledRoutes > 0 && len(direct)*100 >= report.LabeledRoutes*95
+	divergent, labeledDivergent := divergentOutcomeCoverage(dataset)
+	divergentCoverage := 1.0
+	if divergent > 0 {
+		divergentCoverage = float64(labeledDivergent) / float64(divergent)
+	}
+	gates["divergent_outcome_coverage"] = numericGate(labeledDivergent == divergent, labeledDivergent == divergent, divergentCoverage, divergent, "all divergent selected candidates have known outcomes")
 	successPass := len(direct) >= 500 && pairedCoverageEnough && lower >= -.02
 	perKindEnough := len(directByKind) >= 5
 	perKindPass := true
@@ -100,6 +106,26 @@ func evaluateReadiness(dataset Dataset, report Report, fallbackConfidence float6
 		}
 	}
 	return ReadinessReport{PolicyVersion: PromotionPolicyVersion, Status: status, Gates: gates}
+}
+
+// divergentOutcomeCoverage counts shadow-selected alternatives to a labeled
+// authoritative selection. Agreement needs no second execution label.
+func divergentOutcomeCoverage(dataset Dataset) (total, labeled int) {
+	for _, route := range dataset.Routes {
+		authority := route.Comparison.Authority
+		shadow := route.Comparison.Shadow
+		if authority.Status != StatusSelected || shadow.Status != StatusSelected || authority.SelectedCandidate == shadow.SelectedCandidate {
+			continue
+		}
+		if _, known := decisionSuccess(route, authority); !known {
+			continue
+		}
+		total++
+		if _, known := decisionSuccess(route, shadow); known {
+			labeled++
+		}
+	}
+	return total, labeled
 }
 
 // booleanGate builds a gate from a boolean result and an explicit evidence sufficiency flag.

@@ -110,6 +110,9 @@ response bodies, and free-form explanations. `veto shadow-report` evaluates
 that file offline and reports agreement, labeled success, latency, cost
 coverage, calibration, availability, simulated fallback, and v0.15 readiness.
 Missing measurements produce `insufficient_data`, never a zero or a pass.
+Policy v2 additionally requires outcomes for divergent Jev choices; see the
+[paired-label protocol](docs/jev-shadow-labeling.md) before interpreting
+readiness as real-world evidence.
 
 Optional settings are `TYPESAFE_MODEL` (default `jev-latest`),
 `VETO_JEV_SHADOW_TIMEOUT` (default `1s`), and

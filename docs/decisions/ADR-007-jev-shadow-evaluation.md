@@ -28,8 +28,8 @@ independent timeout. Its prediction is recorded but cannot be returned from
 The experiment is disabled by default. Veto reads `TYPESAFE_API_KEY` only when
 `VETO_EXPERIMENTAL_JEV_SHADOW=1` is set, never stores the key, and remains fully
 usable without TypeSafe. Evidence excludes raw objectives and response bodies,
-uses opaque candidate keys, and is evaluated offline under versioned promotion
-policy v1.
+uses opaque candidate keys, and was originally evaluated offline under
+versioned promotion policy v1 (superseded by v2 below).
 
 ## Consequences
 
@@ -44,8 +44,18 @@ policy v1.
   because the authority does not emit a task-success probability.
 - Jev cost remains unknown until measured or an explicit price basis is
   represented separately from billed cost.
-- v0.15 hybrid routing requires every policy-v1 gate to be evaluable and pass,
-  plus an explicit later opt-in implementation. v0.14 never promotes itself.
+- The original v0.15 plan required every policy-v1 gate to be evaluable and
+  pass, plus an explicit later opt-in implementation. Policy v2 below now
+  supersedes that gate set. v0.14 never promotes itself.
+
+## Follow-up, 2026-09-27
+
+Promotion policy v2 adds a known-outcome gate for every divergent
+shadow-selected candidate on an authority-labeled route. The v1 95% paired
+coverage threshold alone could exclude a small, biased set of disagreements.
+The [paired-label protocol](../jev-shadow-labeling.md) describes the separate
+isolated runs and human provenance checks needed before v0.15. This does not
+change v0.14 routing authority.
 
 ## Sources
 

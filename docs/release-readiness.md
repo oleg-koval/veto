@@ -65,7 +65,9 @@ only if its account-visible model inventory may be shared safely.
 - Treat the checked-in Jev shadow fixture as parser/reporting evidence only.
   A real TypeSafe account, real labeled shadow traffic, billed cost, and human
   acceptance remain separate gates. Do not implement v0.15 routing control
-  unless promotion policy v1 is fully evaluable and passes.
+  unless promotion policy v2 is fully evaluable and passes, divergent labels
+  satisfy the [paired-label protocol](jev-shadow-labeling.md), and the owner
+  accepts the real-provider evidence.
 - Review the separate [Jev shadow dogfood findings](jev-shadow-dogfood.md);
   local feedback artifacts are unpublished and do not count as resolved issues.
 - Confirm the exact provider model IDs and pricing visible to the release

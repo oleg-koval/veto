@@ -226,13 +226,15 @@ authoritative.
 The outer `shadowhistory` adapter translates router-owned observation DTOs into
 the version-1 redacted JSONL schema in `pkg/shadow`. Execution results append
 separate label events. The offline evaluator materializes latest-label-wins
-views and applies promotion policy v1; it never loads credentials or providers.
+views and applies promotion policy v2; it never loads credentials or providers.
 Each routing attempt gets a random local observation ID so rerunning the same
 deterministic Veto task cannot create duplicate route records or expose a hash
 derived from the objective. Sequential admission confidence is used only as a
 documented calibration proxy when that authority has no task-success
 probability; Jev uses its candidate-success estimate. Paired success gates
-require labels for at least 95% of authority-labeled routes.
+require labels for at least 95% of authority-labeled routes, and every
+divergent shadow-selected candidate on an authority-labeled route needs its
+own known outcome.
 See [ADR-007](decisions/ADR-007-jev-shadow-evaluation.md) and
 [the evidence contract](jev-shadow-data.md).
 
