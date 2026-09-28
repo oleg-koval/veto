@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/oleg-koval/veto/internal/eval/paired"
 	"github.com/oleg-koval/veto/pkg/router"
 	shadowdata "github.com/oleg-koval/veto/pkg/shadow"
 	"github.com/stretchr/testify/require"
@@ -35,6 +36,28 @@ func TestDecisionShadowInvalidSwitchStaysDisabled(t *testing.T) {
 	})
 	require.False(t, config.enabled)
 	require.Len(t, config.warnings, 1)
+}
+
+func TestPrivateCaptureIsDisabledByDefault(t *testing.T) {
+	var lookedUp []string
+	config := loadPrivateCaptureConfig(func(key string) (string, bool) {
+		lookedUp = append(lookedUp, key)
+		return "", false
+	})
+	require.False(t, config.enabled)
+	require.Equal(t, paired.DefaultCaptureLimit, config.maxFiles)
+	require.Equal(t, []string{envPrivateCapture}, lookedUp)
+}
+
+func TestPrivateCaptureRejectsInvalidRetentionLimit(t *testing.T) {
+	values := map[string]string{envPrivateCapture: "true", envPrivateCaptureMax: "501"}
+	config := loadPrivateCaptureConfig(func(key string) (string, bool) {
+		value, ok := values[key]
+		return value, ok
+	})
+	require.False(t, config.enabled)
+	require.Len(t, config.warnings, 1)
+	require.Contains(t, config.warnings[0], envPrivateCaptureMax)
 }
 
 // TestEnabledShadowWithoutKeyPreservesRouteAndRecordsUnavailable checks routing and unavailable evidence when the API key is absent.

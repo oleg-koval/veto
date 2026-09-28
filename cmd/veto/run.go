@@ -108,6 +108,7 @@ func cmdRun(args []string) {
 		Risk:                    router.Risk(*risk),
 		MaxCostUSD:              *maxCost,
 		SuccessCriteria:         criteria,
+		Source:                  "user",
 	}
 
 	// resolve skills in parallel with no blocking — local match is instant;

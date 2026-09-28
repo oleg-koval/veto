@@ -21,11 +21,13 @@ frozen task outside Git.
 
 ## Still required before real paired evidence
 
-- [ ] Add a dedicated, owner-approved route-time witness storage workflow. A manifest validator cannot authenticate a manually forged witness.
-- [ ] Review consent, private retention, tool parity, and grader independence for a frozen corpus.
+- [x] Add a dedicated, explicitly opted-in local capture workflow for route-time witnesses and replayable task manifests, with private permissions and bounded retention. A manifest validator cannot authenticate a manually forged witness.
+- [x] Review the local capture boundary before any pilot: capture is explicitly enabled, warned at startup, limited to direct user runs with criteria and output budgets; raw objectives/criteria remain local, private-permissioned, and bounded by retention. Route-time identity and known-tool snapshots are replay inputs, and the replay contract requires an injected runner to verify them.
+- [ ] Resolve pre-pilot gaps: there is no authorized egress-restricted provider runner, no established independent grader implementation, and the operator must choose/authorize endpoints and a spending cap. The grader interface is blind by contract, but independence is not proven by that interface alone.
 - [ ] Authorize model endpoints and a spending cap, then add an egress-restricted runner; no provider calls are authorized by this slice.
 - [ ] Run a small labeled pilot before scaling to promotion policy v2. Keep Jev non-authoritative until every gate passes.
 
-No raw objective is captured automatically by the CLI, no TypeSafe account or
-credential setting is changed, and no hybrid routing, tag, or release is part
-of this slice.
+Raw objectives are not captured by default; only the explicit private-capture
+opt-in stores eligible direct-user task text. No TypeSafe account or credential
+setting is changed, and no hybrid routing, tag, or release is part of this
+slice.

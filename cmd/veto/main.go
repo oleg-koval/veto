@@ -238,6 +238,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  TYPESAFE_MODEL                  model alias (default: jev-latest)")
 	fmt.Fprintln(o, "  VETO_JEV_SHADOW_TIMEOUT         independent timeout (default: 1s)")
 	fmt.Fprintln(o, "  VETO_JEV_SHADOW_EVIDENCE        private JSONL path override")
+	fmt.Fprintln(o, "  VETO_EXPERIMENTAL_PRIVATE_CAPTURE=1  explicitly save eligible task manifests and route-time model/tool snapshots locally")
+	fmt.Fprintln(o, "  VETO_PRIVATE_CAPTURE_MAX        retained manifests (default: 50; maximum: 500)")
 }
 
 // cmdRoute routes a task through the admission pipeline with live progress display.

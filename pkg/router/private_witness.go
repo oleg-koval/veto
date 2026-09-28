@@ -43,6 +43,12 @@ type PrivateRouteWitnessRecorder interface {
 	RecordPrivateRouteWitness(PrivateRouteWitness) error
 }
 
+// PrivateRouteCaptureRecorder is an explicitly installed sink for a frozen
+// private task and its route-time witness. Capture errors are non-authoritative.
+type PrivateRouteCaptureRecorder interface {
+	RecordPrivateRouteCapture(PrivateRouteWitness, TaskSpec) error
+}
+
 // PrivateCandidateKey recomputes one opaque key using the private route key,
 // display name, centralized model identity, and route-time tool snapshot. Only
 // a route-time witness may supply those values; do not publish them.

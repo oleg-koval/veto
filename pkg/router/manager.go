@@ -252,6 +252,17 @@ func (m *Manager) EnableDecisionShadow(decider ShadowDecider, recorder ShadowEvi
 	m.shadowRecorder = recorder
 }
 
+// SetPrivateRouteCaptureRecorder opts an already shadow-enabled manager into
+// private capture. It has no effect on non-shadow routing engines.
+func (m *Manager) SetPrivateRouteCaptureRecorder(recorder PrivateRouteCaptureRecorder) {
+	if m == nil {
+		return
+	}
+	if engine, ok := m.engine.(*ShadowingDecisionEngine); ok {
+		engine.SetPrivateRouteCaptureRecorder(recorder)
+	}
+}
+
 // logDecision preserves the original Store API for third-party stores while
 // using task-kind-aware history when the built-in extension is available.
 func (m *Manager) logDecision(taskID, modelName string, kind TaskKind, decision AdmissionDecision) {
