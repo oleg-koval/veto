@@ -265,9 +265,10 @@ configuration before execution.
 Private route-time capture is separately opt-in with
 `VETO_EXPERIMENTAL_PRIVATE_CAPTURE=1`. It installs a local evidence observer
 without enabling Jev or reading a TypeSafe credential; if Jev shadow is also
-enabled, Jev remains non-authoritative. Eligible runs with acceptance criteria
-and a positive output-token budget save the private task manifest together
-with the exact route-time model identity and tool snapshot under
+enabled, Jev remains non-authoritative. Eligible direct user runs with
+acceptance criteria, a positive output-token budget, and the explicit
+workspace-independence assertion save the private task manifest together with
+the exact route-time model identity and tool snapshot under
 `~/.veto/paired-captures` (0600 files, 0700 directory), retaining at most 50
 manifests by default and no more than 500. The objective and criteria are raw
 private task text. Capture is off by default; malformed settings or unsafe
@@ -275,10 +276,13 @@ directory permissions disable capture. This workflow creates provenance
 artifacts only for direct user `veto run` tasks; other task sources are
 excluded. Runs with injected skills or caller-supplied verification evidence
 are also excluded because those inputs are not stored in replay manifests. It
-does not run paired models, grade outputs, or authorize provider spending. A
-manifest is written only when an available shadow decision source produces a
-divergent selection and its comparison is successfully persisted; capture-only
-mode without a shadow source writes no manifests. Remove files from
+does not run paired models, grade outputs, or authorize provider spending. The
+user must additionally pass `veto run --private-capture-workspace-independent`
+to attest that replay does not require the original working directory or its
+files; that assertion is stored in the version-2 manifest. A manifest is
+written only when an available shadow decision source produces a divergent
+selection and its comparison is successfully persisted; capture-only mode
+without a shadow source writes no manifests. Remove files from
 `~/.veto/paired-captures` to delete them sooner than the configured retention
 window.
 See [ADR-007](decisions/ADR-007-jev-shadow-evaluation.md) and

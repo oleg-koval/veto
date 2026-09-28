@@ -101,7 +101,7 @@ func configureExperimentalDecisionShadow(mgr *router.Manager, warnings io.Writer
 	mgr.EnableDecisionShadow(decider, recorder, config.timeout, strategy)
 	if captureRecorder != nil && decider != nil {
 		mgr.SetPrivateRouteCaptureRecorder(captureRecorder)
-		fmt.Fprintf(warnings, "warning: opt-in private paired capture is configured; task text and route-time model/tool snapshots are stored locally only when a comparison is persisted with divergent selections (retention: %d manifests)\n", capture.maxFiles)
+		fmt.Fprintf(warnings, "warning: opt-in private paired capture is configured; eligible veto run tasks must pass --private-capture-workspace-independent and have a persisted divergent comparison (retention: %d manifests)\n", capture.maxFiles)
 	} else if captureRecorder != nil {
 		fmt.Fprintln(warnings, "warning: private paired capture requires an available shadow decision source; no manifests will be captured")
 	}
