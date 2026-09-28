@@ -275,8 +275,11 @@ directory permissions disable capture. This workflow creates provenance
 artifacts only for direct user `veto run` tasks; other task sources are
 excluded. Runs with injected skills are also excluded because skill bodies are
 not stored in replay manifests. It does not run paired models, grade outputs,
-or authorize provider spending. Remove files from `~/.veto/paired-captures` to
-delete them sooner than the configured retention window.
+or authorize provider spending. A manifest is written only when an available
+shadow decision source produces a divergent selection and its comparison is
+successfully persisted; capture-only mode without a shadow source writes no
+manifests. Remove files from `~/.veto/paired-captures` to delete them sooner
+than the configured retention window.
 See [ADR-007](decisions/ADR-007-jev-shadow-evaluation.md) and
 [the evidence contract](jev-shadow-data.md).
 

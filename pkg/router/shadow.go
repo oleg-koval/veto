@@ -211,13 +211,16 @@ func (e *ShadowingDecisionEngine) record(request DecisionRequest, authority Deci
 	comparison.Authority.SelectedCandidate = candidateKeys[comparison.Authority.SelectedCandidate]
 	comparison.Shadow.SelectedCandidate = candidateKeys[comparison.Shadow.SelectedCandidate]
 	e.rememberCandidateKeys(comparison.RouteID, candidateKeys)
-	safeRecordComparison(e.recorder, comparison)
+	comparisonRecorded := safeRecordComparison(e.recorder, comparison)
 	if e.privateWitness != nil || e.privateCapture != nil {
 		witness := e.privateRouteWitness(comparison, request, candidateKeys)
 		if e.privateWitness != nil {
 			safeRecordPrivateWitness(e.privateWitness, witness)
 		}
-		if e.privateCapture != nil {
+		if e.privateCapture != nil && comparisonRecorded &&
+			comparison.Authority.Status == ShadowStatusSelected &&
+			comparison.Shadow.Status == ShadowStatusSelected &&
+			comparison.Authority.SelectedCandidate != comparison.Shadow.SelectedCandidate {
 			safeRecordPrivateCapture(e.privateCapture, witness, cloneDecisionRequest(request).Task)
 		}
 	}
@@ -397,10 +400,14 @@ func (e *ShadowingDecisionEngine) privateRouteKey(routeID string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// safeRecordComparison records a comparison while discarding recorder errors and recovering panics.
-func safeRecordComparison(recorder ShadowEvidenceRecorder, comparison ShadowComparisonRecord) {
-	defer func() { _ = recover() }()
-	_ = recorder.RecordShadowComparison(comparison)
+// safeRecordComparison reports persistence success while keeping recorder errors and panics non-authoritative.
+func safeRecordComparison(recorder ShadowEvidenceRecorder, comparison ShadowComparisonRecord) (recorded bool) {
+	defer func() {
+		if recover() != nil {
+			recorded = false
+		}
+	}()
+	return recorder.RecordShadowComparison(comparison) == nil
 }
 
 // safeRecordExecution records an execution label while discarding recorder errors and recovering panics.
