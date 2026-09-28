@@ -3,6 +3,13 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0](https://github.com/oleg-koval/veto/compare/v0.14.1...v0.15.0) (2026-09-28)
+
+
+### Features
+
+* add offline paired replay and execution preflight ([#123](https://github.com/oleg-koval/veto/issues/123)) ([fb80c16](https://github.com/oleg-koval/veto/commit/fb80c168fd3c6323303cd3a406319d65158d2ddb))
+
 ## [0.14.1](https://github.com/oleg-koval/veto/compare/v0.14.0...v0.14.1) (2026-09-27)
 
 
