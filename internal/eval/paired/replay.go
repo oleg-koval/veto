@@ -88,6 +88,7 @@ func Replay(ctx context.Context, dataset shadow.Dataset, trial Trial, runner Run
 		}
 	}()
 	labels := [2]shadow.ExecutionLabel{}
+	events = make([]shadow.Event, 2)
 	for _, index := range order {
 		workspace, err := os.MkdirTemp(root, "candidate-")
 		if err != nil {
@@ -121,17 +122,14 @@ func Replay(ctx context.Context, dataset shadow.Dataset, trial Trial, runner Run
 			Success: success, Score: score, Usage: result.Usage, CostUSD: result.CostUSD,
 			Latency: shadow.KnownDuration{Known: true, Millis: elapsed.Milliseconds()},
 		}
+		events[index] = shadow.Event{SchemaVersion: shadow.SchemaVersion, Type: shadow.EventExecutionLabel, Label: &labels[index]}
+		if err := events[index].Validate(); err != nil {
+			return nil, fmt.Errorf("paired replay: invalid label %d: %w", index+1, err)
+		}
 		// Remove the completed candidate's files before the next runner starts.
 		// The root cleanup still covers errors on either path.
 		if err := os.RemoveAll(workspace); err != nil {
 			return nil, errors.New("paired replay: remove candidate workspace failed")
-		}
-	}
-	events = make([]shadow.Event, 2)
-	for index := range labels {
-		events[index] = shadow.Event{SchemaVersion: shadow.SchemaVersion, Type: shadow.EventExecutionLabel, Label: &labels[index]}
-		if err := events[index].Validate(); err != nil {
-			return nil, fmt.Errorf("paired replay: invalid label %d: %w", index+1, err)
 		}
 	}
 	return events, nil

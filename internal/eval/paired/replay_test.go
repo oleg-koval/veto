@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -163,6 +164,48 @@ func TestReplayHonorsBoundedContext(t *testing.T) {
 	require.Empty(t, events)
 	require.ErrorContains(t, err, "candidate execution failed")
 	require.Zero(t, gradeCalls)
+}
+
+func TestReplayStopsAtInvalidLabel(t *testing.T) {
+	for _, invalidCall := range []int{1, 2} {
+		t.Run(fmt.Sprintf("candidate call %d", invalidCall), func(t *testing.T) {
+			dataset, trial := replayFixture()
+			var workspaces []string
+			runCalls, gradeCalls := 0, 0
+			invalidIndex := 0
+			runner := runnerFunc(func(_ context.Context, request RunRequest) (RunResult, error) {
+				runCalls++
+				workspaces = append(workspaces, request.Workspace)
+				if runCalls == invalidCall {
+					invalidIndex = 1
+					if request.Model == trial.ModelsByKey["b"] {
+						invalidIndex = 2
+					}
+				}
+				return RunResult{Output: "done"}, nil
+			})
+			grader := graderFunc(func(context.Context, []string, string) (shadow.KnownBool, shadow.KnownFloat, error) {
+				gradeCalls++
+				score := shadow.KnownFloat{Known: true, Value: 1}
+				if gradeCalls == invalidCall {
+					score.Value = 2
+				}
+				return shadow.KnownBool{Known: true, Value: true}, score, nil
+			})
+
+			events, err := Replay(t.Context(), dataset, trial, runner, grader)
+			require.Nil(t, events)
+			require.EqualError(t, err, fmt.Sprintf("paired replay: invalid label %d: shadow evidence: score must be finite and between 0 and 1", invalidIndex))
+			require.Equal(t, invalidCall, runCalls)
+			require.Equal(t, invalidCall, gradeCalls)
+			for _, workspace := range workspaces {
+				_, err := os.Stat(workspace)
+				require.ErrorIs(t, err, os.ErrNotExist)
+				_, err = os.Stat(filepath.Dir(workspace))
+				require.ErrorIs(t, err, os.ErrNotExist)
+			}
+		})
+	}
 }
 
 func TestReplayRandomizesCandidateOrder(t *testing.T) {
