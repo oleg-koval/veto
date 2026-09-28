@@ -91,6 +91,18 @@ func ValidateManifest(dataset shadow.Dataset, manifest Manifest) (Trial, error) 
 	if len(modelsByKey) != len(manifest.Witness.Bindings) {
 		return Trial{}, errors.New("paired manifest: duplicate candidate binding")
 	}
+	// The witness binds the full route shortlist, but a paired replay runs only
+	// the two divergent selections recorded in the comparison.
+	selectedModels := make(map[string]string, 2)
+	selectedIdentities := make(map[string]router.ModelIdentity, 2)
+	selectedTools := make(map[string]router.ToolCapabilities, 2)
+	for _, key := range []string{comparison.Authority.SelectedCandidate, comparison.Shadow.SelectedCandidate} {
+		if model, ok := modelsByKey[key]; ok {
+			selectedModels[key] = model
+			selectedIdentities[key] = identitiesByKey[key]
+			selectedTools[key] = toolsByKey[key]
+		}
+	}
 	task := router.TaskSpec{
 		Kind: manifest.TaskKind, Risk: manifest.Risk, Objective: manifest.Objective,
 		SuccessCriteria: manifest.Criteria, ExecutionMaxOutputTokens: manifest.MaxOutputTokens,
@@ -110,7 +122,7 @@ func ValidateManifest(dataset shadow.Dataset, manifest Manifest) (Trial, error) 
 	trial := Trial{
 		RouteID: manifest.RouteID, TaskKind: string(manifest.TaskKind), Risk: string(manifest.Risk),
 		Objective: manifest.Objective, Criteria: append([]string(nil), manifest.Criteria...),
-		ModelsByKey: modelsByKey, IdentitiesByKey: identitiesByKey, ToolsByKey: toolsByKey,
+		ModelsByKey: selectedModels, IdentitiesByKey: selectedIdentities, ToolsByKey: selectedTools,
 		MaxOutputTokens: manifest.MaxOutputTokens,
 		Timeout:         time.Duration(manifest.TimeoutMillis) * time.Millisecond,
 	}

@@ -17,6 +17,50 @@ type privateWitnessSink struct {
 	panic     bool
 }
 
+type privateCaptureSink struct {
+	tasks []TaskSpec
+}
+
+func (s *privateCaptureSink) RecordPrivateRouteCapture(_ PrivateRouteWitness, task TaskSpec) error {
+	s.tasks = append(s.tasks, task)
+	return nil
+}
+
+func TestPrivateCaptureRequiresPersistedDivergentComparison(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		shadow      ShadowDecider
+		recorder    *recordingShadowSink
+		wantCapture bool
+	}{
+		{name: "no shadow source", recorder: &recordingShadowSink{}},
+		{name: "same selection", recorder: &recordingShadowSink{}, shadow: shadowDeciderFunc(func(context.Context, DecisionRequest) (ShadowPrediction, error) {
+			return ShadowPrediction{SelectedCandidate: "a"}, nil
+		})},
+		{name: "comparison persistence error", recorder: &recordingShadowSink{err: errors.New("evidence full")}, shadow: shadowDeciderFunc(func(context.Context, DecisionRequest) (ShadowPrediction, error) {
+			return ShadowPrediction{SelectedCandidate: "b"}, nil
+		})},
+		{name: "divergent persisted comparison", recorder: &recordingShadowSink{}, shadow: shadowDeciderFunc(func(context.Context, DecisionRequest) (ShadowPrediction, error) {
+			return ShadowPrediction{SelectedCandidate: "b"}, nil
+		}), wantCapture: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			capture := &privateCaptureSink{}
+			engine := NewShadowingDecisionEngine(decisionEngineFunc(func(context.Context, DecisionRequest) (DecisionOutcome, error) {
+				return DecisionOutcome{Version: DecisionVersion, SelectedCandidate: "a", Mode: DecisionModeSequentialAdmission}, nil
+			}), test.shadow, test.recorder, time.Second, "jev:test")
+			engine.SetPrivateRouteCaptureRecorder(capture)
+			_, err := engine.Decide(t.Context(), shadowRequest())
+			require.NoError(t, err)
+			if test.wantCapture {
+				require.Len(t, capture.tasks, 1)
+			} else {
+				require.Empty(t, capture.tasks)
+			}
+		})
+	}
+}
+
 func (s *privateWitnessSink) RecordPrivateRouteWitness(witness PrivateRouteWitness) error {
 	if s.panic {
 		panic("private witness recorder failed")

@@ -135,10 +135,13 @@ type TaskSpec struct {
 	// ExecutionMaxOutputTokens is the requested full-task output budget. It is
 	// not an admission budget; zero means no explicit execution requirement.
 	ExecutionMaxOutputTokens int
-	Source                   string   // "user" | "cron" | "webhook" | "system"
-	SkipModels               []string // resume: models already decided in a prior interrupted run
-	RuntimeFilter            string   // optional runtime adapter restriction
-	ProviderFilter           string   // optional provider restriction
+	Source                   string // "user" | "cron" | "webhook" | "system"
+	// ExcludeFromPrivateCapture prevents capture when execution includes
+	// context that the replay manifest does not preserve (for example skills).
+	ExcludeFromPrivateCapture bool     `json:"-"`
+	SkipModels                []string // resume: models already decided in a prior interrupted run
+	RuntimeFilter             string   // optional runtime adapter restriction
+	ProviderFilter            string   // optional provider restriction
 }
 
 // ModelCapabilities describes what a model can and cannot handle.

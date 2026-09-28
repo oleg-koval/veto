@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/oleg-koval/veto/internal/eval/paired"
 	"github.com/oleg-koval/veto/pkg/router"
 	shadowdata "github.com/oleg-koval/veto/pkg/shadow"
 	"github.com/stretchr/testify/require"
@@ -35,6 +36,50 @@ func TestDecisionShadowInvalidSwitchStaysDisabled(t *testing.T) {
 	})
 	require.False(t, config.enabled)
 	require.Len(t, config.warnings, 1)
+}
+
+func TestPrivateCaptureIsDisabledByDefault(t *testing.T) {
+	var lookedUp []string
+	config := loadPrivateCaptureConfig(func(key string) (string, bool) {
+		lookedUp = append(lookedUp, key)
+		return "", false
+	})
+	require.False(t, config.enabled)
+	require.Equal(t, paired.DefaultCaptureLimit, config.maxFiles)
+	require.Equal(t, []string{envPrivateCapture}, lookedUp)
+}
+
+func TestPrivateCaptureRejectsInvalidRetentionLimit(t *testing.T) {
+	values := map[string]string{envPrivateCapture: "true", envPrivateCaptureMax: "501"}
+	config := loadPrivateCaptureConfig(func(key string) (string, bool) {
+		value, ok := values[key]
+		return value, ok
+	})
+	require.False(t, config.enabled)
+	require.Len(t, config.warnings, 1)
+	require.Contains(t, config.warnings[0], envPrivateCaptureMax)
+}
+
+func TestPrivateCaptureWithoutShadowSourceDoesNotCreateManifests(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	evidencePath := filepath.Join(t.TempDir(), "evidence.jsonl")
+	values := map[string]string{envPrivateCapture: "1", envJevShadowEvidence: evidencePath}
+	lookup := func(key string) (string, bool) {
+		value, ok := values[key]
+		return value, ok
+	}
+	registry := router.NewRegistryFromModels([]router.ModelCapabilities{{Name: "fixture", Tier: "large", Provider: "test"}})
+	mgr := router.NewManager(registry, router.NewAdmissionGate(experimentalShadowAdmission{}), router.NewMemoryStore())
+	var warnings bytes.Buffer
+	configureExperimentalDecisionShadow(mgr, &warnings, lookup, nil)
+
+	_, _, err := mgr.Route(t.Context(), router.TaskSpec{ID: "task-1", Kind: router.KindPlan, Risk: router.RiskMedium, Objective: "design this"})
+	require.NoError(t, err)
+	require.Contains(t, warnings.String(), "requires an available shadow decision source")
+	entries, err := os.ReadDir(filepath.Join(home, ".veto", "paired-captures"))
+	require.NoError(t, err)
+	require.Empty(t, entries)
 }
 
 // TestEnabledShadowWithoutKeyPreservesRouteAndRecordsUnavailable checks routing and unavailable evidence when the API key is absent.
