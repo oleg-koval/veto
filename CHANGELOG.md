@@ -3,6 +3,13 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0](https://github.com/oleg-koval/veto/compare/v0.16.0...v0.17.0) (2026-09-28)
+
+
+### Features
+
+* add opt-in private paired capture ([#127](https://github.com/oleg-koval/veto/issues/127)) ([af7219a](https://github.com/oleg-koval/veto/commit/af7219ac4cd45f0f1d7a1e9fd4916f72840de92c))
+
 ## [0.16.0](https://github.com/oleg-koval/veto/compare/v0.15.0...v0.16.0) (2026-09-28)
 
 
