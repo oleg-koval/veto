@@ -3,6 +3,13 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1](https://github.com/oleg-koval/veto/compare/v0.17.0...v0.17.1) (2026-09-28)
+
+
+### Bug Fixes
+
+* require workspace-independent capture attestation ([#129](https://github.com/oleg-koval/veto/issues/129)) ([6f11c36](https://github.com/oleg-koval/veto/commit/6f11c36ebefe4500d0c157b5113c767e503ba7e4))
+
 ## [0.17.0](https://github.com/oleg-koval/veto/compare/v0.16.0...v0.17.0) (2026-09-28)
 
 
