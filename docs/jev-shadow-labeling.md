@@ -47,9 +47,26 @@ cost.
 and grader interfaces, randomized execution order, separate temporary
 workspaces, bounded contexts, and atomic redacted label output. Injected
 runners and graders must honor those contexts. Its fake-runner tests are harness
-evidence, not Jev-quality evidence. It cannot verify that a
-private model name truly belongs to an opaque candidate key: that mapping and
-the route-to-task join require separate provenance checks. The CLI still does
-not export a private route-ID-to-task mapping or ship a production replay
+evidence, not Jev-quality evidence. The low-level replay call cannot verify
+that a private model name belongs to an opaque candidate key. The CLI still
+does not export a private route-ID-to-task mapping or ship a production replay
 runner. No real TypeSafe account, paid call, or paired live run has been
 completed.
+
+This offline slice adds an opt-in route-time `PrivateRouteWitnessRecorder`
+and a private manifest. The witness stores a route-scoped key,
+opaque-key-to-model-identity bindings, the known tool snapshot, and a
+fingerprint of the replayable task fields, not raw objective text. The manifest supplies the frozen objective and criteria
+separately; validation recomputes candidate keys and checks the fingerprint,
+route timestamp, kind, risk, provider/model/runtime identity, and exact known
+tool snapshot before either fake candidate runs. Replay passes those captured
+values to the runner, which must reject current configuration that differs.
+Private manifest files require a trusted, stable directory
+without group or other permissions outside a Git worktree, use 0600 file
+permissions, and cannot overwrite an existing path. File operations pin the
+checked directory; a failed write may leave a partial private file for manual
+inspection and removal. The route key checks model bindings against the
+redacted candidate keys, but a holder of the private key can forge the task fingerprint.
+Confirm that a witness was captured by the route-time recorder before using it
+as provenance. No production command enables capture, and the runner
+and grader remain injected fakes in tests.

@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/oleg-koval/veto/pkg/router"
 	"github.com/oleg-koval/veto/pkg/shadow"
 )
 
@@ -25,6 +27,8 @@ type Trial struct {
 	Objective       string
 	Criteria        []string
 	ModelsByKey     map[string]string
+	IdentitiesByKey map[string]router.ModelIdentity
+	ToolsByKey      map[string]router.ToolCapabilities
 	MaxOutputTokens int
 	Timeout         time.Duration
 }
@@ -32,13 +36,27 @@ type Trial struct {
 // RunRequest contains private task data for one isolated candidate run.
 // A Runner must honor context deadlines, deny or mock external side effects,
 // and use only authorized model endpoints. Separate workspaces do not provide
-// network isolation.
+// network isolation. When Identity and Tools are populated, it must reject a
+// different current identity and honor the captured known tool set. It should
+// call RunRequest.ValidateResolvedCandidate before executing.
 type RunRequest struct {
 	Model           string
+	Identity        router.ModelIdentity
+	Tools           router.ToolCapabilities
 	Objective       string
 	Criteria        []string
 	Workspace       string
 	MaxOutputTokens int
+}
+
+// ValidateResolvedCandidate rejects a replay if the configured model identity
+// or route-time known tool snapshot changed since capture. Provenance-aware
+// runners must call it after resolving Model and before starting execution.
+func (r RunRequest) ValidateResolvedCandidate(model router.ModelCapabilities, tools router.ToolCapabilities) error {
+	if r.Model != model.Name || r.Identity != model.Identity() || !r.Tools.Known || !tools.Known || !slices.Equal(r.Tools.Tools, tools.Tools) {
+		return errors.New("paired replay: resolved model identity or tools differ from route-time snapshot")
+	}
+	return nil
 }
 
 // RunResult remains in memory. Output and private model identity are never
@@ -107,7 +125,8 @@ func Replay(ctx context.Context, dataset shadow.Dataset, trial Trial, runner Run
 		runCtx, cancel := context.WithTimeout(ctx, trial.Timeout)
 		started := time.Now()
 		result, runErr := runner.Run(runCtx, RunRequest{
-			Model: trial.ModelsByKey[keys[index]], Objective: trial.Objective,
+			Model: trial.ModelsByKey[keys[index]], Identity: trial.IdentitiesByKey[keys[index]],
+			Tools: cloneTools(trial.ToolsByKey[keys[index]]), Objective: trial.Objective,
 			Criteria: append([]string(nil), trial.Criteria...), Workspace: workspace,
 			MaxOutputTokens: trial.MaxOutputTokens,
 		})
@@ -145,13 +164,18 @@ func Replay(ctx context.Context, dataset shadow.Dataset, trial Trial, runner Run
 	return events, nil
 }
 
+func cloneTools(tools router.ToolCapabilities) router.ToolCapabilities {
+	return router.ToolCapabilities{Tools: append([]string(nil), tools.Tools...), Known: tools.Known}
+}
+
 // validateTrial returns the unique matching comparison and its authority and
 // shadow candidate keys, without mutating the inputs. It rejects invalid
 // comparison data, mismatched task metadata, blank objectives, missing or blank
 // criteria, nonpositive output budgets, timeouts outside (0, 30 minutes], and
 // selections that are not divergent or lack distinct, nonblank model bindings
 // for exactly those two keys.
-// Comparison validation errors are wrapped; model-binding provenance is not checked.
+// Comparison validation errors are wrapped; low-level replay does not check
+// model-identity provenance. Use ReplayManifest and an identity-aware Runner.
 func validateTrial(dataset shadow.Dataset, trial Trial) (shadow.RouteComparison, [2]string, error) {
 	var comparison shadow.RouteComparison
 	matches := 0
