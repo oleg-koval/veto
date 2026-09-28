@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -9,6 +10,67 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+type privateWitnessSink struct {
+	witnesses []PrivateRouteWitness
+	err       error
+	panic     bool
+}
+
+func (s *privateWitnessSink) RecordPrivateRouteWitness(witness PrivateRouteWitness) error {
+	if s.panic {
+		panic("private witness recorder failed")
+	}
+	s.witnesses = append(s.witnesses, witness)
+	return s.err
+}
+
+func TestPrivateWitnessCapturesRouteTimeBindingsWithoutRawTask(t *testing.T) {
+	request := shadowRequest()
+	request.Task.Objective = "private task text"
+	request.Task.SuccessCriteria = []string{"private criterion"}
+	request.Task.ExecutionMaxOutputTokens = 1024
+	redacted := &recordingShadowSink{}
+	private := &privateWitnessSink{}
+	engine := NewShadowingDecisionEngine(decisionEngineFunc(func(context.Context, DecisionRequest) (DecisionOutcome, error) {
+		return DecisionOutcome{Version: DecisionVersion, SelectedCandidate: "a", Mode: DecisionModeSequentialAdmission}, nil
+	}), shadowDeciderFunc(func(context.Context, DecisionRequest) (ShadowPrediction, error) {
+		return ShadowPrediction{SelectedCandidate: "b"}, nil
+	}), redacted, time.Second, "jev:test")
+	engine.SetPrivateWitnessRecorder(private)
+	_, err := engine.Decide(t.Context(), request)
+	require.NoError(t, err)
+	require.Len(t, redacted.comparisons, 1)
+	require.Len(t, private.witnesses, 1)
+	witness := private.witnesses[0]
+	require.Equal(t, redacted.comparisons[0].RouteID, witness.RouteID)
+	fingerprint, err := PrivateTaskFingerprint(witness.RouteKey, request.Task)
+	require.NoError(t, err)
+	require.Equal(t, fingerprint, witness.TaskFingerprint)
+	require.Equal(t, []PrivateCandidateBinding{
+		{Key: redacted.comparisons[0].Candidates[0], Model: "a"},
+		{Key: redacted.comparisons[0].Candidates[1], Model: "b"},
+	}, witness.Bindings)
+	encoded, err := json.Marshal(witness)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), request.Task.Objective)
+	require.NotContains(t, string(encoded), request.Task.SuccessCriteria[0])
+	redactedJSON, err := json.Marshal(redacted.comparisons[0])
+	require.NoError(t, err)
+	require.NotContains(t, string(redactedJSON), "\"Model\"")
+}
+
+func TestPrivateWitnessFailureCannotChangeAuthority(t *testing.T) {
+	for _, sink := range []*privateWitnessSink{{err: errors.New("private failure")}, {panic: true}} {
+		engine := NewShadowingDecisionEngine(decisionEngineFunc(func(context.Context, DecisionRequest) (DecisionOutcome, error) {
+			return DecisionOutcome{Version: DecisionVersion, SelectedCandidate: "a", Mode: DecisionModeSequentialAdmission}, nil
+		}), nil, &recordingShadowSink{}, time.Second, "jev:test")
+		engine.SetPrivateWitnessRecorder(sink)
+		outcome, err := engine.Decide(t.Context(), shadowRequest())
+		require.NoError(t, err)
+		require.Equal(t, "a", outcome.SelectedCandidate)
+	}
+}
 
 type shadowDeciderFunc func(context.Context, DecisionRequest) (ShadowPrediction, error)
 

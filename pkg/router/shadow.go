@@ -99,11 +99,21 @@ type ShadowingDecisionEngine struct {
 	authority         DecisionEngine
 	shadow            ShadowDecider
 	recorder          ShadowEvidenceRecorder
+	privateWitness    PrivateRouteWitnessRecorder
 	timeout           time.Duration
 	authorityStrategy string
 	shadowStrategy    string
 	candidateSecret   []byte
 	now               func() time.Time
+}
+
+// SetPrivateWitnessRecorder opts this engine into emitting private route-time
+// bindings. Configure it before concurrent Decide calls. Production composition
+// does not install this recorder.
+func (e *ShadowingDecisionEngine) SetPrivateWitnessRecorder(recorder PrivateRouteWitnessRecorder) {
+	if e != nil {
+		e.privateWitness = recorder
+	}
 }
 
 // NewShadowingDecisionEngine constructs an evidence-only observer.
@@ -185,6 +195,27 @@ func (e *ShadowingDecisionEngine) record(request DecisionRequest, authority Deci
 	comparison.Authority.SelectedCandidate = e.candidateKey(comparison.RouteID, comparison.Authority.SelectedCandidate)
 	comparison.Shadow.SelectedCandidate = e.candidateKey(comparison.RouteID, comparison.Shadow.SelectedCandidate)
 	safeRecordComparison(e.recorder, comparison)
+	if e.privateWitness != nil {
+		routeKey := e.privateRouteKey(comparison.RouteID)
+		fingerprint, _ := PrivateTaskFingerprint(routeKey, request.Task)
+		witness := PrivateRouteWitness{
+			Version: PrivateWitnessVersion, RouteID: comparison.RouteID,
+			ObservedAt: comparison.ObservedAt, TaskKind: request.Task.Kind,
+			Risk: request.Task.Risk, RouteKey: routeKey, TaskFingerprint: fingerprint,
+			Bindings: make([]PrivateCandidateBinding, 0, len(request.Candidates)),
+		}
+		for _, candidate := range request.Candidates {
+			witness.Bindings = append(witness.Bindings, PrivateCandidateBinding{
+				Key: e.candidateKey(comparison.RouteID, candidate.Model.Name), Model: candidate.Model.Name,
+			})
+		}
+		safeRecordPrivateWitness(e.privateWitness, witness)
+	}
+}
+
+func safeRecordPrivateWitness(recorder PrivateRouteWitnessRecorder, witness PrivateRouteWitness) {
+	defer func() { _ = recover() }()
+	_ = recorder.RecordPrivateRouteWitness(witness)
 }
 
 // authorityEvidence converts the authoritative outcome to evidence with a fixed error code on failure.
@@ -284,12 +315,17 @@ func (e *ShadowingDecisionEngine) candidateKey(routeID, modelName string) string
 	if modelName == "" {
 		return ""
 	}
-	if len(e.candidateSecret) == 0 {
+	key, _ := PrivateCandidateKey(e.privateRouteKey(routeID), modelName)
+	return key
+}
+
+func (e *ShadowingDecisionEngine) privateRouteKey(routeID string) string {
+	if routeID == "" || len(e.candidateSecret) == 0 {
 		return ""
 	}
 	mac := hmac.New(sha256.New, e.candidateSecret)
-	_, _ = mac.Write([]byte(routeID + "\x00" + modelName))
-	return "c-" + hex.EncodeToString(mac.Sum(nil)[:16])
+	_, _ = mac.Write([]byte("veto-private-route-key-v1\x00" + routeID))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // safeRecordComparison records a comparison while discarding recorder errors and recovering panics.
