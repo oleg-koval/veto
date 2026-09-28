@@ -3,6 +3,13 @@
 Notable user-facing changes are documented here. Veto follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0](https://github.com/oleg-koval/veto/compare/v0.15.0...v0.16.0) (2026-09-28)
+
+
+### Features
+
+* add private provenance validation for paired replay ([#125](https://github.com/oleg-koval/veto/issues/125)) ([88a1957](https://github.com/oleg-koval/veto/commit/88a19575a66ddc5076b2577b463ce7d26addc53f))
+
 ## [0.15.0](https://github.com/oleg-koval/veto/compare/v0.14.1...v0.15.0) (2026-09-28)
 
 
