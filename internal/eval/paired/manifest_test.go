@@ -110,6 +110,32 @@ func TestManifestRejectsMismatchedTaskAndBindingsBeforeRunning(t *testing.T) {
 	}
 }
 
+func TestManifestReplaysDivergentPairFromLargerShortlist(t *testing.T) {
+	dataset, manifest := manifestFixture()
+	bindingC := testCandidateBinding("model-c", "api-v3")
+	bindingC.Key, _ = router.PrivateCandidateKey(manifest.Witness.RouteKey, bindingC.Model, bindingC.Identity, bindingC.Tools)
+	dataset.Routes[0].Comparison.Candidates = append(dataset.Routes[0].Comparison.Candidates, shadow.Candidate{Key: bindingC.Key})
+	manifest.Witness.Bindings = append(manifest.Witness.Bindings, bindingC)
+
+	trial, err := ValidateManifest(dataset, manifest)
+	require.NoError(t, err)
+	require.Len(t, trial.ModelsByKey, 2)
+	require.NotContains(t, trial.ModelsByKey, bindingC.Key)
+
+	runModels := make(map[string]bool)
+	labels, err := ReplayManifest(t.Context(), dataset, manifest, runnerFunc(func(_ context.Context, request RunRequest) (RunResult, error) {
+		runModels[request.Model] = true
+		return RunResult{Output: request.Model}, nil
+	}), graderFunc(func(context.Context, []string, string) (shadow.KnownBool, shadow.KnownFloat, error) {
+		return shadow.KnownBool{Known: true, Value: true}, shadow.KnownFloat{}, nil
+	}))
+	require.NoError(t, err)
+	require.Len(t, labels, 2)
+	require.True(t, runModels["model-a"])
+	require.True(t, runModels["model-b"])
+	require.NotContains(t, runModels, "model-c")
+}
+
 func TestManifestPrivateFileRejectsOverwriteUnsafePermissionsAndUnknownFields(t *testing.T) {
 	dataset, manifest := manifestFixture()
 	privateDir := t.TempDir()
