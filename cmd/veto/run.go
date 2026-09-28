@@ -109,6 +109,8 @@ func cmdRun(args []string) {
 		MaxCostUSD:              *maxCost,
 		SuccessCriteria:         criteria,
 		Source:                  "user",
+		// The replay manifest does not preserve caller-supplied verification evidence.
+		ExcludeFromPrivateCapture: len(evidence) > 0,
 	}
 
 	// resolve skills in parallel with no blocking — local match is instant;
