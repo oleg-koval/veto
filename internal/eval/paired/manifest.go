@@ -17,23 +17,25 @@ import (
 )
 
 const (
-	ManifestVersion         = 1
+	ManifestVersion         = 2
 	maxPrivateManifestBytes = 1 << 20
 )
 
 // Manifest is a private, explicitly supplied join between a frozen task and a
-// route-time witness. It contains raw task text and model names; never append
-// it to shadow evidence or commit it to a repository.
+// route-time witness. WorkspaceIndependent records the user's assertion that
+// replay does not depend on the original working directory. It contains raw
+// task text and model names; never append it to shadow evidence or commit it.
 type Manifest struct {
-	Version         int                        `json:"version"`
-	RouteID         string                     `json:"route_id"`
-	TaskKind        router.TaskKind            `json:"task_kind"`
-	Risk            router.Risk                `json:"risk"`
-	Objective       string                     `json:"objective"`
-	Criteria        []string                   `json:"criteria"`
-	MaxOutputTokens int                        `json:"max_output_tokens"`
-	TimeoutMillis   int64                      `json:"timeout_millis"`
-	Witness         router.PrivateRouteWitness `json:"witness"`
+	Version              int                        `json:"version"`
+	WorkspaceIndependent bool                       `json:"workspace_independent"`
+	RouteID              string                     `json:"route_id"`
+	TaskKind             router.TaskKind            `json:"task_kind"`
+	Risk                 router.Risk                `json:"risk"`
+	Objective            string                     `json:"objective"`
+	Criteria             []string                   `json:"criteria"`
+	MaxOutputTokens      int                        `json:"max_output_tokens"`
+	TimeoutMillis        int64                      `json:"timeout_millis"`
+	Witness              router.PrivateRouteWitness `json:"witness"`
 }
 
 // ValidateManifest checks the task fingerprint and every route-time binding
@@ -42,6 +44,9 @@ type Manifest struct {
 func ValidateManifest(dataset shadow.Dataset, manifest Manifest) (Trial, error) {
 	if manifest.Version != ManifestVersion || manifest.Witness.Version != router.PrivateWitnessVersion {
 		return Trial{}, errors.New("paired manifest: unsupported version")
+	}
+	if !manifest.WorkspaceIndependent {
+		return Trial{}, errors.New("paired manifest: workspace-independence assertion is required")
 	}
 	if manifest.RouteID == "" || manifest.RouteID != manifest.Witness.RouteID ||
 		manifest.TaskKind != manifest.Witness.TaskKind || manifest.Risk != manifest.Witness.Risk {
