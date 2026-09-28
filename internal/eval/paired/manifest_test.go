@@ -67,7 +67,7 @@ func manifestFixture() (shadow.Dataset, Manifest) {
 		Bindings: []router.PrivateCandidateBinding{bindingA, bindingB},
 	}
 	return dataset, Manifest{
-		Version: ManifestVersion, RouteID: trial.RouteID, TaskKind: router.TaskKind(trial.TaskKind),
+		Version: ManifestVersion, WorkspaceIndependent: true, RouteID: trial.RouteID, TaskKind: router.TaskKind(trial.TaskKind),
 		Risk: router.Risk(trial.Risk), Objective: trial.Objective, Criteria: trial.Criteria,
 		MaxOutputTokens: trial.MaxOutputTokens, TimeoutMillis: trial.Timeout.Milliseconds(), Witness: witness,
 	}
@@ -90,6 +90,7 @@ func TestManifestRejectsMismatchedTaskAndBindingsBeforeRunning(t *testing.T) {
 		{name: "time", change: func(m *Manifest) { m.Witness.ObservedAt = m.Witness.ObservedAt.Add(time.Second) }},
 		{name: "route", change: func(m *Manifest) { m.RouteID = "other" }},
 		{name: "version", change: func(m *Manifest) { m.Witness.Version++ }},
+		{name: "workspace assertion", change: func(m *Manifest) { m.WorkspaceIndependent = false }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			manifest := original
@@ -236,7 +237,7 @@ func TestRouteTimeWitnessToPrivateManifestToFakePairedLabels(t *testing.T) {
 	dataset, err := shadow.Materialize(events)
 	require.NoError(t, err)
 	manifest := Manifest{
-		Version: ManifestVersion, RouteID: private.witness.RouteID,
+		Version: ManifestVersion, WorkspaceIndependent: true, RouteID: private.witness.RouteID,
 		TaskKind: task.Kind, Risk: task.Risk, Objective: task.Objective,
 		Criteria: task.SuccessCriteria, MaxOutputTokens: task.ExecutionMaxOutputTokens,
 		TimeoutMillis: 1000, Witness: private.witness,

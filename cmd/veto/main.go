@@ -195,6 +195,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(o, "  --criteria  comma-separated acceptance criteria; run a QA review after execution")
 	fmt.Fprintln(o, "  --criteria-file  versioned JSON acceptance criteria manifest")
 	fmt.Fprintln(o, "  --evidence  versioned JSON evidence manifest; requires criteria")
+	fmt.Fprintln(o, "  --private-capture-workspace-independent  assert replay does not need the current working directory")
 	fmt.Fprintln(o, "  --verified-receipt  export a redacted receipt to a safe relative path")
 	fmt.Fprintln(o)
 	fmt.Fprintln(o, "FEEDBACK FLAGS")

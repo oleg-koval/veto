@@ -44,6 +44,7 @@ func cmdRun(args []string) {
 	criteriaFlag := fs.String("criteria", "", "comma-separated acceptance criteria; review runs after execution")
 	criteriaFile := fs.String("criteria-file", "", "versioned JSON acceptance criteria manifest")
 	evidenceFile := fs.String("evidence", "", "versioned JSON evidence manifest; requires acceptance criteria")
+	workspaceIndependent := fs.Bool("private-capture-workspace-independent", false, "assert this task can be replayed without the current working directory")
 	verifiedReceiptPath := fs.String("verified-receipt", "", "export the redacted verified-run receipt to a relative file path")
 	maxOutputTokens := fs.Int("max-output-tokens", execution.DefaultExecutionMaxTokens, "maximum output tokens for task execution")
 	outputPath := fs.String("output", "", "write task output to a relative file path")
@@ -110,7 +111,8 @@ func cmdRun(args []string) {
 		SuccessCriteria:         criteria,
 		Source:                  "user",
 		// The replay manifest does not preserve caller-supplied verification evidence.
-		ExcludeFromPrivateCapture: len(evidence) > 0,
+		ExcludeFromPrivateCapture:          len(evidence) > 0,
+		PrivateCaptureWorkspaceIndependent: *workspaceIndependent,
 	}
 
 	// resolve skills in parallel with no blocking — local match is instant;

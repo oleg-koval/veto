@@ -22,7 +22,7 @@ func captureFixture(routeID string) (router.PrivateRouteWitness, router.TaskSpec
 	task := router.TaskSpec{
 		Source: "user", Kind: router.KindPlan, Risk: router.RiskLow,
 		Objective: "summarize the fixture", SuccessCriteria: []string{"include the key result"},
-		ExecutionMaxOutputTokens: 512,
+		ExecutionMaxOutputTokens: 512, PrivateCaptureWorkspaceIndependent: true,
 	}
 	routeKey := strings.Repeat("a", 64)
 	binding := router.PrivateCandidateBinding{
@@ -56,6 +56,7 @@ func TestFileCaptureRecorderWritesPrivateReplayManifest(t *testing.T) {
 	require.Equal(t, task.Objective, manifest.Objective)
 	require.Equal(t, task.SuccessCriteria, manifest.Criteria)
 	require.Equal(t, witness.Bindings, manifest.Witness.Bindings)
+	require.True(t, manifest.WorkspaceIndependent)
 	require.Equal(t, defaultReplayTimeout.Milliseconds(), manifest.TimeoutMillis)
 }
 
@@ -65,12 +66,12 @@ func TestFileCaptureRecorderSkipsIneligibleTasks(t *testing.T) {
 	require.NoError(t, err)
 	witness, task := captureFixture("r-000000000000000000000002")
 
-	variants := []router.TaskSpec{task, task, task}
+	variants := []router.TaskSpec{task, task, task, task, task}
 	variants[0].Source = "system"
 	variants[1].SuccessCriteria = nil
 	variants[2].ExecutionMaxOutputTokens = 0
-	variants = append(variants, task)
 	variants[3].ExcludeFromPrivateCapture = true
+	variants[4].PrivateCaptureWorkspaceIndependent = false
 	for _, variant := range variants {
 		require.NoError(t, recorder.RecordPrivateRouteCapture(witness, variant))
 	}

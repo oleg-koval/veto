@@ -53,11 +53,11 @@ func (r *FileCaptureRecorder) RecordPrivateRouteCapture(witness router.PrivateRo
 	if r == nil {
 		return errors.New("paired capture: recorder is unavailable")
 	}
-	if task.Source != "user" || task.ExcludeFromPrivateCapture || strings.TrimSpace(task.Objective) == "" || len(task.SuccessCriteria) == 0 || task.ExecutionMaxOutputTokens <= 0 {
+	if task.Source != "user" || task.ExcludeFromPrivateCapture || !task.PrivateCaptureWorkspaceIndependent || strings.TrimSpace(task.Objective) == "" || len(task.SuccessCriteria) == 0 || task.ExecutionMaxOutputTokens <= 0 {
 		return nil
 	}
 	manifest := Manifest{
-		Version: ManifestVersion, RouteID: witness.RouteID, TaskKind: task.Kind,
+		Version: ManifestVersion, WorkspaceIndependent: true, RouteID: witness.RouteID, TaskKind: task.Kind,
 		Risk: task.Risk, Objective: task.Objective,
 		Criteria:        append([]string(nil), task.SuccessCriteria...),
 		MaxOutputTokens: task.ExecutionMaxOutputTokens,
@@ -76,7 +76,7 @@ func (r *FileCaptureRecorder) RecordPrivateRouteCapture(witness router.PrivateRo
 }
 
 func validateCapturedManifest(manifest Manifest) error {
-	if manifest.Version != ManifestVersion || manifest.Witness.Version != router.PrivateWitnessVersion ||
+	if manifest.Version != ManifestVersion || !manifest.WorkspaceIndependent || manifest.Witness.Version != router.PrivateWitnessVersion ||
 		!isPrivateRouteID(manifest.RouteID) || manifest.RouteID != manifest.Witness.RouteID ||
 		manifest.TaskKind != manifest.Witness.TaskKind || manifest.Risk != manifest.Witness.Risk ||
 		manifest.TimeoutMillis <= 0 || manifest.TimeoutMillis > int64(maxRunTimeout/time.Millisecond) ||

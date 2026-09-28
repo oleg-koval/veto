@@ -138,10 +138,13 @@ type TaskSpec struct {
 	Source                   string // "user" | "cron" | "webhook" | "system"
 	// ExcludeFromPrivateCapture prevents capture when execution includes
 	// context that the replay manifest does not preserve (for example skills).
-	ExcludeFromPrivateCapture bool     `json:"-"`
-	SkipModels                []string // resume: models already decided in a prior interrupted run
-	RuntimeFilter             string   // optional runtime adapter restriction
-	ProviderFilter            string   // optional provider restriction
+	ExcludeFromPrivateCapture bool `json:"-"`
+	// PrivateCaptureWorkspaceIndependent is an explicit caller assertion that
+	// replay does not need the original working directory or its files.
+	PrivateCaptureWorkspaceIndependent bool     `json:"-"`
+	SkipModels                         []string // resume: models already decided in a prior interrupted run
+	RuntimeFilter                      string   // optional runtime adapter restriction
+	ProviderFilter                     string   // optional provider restriction
 }
 
 // ModelCapabilities describes what a model can and cannot handle.
