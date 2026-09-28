@@ -60,7 +60,17 @@ type Grader interface {
 }
 
 // Replay evaluates only an explicitly supplied divergent route. It returns
-// two validated labels atomically and never appends to evidence itself.
+// two validated labels atomically, in authority-then-shadow order, and never
+// appends to evidence itself. Runs occur in random order in temporary workspaces,
+// removing each workspace before the next run; runner and grader must honor
+// their separate trial.Timeout deadlines, each greater than zero and at most
+// 30 minutes, subject to ctx's deadline.
+//
+// Any failure returns nil events, including invalid trial data, missing runner
+// or grader, randomization, workspace creation or cleanup, execution, grading,
+// or label validation failures. Runner and grader errors and expired child
+// contexts become generic errors; comparison and label validation errors are
+// wrapped, and cancellation detected between running and grading returns ctx.Err().
 func Replay(ctx context.Context, dataset shadow.Dataset, trial Trial, runner Runner, grader Grader) (events []shadow.Event, replayErr error) {
 	if runner == nil || grader == nil {
 		return nil, errors.New("paired replay: runner and grader are required")
@@ -135,6 +145,13 @@ func Replay(ctx context.Context, dataset shadow.Dataset, trial Trial, runner Run
 	return events, nil
 }
 
+// validateTrial returns the unique matching comparison and its authority and
+// shadow candidate keys, without mutating the inputs. It rejects invalid
+// comparison data, mismatched task metadata, blank objectives, missing or blank
+// criteria, nonpositive output budgets, timeouts outside (0, 30 minutes], and
+// selections that are not divergent or lack distinct, nonblank model bindings
+// for exactly those two keys.
+// Comparison validation errors are wrapped; model-binding provenance is not checked.
 func validateTrial(dataset shadow.Dataset, trial Trial) (shadow.RouteComparison, [2]string, error) {
 	var comparison shadow.RouteComparison
 	matches := 0

@@ -88,6 +88,12 @@ func (r *Runtime) ExecuteWithEvents(
 	return r.execute(ctx, purposeExecution, prompt, options, w, emit)
 }
 
+// execute runs an admission probe or full task through the configured CLI or
+// server, streaming text to w and events to the optional emit callback, and
+// returns output and telemetry. It rejects unsupported output budgets only for full execution;
+// invalid bindings, unsupported modes, and transport, context, writer, or cleanup
+// failures are returned in Result.Error, potentially with partial output.
+// It performs process or network I/O and may invoke tools during execution.
 func (r *Runtime) execute(
 	ctx context.Context,
 	purpose sessionPurpose,

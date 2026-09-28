@@ -110,7 +110,8 @@ func (g *AdmissionGate) RuntimeIdentity(model ModelCapabilities) string {
 }
 
 // SupportsExecutionOptions checks only explicit execution requirements.
-// Unknown adapters retain their existing behavior for compatibility.
+// It returns true for a nonpositive output budget, a missing executor, or an
+// executor without a validator; otherwise, any validation error becomes false.
 func (g *AdmissionGate) SupportsExecutionOptions(task TaskSpec, model ModelCapabilities) bool {
 	if task.ExecutionMaxOutputTokens <= 0 {
 		return true

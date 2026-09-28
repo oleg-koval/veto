@@ -769,6 +769,8 @@ func (a admissionExecutorAdapter) AdmissionRuntimeID() string {
 	return a.runtime.RuntimeID()
 }
 
+// ValidateExecutionOptions returns the runtime's validation error unchanged,
+// or nil when the runtime has no execution-option validator.
 func (a admissionExecutorAdapter) ValidateExecutionOptions(options execution.ExecutionOptions) error {
 	if validator, ok := a.runtime.(execution.ExecutionOptionValidator); ok {
 		return validator.ValidateExecutionOptions(options)

@@ -100,7 +100,11 @@ type Response struct {
 
 // Execute routes a task, then executes it on the selected runtime. It records
 // execution telemetry through the router's store and reports lifecycle events
-// through Hooks. Errors are returned for the delivery layer to present.
+// through Hooks, streaming output to request.Writer when the runtime supports it.
+// request.Options.MaxOutputTokens replaces the task's execution budget for
+// routing preflight. The response includes the selection and available output;
+// errors cover missing dependencies or execution support, propagate routing
+// and runtime failures, and reject truncated output.
 func (r Runner) Execute(ctx context.Context, request Request) (Response, error) {
 	if r.Router == nil {
 		return Response{}, errors.New("application: router is nil")

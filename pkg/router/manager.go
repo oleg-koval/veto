@@ -91,7 +91,10 @@ func (m *Manager) RouteWithAdmissionTimeout(ctx context.Context, task TaskSpec, 
 // route filters and ranks candidates, bounds the shortlist, and validates the
 // engine result against the original request before returning a selection.
 // It preserves request-local admission deadlines and emits routing progress;
-// an empty shortlist or selection returns ErrNoCandidate.
+// preflight rejecting every otherwise eligible model returns
+// ErrUnsupportedExecutionOptions, while an otherwise empty shortlist or selection
+// returns ErrNoCandidate. Request validation, engine, and outcome validation
+// errors are wrapped with routing context.
 func (m *Manager) route(ctx context.Context, task TaskSpec, admissionTimeout time.Duration) (ModelCapabilities, AdmissionDecision, error) {
 	if task.Complexity == "" {
 		task.Complexity = InferComplexity(task.Objective, task.Kind)
