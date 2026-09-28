@@ -6,14 +6,15 @@ Use an explicit route-time witness plus a separately supplied private manifest.
 Post-hoc manual key mapping cannot prove which model an opaque candidate key
 represented because the router's HMAC secret is process-local. Automatic raw
 task capture would cross the current privacy boundary. The witness records only
-the route's derived key, key-to-model bindings, and a keyed task fingerprint;
+the route's derived key, key-to-model-identity bindings with the known tool
+snapshot, and a keyed task fingerprint;
 it is not emitted to the redacted JSONL. The manifest holds the consented
 frozen task outside Git.
 
 ## Completed local gates
 
 - [x] Add an optional private witness recorder to the shadow engine; leave default production composition unchanged.
-- [x] Bind route-time candidate keys, task kind/risk, observation timestamp, and replayable task fingerprint.
+- [x] Bind route-time candidate keys to provider/model/runtime identity and the known tool snapshot, plus task kind/risk, observation timestamp, and replayable task fingerprint.
 - [x] Validate the manifest against a materialized route before executing either candidate.
 - [x] Save and load bounded private manifests with 0600 files, trusted stable private directories, no overwrite, and repository-path rejection. Pin the checked directory; leave failed partial writes for manual cleanup.
 - [x] Prove the route-to-manifest-to-label flow with fake decision engines, fake runner, and blind fake grader.

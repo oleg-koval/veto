@@ -12,11 +12,14 @@ import (
 // PrivateWitnessVersion is independent of the redacted shadow evidence schema.
 const PrivateWitnessVersion = 1
 
-// PrivateCandidateBinding is a route-time, private key-to-model observation.
-// It must never be written to the redacted shadow evidence stream.
+// PrivateCandidateBinding is a route-time, private key-to-model-identity
+// observation, including the route's known tool snapshot. It must never be
+// written to the redacted shadow evidence stream.
 type PrivateCandidateBinding struct {
-	Key   string `json:"key"`
-	Model string `json:"model"`
+	Key      string           `json:"key"`
+	Model    string           `json:"model"`
+	Identity ModelIdentity    `json:"identity"`
+	Tools    ToolCapabilities `json:"tools"`
 }
 
 // PrivateRouteWitness binds a route observation to its original candidate
@@ -40,15 +43,24 @@ type PrivateRouteWitnessRecorder interface {
 	RecordPrivateRouteWitness(PrivateRouteWitness) error
 }
 
-// PrivateCandidateKey recomputes one opaque key using the private route key.
-// Only a route-time witness may supply that key; do not publish it.
-func PrivateCandidateKey(routeKeyHex, modelName string) (string, error) {
+// PrivateCandidateKey recomputes one opaque key using the private route key,
+// display name, centralized model identity, and route-time tool snapshot. Only
+// a route-time witness may supply those values; do not publish them.
+func PrivateCandidateKey(routeKeyHex, modelName string, identity ModelIdentity, tools ToolCapabilities) (string, error) {
 	key, err := decodePrivateRouteKey(routeKeyHex)
 	if err != nil || modelName == "" {
 		return "", errors.New("invalid private candidate binding")
 	}
+	encoded, err := json.Marshal(struct {
+		Name     string           `json:"name"`
+		Identity ModelIdentity    `json:"identity"`
+		Tools    ToolCapabilities `json:"tools"`
+	}{Name: modelName, Identity: identity, Tools: tools})
+	if err != nil {
+		return "", errors.New("invalid private candidate binding")
+	}
 	mac := hmac.New(sha256.New, key)
-	_, _ = mac.Write([]byte("candidate\x00" + modelName))
+	_, _ = mac.Write(append([]byte("candidate\x00"), encoded...))
 	return "c-" + hex.EncodeToString(mac.Sum(nil)[:16]), nil
 }
 

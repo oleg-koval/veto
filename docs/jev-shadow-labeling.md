@@ -55,11 +55,13 @@ completed.
 
 This offline slice adds an opt-in route-time `PrivateRouteWitnessRecorder`
 and a private manifest. The witness stores a route-scoped key,
-opaque-key-to-model bindings, and a fingerprint of the replayable task fields,
-not raw objective text. The manifest supplies the frozen objective and criteria
+opaque-key-to-model-identity bindings, the known tool snapshot, and a
+fingerprint of the replayable task fields, not raw objective text. The manifest supplies the frozen objective and criteria
 separately; validation recomputes candidate keys and checks the fingerprint,
-route timestamp, kind, risk, and exact offered bindings before either fake
-candidate runs. Private manifest files require a trusted, stable directory
+route timestamp, kind, risk, provider/model/runtime identity, and exact known
+tool snapshot before either fake candidate runs. Replay passes those captured
+values to the runner, which must reject current configuration that differs.
+Private manifest files require a trusted, stable directory
 without group or other permissions outside a Git worktree, use 0600 file
 permissions, and cannot overwrite an existing path. File operations pin the
 checked directory; a failed write may leave a partial private file for manual

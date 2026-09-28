@@ -241,23 +241,26 @@ injected runner in separate temporary workspaces, grades against the same
 criteria, and returns validated redacted label events atomically. It has no
 production runner, provider access, automatic task capture, or evidence writer.
 The caller remains responsible for authorization, egress isolation, and
-verifying the private candidate-key mapping before appending labels.
+verifying the private candidate-identity mapping before appending labels.
 An explicitly installed `PrivateRouteWitnessRecorder` can now capture a
-route-scoped key, opaque-key-to-model bindings, and a fingerprint of the
-objective, criteria, task kind, risk, and output budget. The route key is
+route-scoped key, opaque-key-to-model-identity bindings, the known tool
+snapshot, and a fingerprint of the objective, criteria, task kind, risk, and
+output budget. The route key is
 derived from the engine's process secret; it lets the validator recompute
 candidate keys without revealing keys for other routes. The witness contains
-no raw task text, but its key, fingerprint, and model names are private and
-never enter the redacted JSONL. `internal/eval/paired` validates a separately
+no raw task text, but its key, fingerprint, model names, and identities are
+private and never enter the redacted JSONL. `internal/eval/paired` validates a separately
 supplied private manifest against that witness and the materialized route
 before replay. Its file helpers require a trusted, stable private directory
 outside a Git worktree, pin that directory for file operations, create files
 without overwrite at mode 0600, and reject unsafe reads. A failed write may
 leave a partial 0600 file rather than risk removing a replaced path.
 Production CLI composition does not install the witness recorder or run a
-paired provider adapter. Matching candidate keys cannot prove that the task fingerprint was
-actually recorded at route time: the operator must establish the witness's
-origin before treating labels as real evidence.
+paired provider adapter. Matching candidate keys cannot prove that the task
+fingerprint was actually recorded at route time: the operator must establish the witness's
+origin before treating labels as real evidence. Replay passes the frozen
+identity and tool snapshot to the runner, which must reject changed
+configuration before execution.
 See [ADR-007](decisions/ADR-007-jev-shadow-evaluation.md) and
 [the evidence contract](jev-shadow-data.md).
 

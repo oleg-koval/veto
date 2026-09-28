@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -104,6 +105,9 @@ type ShadowingDecisionEngine struct {
 	authorityStrategy string
 	shadowStrategy    string
 	candidateSecret   []byte
+	candidateMu       sync.Mutex
+	candidateKeys     map[string]map[string]string
+	candidateKeyOrder []string
 	now               func() time.Time
 }
 
@@ -188,12 +192,16 @@ func (e *ShadowingDecisionEngine) record(request DecisionRequest, authority Deci
 		AuthorityStrategy: e.authorityStrategy, ShadowStrategy: e.shadowStrategy,
 		Authority: authorityEvidence(authority, authorityErr), Shadow: shadowEvidence(request, observed),
 	}
+	candidateKeys := make(map[string]string, len(request.Candidates))
 	comparison.Candidates = make([]string, 0, len(request.Candidates))
 	for _, candidate := range request.Candidates {
-		comparison.Candidates = append(comparison.Candidates, e.candidateKey(comparison.RouteID, candidate.Model.Name))
+		key := e.candidateKeyForCandidate(comparison.RouteID, candidate)
+		comparison.Candidates = append(comparison.Candidates, key)
+		candidateKeys[candidate.Model.Name] = key
 	}
-	comparison.Authority.SelectedCandidate = e.candidateKey(comparison.RouteID, comparison.Authority.SelectedCandidate)
-	comparison.Shadow.SelectedCandidate = e.candidateKey(comparison.RouteID, comparison.Shadow.SelectedCandidate)
+	comparison.Authority.SelectedCandidate = candidateKeys[comparison.Authority.SelectedCandidate]
+	comparison.Shadow.SelectedCandidate = candidateKeys[comparison.Shadow.SelectedCandidate]
+	e.rememberCandidateKeys(comparison.RouteID, candidateKeys)
 	safeRecordComparison(e.recorder, comparison)
 	if e.privateWitness != nil {
 		routeKey := e.privateRouteKey(comparison.RouteID)
@@ -206,7 +214,8 @@ func (e *ShadowingDecisionEngine) record(request DecisionRequest, authority Deci
 		}
 		for _, candidate := range request.Candidates {
 			witness.Bindings = append(witness.Bindings, PrivateCandidateBinding{
-				Key: e.candidateKey(comparison.RouteID, candidate.Model.Name), Model: candidate.Model.Name,
+				Key: candidateKeys[candidate.Model.Name], Model: candidate.Model.Name,
+				Identity: candidate.Model.Identity(), Tools: cloneToolCapabilities(candidate.Tools),
 			})
 		}
 		safeRecordPrivateWitness(e.privateWitness, witness)
@@ -310,13 +319,49 @@ func newShadowCandidateSecret() []byte {
 	return secret
 }
 
-// candidateKey returns a route-scoped HMAC identifier, or empty for a missing model or secret.
+// candidateKey returns a previously captured route-scoped identifier for later execution labels.
 func (e *ShadowingDecisionEngine) candidateKey(routeID, modelName string) string {
+	e.candidateMu.Lock()
+	defer e.candidateMu.Unlock()
+	return e.candidateKeys[routeID][modelName]
+}
+
+func (e *ShadowingDecisionEngine) candidateKeyForCandidate(routeID string, candidate DecisionCandidate) string {
+	modelName := candidate.Model.Name
 	if modelName == "" {
 		return ""
 	}
-	key, _ := PrivateCandidateKey(e.privateRouteKey(routeID), modelName)
+	key, _ := PrivateCandidateKey(e.privateRouteKey(routeID), modelName, candidate.Model.Identity(), candidate.Tools)
 	return key
+}
+
+func (e *ShadowingDecisionEngine) rememberCandidateKeys(routeID string, keys map[string]string) {
+	if routeID == "" {
+		return
+	}
+	e.candidateMu.Lock()
+	defer e.candidateMu.Unlock()
+	if e.candidateKeys == nil {
+		e.candidateKeys = make(map[string]map[string]string)
+	}
+	if _, exists := e.candidateKeys[routeID]; !exists {
+		e.candidateKeyOrder = append(e.candidateKeyOrder, routeID)
+	}
+	copy := make(map[string]string, len(keys))
+	for name, key := range keys {
+		copy[name] = key
+	}
+	e.candidateKeys[routeID] = copy
+	const maxCandidateRoutes = 256
+	for len(e.candidateKeyOrder) > maxCandidateRoutes {
+		oldest := e.candidateKeyOrder[0]
+		e.candidateKeyOrder = e.candidateKeyOrder[1:]
+		delete(e.candidateKeys, oldest)
+	}
+}
+
+func cloneToolCapabilities(tools ToolCapabilities) ToolCapabilities {
+	return ToolCapabilities{Tools: append([]string(nil), tools.Tools...), Known: tools.Known}
 }
 
 func (e *ShadowingDecisionEngine) privateRouteKey(routeID string) string {

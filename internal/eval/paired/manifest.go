@@ -67,14 +67,25 @@ func ValidateManifest(dataset shadow.Dataset, manifest Manifest) (Trial, error) 
 		return Trial{}, errors.New("paired manifest: candidate bindings do not match comparison")
 	}
 	modelsByKey := make(map[string]string, len(manifest.Witness.Bindings))
+	identitiesByKey := make(map[string]router.ModelIdentity, len(manifest.Witness.Bindings))
+	toolsByKey := make(map[string]router.ToolCapabilities, len(manifest.Witness.Bindings))
 	models := make(map[string]bool, len(manifest.Witness.Bindings))
 	for index, binding := range manifest.Witness.Bindings {
-		derived, err := router.PrivateCandidateKey(manifest.Witness.RouteKey, binding.Model)
+		identity := binding.Identity
+		if strings.TrimSpace(identity.Source) == "" || strings.TrimSpace(identity.Provider) == "" ||
+			strings.TrimSpace(identity.Model) == "" || strings.TrimSpace(identity.Runtime) == "" || !binding.Tools.Known {
+			return Trial{}, errors.New("paired manifest: complete model identity and known tool snapshot are required")
+		}
+		derived, err := router.PrivateCandidateKey(manifest.Witness.RouteKey, binding.Model, identity, binding.Tools)
 		if err != nil || binding.Key != derived || binding.Key != comparison.Candidates[index].Key ||
 			strings.TrimSpace(binding.Model) == "" || models[binding.Model] {
 			return Trial{}, errors.New("paired manifest: candidate bindings do not match comparison")
 		}
 		modelsByKey[binding.Key] = binding.Model
+		identitiesByKey[binding.Key] = identity
+		toolsByKey[binding.Key] = router.ToolCapabilities{
+			Tools: append([]string(nil), binding.Tools.Tools...), Known: binding.Tools.Known,
+		}
 		models[binding.Model] = true
 	}
 	if len(modelsByKey) != len(manifest.Witness.Bindings) {
@@ -99,8 +110,9 @@ func ValidateManifest(dataset shadow.Dataset, manifest Manifest) (Trial, error) 
 	trial := Trial{
 		RouteID: manifest.RouteID, TaskKind: string(manifest.TaskKind), Risk: string(manifest.Risk),
 		Objective: manifest.Objective, Criteria: append([]string(nil), manifest.Criteria...),
-		ModelsByKey: modelsByKey, MaxOutputTokens: manifest.MaxOutputTokens,
-		Timeout: time.Duration(manifest.TimeoutMillis) * time.Millisecond,
+		ModelsByKey: modelsByKey, IdentitiesByKey: identitiesByKey, ToolsByKey: toolsByKey,
+		MaxOutputTokens: manifest.MaxOutputTokens,
+		Timeout:         time.Duration(manifest.TimeoutMillis) * time.Millisecond,
 	}
 	if _, _, err := validateTrial(dataset, trial); err != nil {
 		return Trial{}, err

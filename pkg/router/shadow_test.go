@@ -30,6 +30,14 @@ func TestPrivateWitnessCapturesRouteTimeBindingsWithoutRawTask(t *testing.T) {
 	request.Task.Objective = "private task text"
 	request.Task.SuccessCriteria = []string{"private criterion"}
 	request.Task.ExecutionMaxOutputTokens = 1024
+	request.Candidates[0] = DecisionCandidate{
+		Model: ModelCapabilities{Name: "a", Source: "fixture", Provider: "provider-a", APIModel: "api-a", Runtime: "runtime-a"},
+		Tools: ToolCapabilities{Tools: []string{"read", "shell"}, Known: true},
+	}
+	request.Candidates[1] = DecisionCandidate{
+		Model: ModelCapabilities{Name: "b", Source: "fixture", Provider: "provider-b", APIModel: "api-b", Runtime: "runtime-b"},
+		Tools: ToolCapabilities{Tools: []string{"read"}, Known: true},
+	}
 	redacted := &recordingShadowSink{}
 	private := &privateWitnessSink{}
 	engine := NewShadowingDecisionEngine(decisionEngineFunc(func(context.Context, DecisionRequest) (DecisionOutcome, error) {
@@ -48,8 +56,8 @@ func TestPrivateWitnessCapturesRouteTimeBindingsWithoutRawTask(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, fingerprint, witness.TaskFingerprint)
 	require.Equal(t, []PrivateCandidateBinding{
-		{Key: redacted.comparisons[0].Candidates[0], Model: "a"},
-		{Key: redacted.comparisons[0].Candidates[1], Model: "b"},
+		{Key: redacted.comparisons[0].Candidates[0], Model: "a", Identity: request.Candidates[0].Model.Identity(), Tools: request.Candidates[0].Tools},
+		{Key: redacted.comparisons[0].Candidates[1], Model: "b", Identity: request.Candidates[1].Model.Identity(), Tools: request.Candidates[1].Tools},
 	}, witness.Bindings)
 	encoded, err := json.Marshal(witness)
 	require.NoError(t, err)

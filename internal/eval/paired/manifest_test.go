@@ -34,11 +34,23 @@ func (c *witnessCollector) RecordPrivateRouteWitness(witness router.PrivateRoute
 	return nil
 }
 
+func testCandidateBinding(name, providerModel string) router.PrivateCandidateBinding {
+	return router.PrivateCandidateBinding{
+		Model: name,
+		Identity: router.ModelIdentity{
+			Source: "fixture", Provider: "fixture-provider", Model: providerModel, Runtime: "fixture-runtime",
+		},
+		Tools: router.ToolCapabilities{Tools: []string{"read", "shell"}, Known: true},
+	}
+}
+
 func manifestFixture() (shadow.Dataset, Manifest) {
 	dataset, trial := replayFixture()
 	routeKey := strings.Repeat("7", 64)
-	keyA, _ := router.PrivateCandidateKey(routeKey, "model-a")
-	keyB, _ := router.PrivateCandidateKey(routeKey, "model-b")
+	bindingA, bindingB := testCandidateBinding("model-a", "api-v1"), testCandidateBinding("model-b", "api-v2")
+	keyA, _ := router.PrivateCandidateKey(routeKey, bindingA.Model, bindingA.Identity, bindingA.Tools)
+	keyB, _ := router.PrivateCandidateKey(routeKey, bindingB.Model, bindingB.Identity, bindingB.Tools)
+	bindingA.Key, bindingB.Key = keyA, keyB
 	dataset.Routes[0].Comparison.Candidates = []shadow.Candidate{{Key: keyA}, {Key: keyB}}
 	dataset.Routes[0].Comparison.Authority.SelectedCandidate = keyA
 	dataset.Routes[0].Comparison.Shadow.SelectedCandidate = keyB
@@ -52,7 +64,7 @@ func manifestFixture() (shadow.Dataset, Manifest) {
 		ObservedAt: dataset.Routes[0].Comparison.ObservedAt,
 		TaskKind:   router.TaskKind(trial.TaskKind), Risk: router.Risk(trial.Risk),
 		RouteKey: routeKey, TaskFingerprint: fingerprint,
-		Bindings: []router.PrivateCandidateBinding{{Key: keyA, Model: "model-a"}, {Key: keyB, Model: "model-b"}},
+		Bindings: []router.PrivateCandidateBinding{bindingA, bindingB},
 	}
 	return dataset, Manifest{
 		Version: ManifestVersion, RouteID: trial.RouteID, TaskKind: router.TaskKind(trial.TaskKind),
@@ -71,7 +83,6 @@ func TestManifestRejectsMismatchedTaskAndBindingsBeforeRunning(t *testing.T) {
 		{name: "criteria", change: func(m *Manifest) { m.Criteria = []string{"wrong criterion"} }},
 		{name: "budget", change: func(m *Manifest) { m.MaxOutputTokens++ }},
 		{name: "binding", change: func(m *Manifest) { m.Witness.Bindings[0].Key = "b" }},
-		{name: "model", change: func(m *Manifest) { m.Witness.Bindings[0].Model = "model-b" }},
 		{name: "swapped models", change: func(m *Manifest) {
 			m.Witness.Bindings[0].Model, m.Witness.Bindings[1].Model = m.Witness.Bindings[1].Model, m.Witness.Bindings[0].Model
 		}},
@@ -183,8 +194,8 @@ func TestRouteTimeWitnessToPrivateManifestToFakePairedLabels(t *testing.T) {
 	_, err := engine.Decide(t.Context(), router.DecisionRequest{
 		Version: router.DecisionVersion, Task: task,
 		Candidates: []router.DecisionCandidate{
-			{Model: router.ModelCapabilities{Name: "model-a"}},
-			{Model: router.ModelCapabilities{Name: "model-b"}},
+			{Model: router.ModelCapabilities{Name: "model-a", Source: "fixture", Provider: "provider-a", APIModel: "api-v1", Runtime: "fixture-runtime"}, Tools: router.ToolCapabilities{Tools: []string{"read", "shell"}, Known: true}},
+			{Model: router.ModelCapabilities{Name: "model-b", Source: "fixture", Provider: "provider-b", APIModel: "api-v2", Runtime: "fixture-runtime"}, Tools: router.ToolCapabilities{Tools: []string{"read", "shell"}, Known: true}},
 		},
 	})
 	require.NoError(t, err)
