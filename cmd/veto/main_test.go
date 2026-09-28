@@ -11,10 +11,17 @@ import (
 	"testing"
 
 	"github.com/oleg-koval/veto/pkg/execution"
+	"github.com/oleg-koval/veto/pkg/executor"
 	"github.com/oleg-koval/veto/pkg/router"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestAdmissionAdapterProjectsCodexExecutionPreflight(t *testing.T) {
+	adapter := admissionExecutorAdapter{runtime: executor.NewCodexCLIExecutor()}
+	require.NoError(t, adapter.ValidateExecutionOptions(execution.ExecutionOptions{MaxOutputTokens: execution.DefaultExecutionMaxTokens}))
+	require.ErrorContains(t, adapter.ValidateExecutionOptions(execution.ExecutionOptions{MaxOutputTokens: 16000}), "does not support custom --max-output-tokens")
+}
 
 func TestCodexCLIAuthenticatedUsesExistingChatGPTLogin(t *testing.T) {
 	if runtime.GOOS == "windows" {

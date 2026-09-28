@@ -100,7 +100,11 @@ type Response struct {
 
 // Execute routes a task, then executes it on the selected runtime. It records
 // execution telemetry through the router's store and reports lifecycle events
-// through Hooks. Errors are returned for the delivery layer to present.
+// through Hooks, streaming output to request.Writer when the runtime supports it.
+// request.Options.MaxOutputTokens replaces the task's execution budget for
+// routing preflight. The response includes the selection and available output;
+// errors cover missing dependencies or execution support, propagate routing
+// and runtime failures, and reject truncated output.
 func (r Runner) Execute(ctx context.Context, request Request) (Response, error) {
 	if r.Router == nil {
 		return Response{}, errors.New("application: router is nil")
@@ -108,18 +112,20 @@ func (r Runner) Execute(ctx context.Context, request Request) (Response, error) 
 	if r.Runtime == nil {
 		return Response{}, errors.New("application: runtime resolver is nil")
 	}
+	task := request.Task
+	task.ExecutionMaxOutputTokens = request.Options.MaxOutputTokens
 
 	var model router.ModelCapabilities
 	var decision router.AdmissionDecision
 	var err error
 	if request.AdmissionTimeout > 0 {
 		if timed, ok := r.Router.(timedRouter); ok {
-			model, decision, err = timed.RouteWithAdmissionTimeout(ctx, request.Task, request.AdmissionTimeout)
+			model, decision, err = timed.RouteWithAdmissionTimeout(ctx, task, request.AdmissionTimeout)
 		} else {
-			model, decision, err = r.Router.Route(ctx, request.Task)
+			model, decision, err = r.Router.Route(ctx, task)
 		}
 	} else {
-		model, decision, err = r.Router.Route(ctx, request.Task)
+		model, decision, err = r.Router.Route(ctx, task)
 	}
 	if err != nil {
 		return Response{}, err
@@ -129,13 +135,13 @@ func (r Runner) Execute(ctx context.Context, request Request) (Response, error) 
 		return Response{Model: model, Decision: decision}, fmt.Errorf("no executor for model %q", model.Name)
 	}
 
-	prompt := BuildExecutionPrompt(request.Task.Objective, request.Skills)
+	prompt := BuildExecutionPrompt(task.Objective, request.Skills)
 	if IsTextOnlyRuntime(runtime) {
 		prompt += textOnlyInstruction
 	}
 
 	started := time.Now()
-	r.emit(ExecutionEvent{Kind: ExecutionStarted, TaskID: request.Task.ID, Model: model,
+	r.emit(ExecutionEvent{Kind: ExecutionStarted, TaskID: task.ID, Model: model,
 		Metrics: router.ExecutionMetrics{Status: "started"}})
 
 	var result execution.Result
@@ -151,7 +157,7 @@ func (r Runner) Execute(ctx context.Context, request Request) (Response, error) 
 		result = runtime.(execution.EventTaskExecutor).ExecuteWithEvents(ctx, prompt, request.Options, writer,
 			func(event execution.RuntimeEvent) {
 				if r.Hooks.OnRuntimeEvent != nil {
-					r.Hooks.OnRuntimeEvent(request.Task.ID, model, event)
+					r.Hooks.OnRuntimeEvent(task.ID, model, event)
 				}
 			})
 		output = result.Output
@@ -180,8 +186,8 @@ func (r Runner) Execute(ctx context.Context, request Request) (Response, error) 
 			status = "truncated"
 		}
 		metrics := ExecutionMetrics(model, result, time.Since(started), status)
-		recordExecution(r.Router, request.Task, model.Name, decision, metrics)
-		r.emit(ExecutionEvent{Kind: ExecutionFailed, TaskID: request.Task.ID, Model: model,
+		recordExecution(r.Router, task, model.Name, decision, metrics)
+		r.emit(ExecutionEvent{Kind: ExecutionFailed, TaskID: task.ID, Model: model,
 			Metrics: metrics, Detail: err.Error()})
 		return Response{Model: model, Decision: decision, Output: output, Result: result, Streamed: streamed}, err
 	}
@@ -189,8 +195,8 @@ func (r Runner) Execute(ctx context.Context, request Request) (Response, error) 
 	// A zero exit/transport completion says only that the native runtime
 	// returned output. It is not evidence that the coding task was correct.
 	metrics := ExecutionMetrics(model, result, time.Since(started), "completed")
-	recordExecution(r.Router, request.Task, model.Name, decision, metrics)
-	r.emit(ExecutionEvent{Kind: ExecutionCompleted, TaskID: request.Task.ID, Model: model, Metrics: metrics})
+	recordExecution(r.Router, task, model.Name, decision, metrics)
+	r.emit(ExecutionEvent{Kind: ExecutionCompleted, TaskID: task.ID, Model: model, Metrics: metrics})
 	return Response{Model: model, Decision: decision, Output: output, Result: result,
 		OutputWritten: streamed, Streamed: streamed}, nil
 }

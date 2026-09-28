@@ -107,6 +107,7 @@ const (
 	ReasonWeakKind          = "TASK_KIND_OUTSIDE_STRENGTHS"
 	ReasonRiskTooHigh       = "RISK_TOO_HIGH"
 	ReasonPolicyExcluded    = "USER_POLICY_EXCLUDED"
+	ReasonExecutionOption   = "UNSUPPORTED_EXECUTION_OPTION"
 	ReasonParseFailure      = "PARSE_FAILURE"
 	ReasonLowConfidence     = "LOW_CONFIDENCE"
 )
@@ -129,12 +130,15 @@ type TaskSpec struct {
 	RequiresExecutableTools bool
 	SuccessCriteria         []string
 	Risk                    Risk
-	MaxCostUSD              float64  // 0 = no limit
-	MaxTokens               int      // 0 = no limit
-	Source                  string   // "user" | "cron" | "webhook" | "system"
-	SkipModels              []string // resume: models already decided in a prior interrupted run
-	RuntimeFilter           string   // optional runtime adapter restriction
-	ProviderFilter          string   // optional provider restriction
+	MaxCostUSD              float64 // 0 = no limit
+	MaxTokens               int     // 0 = no limit
+	// ExecutionMaxOutputTokens is the requested full-task output budget. It is
+	// not an admission budget; zero means no explicit execution requirement.
+	ExecutionMaxOutputTokens int
+	Source                   string   // "user" | "cron" | "webhook" | "system"
+	SkipModels               []string // resume: models already decided in a prior interrupted run
+	RuntimeFilter            string   // optional runtime adapter restriction
+	ProviderFilter           string   // optional provider restriction
 }
 
 // ModelCapabilities describes what a model can and cannot handle.

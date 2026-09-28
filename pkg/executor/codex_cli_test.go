@@ -169,6 +169,9 @@ func TestCodexCLIRejectsMalformedOrEmptyEventOutput(t *testing.T) {
 func TestCodexCLIUnknownCostModeAndUnsupportedCustomOutputLimit(t *testing.T) {
 	exec := NewCodexCLIExecutorWithUnknownCost()
 	assert.NotContains(t, exec.admissionSchema, `"estimated_cost_usd":{"type":"number","minimum":0,"maximum":0}`)
+	require.NoError(t, exec.ValidateExecutionOptions(ExecutionOptions{}))
+	require.NoError(t, exec.ValidateExecutionOptions(ExecutionOptions{MaxOutputTokens: DefaultExecutionMaxTokens}))
+	require.ErrorContains(t, exec.ValidateExecutionOptions(ExecutionOptions{MaxOutputTokens: 16000}), "does not support custom --max-output-tokens")
 	result := exec.ExecuteWithEvents(t.Context(), "execute", ExecutionOptions{MaxOutputTokens: 16000}, io.Discard, nil)
 	require.Error(t, result.Error)
 	assert.Contains(t, result.Error.Error(), "does not support custom --max-output-tokens")

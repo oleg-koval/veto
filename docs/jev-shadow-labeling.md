@@ -43,9 +43,13 @@ prove consent, isolation, blindness, or provenance; those are separate human
 acceptance checks. It also cannot turn a launch price into measured billed
 cost.
 
-This is a collection protocol, not an automated replay feature. The current
-CLI does not export a private route-ID-to-task mapping or execute shadow-only
-alternatives. Build and validate that isolated evaluation harness before
-collecting promotion evidence. The checked-in synthetic fixture exercises
-report mechanics only; no real TypeSafe account, paid call, or paired live run
-has been completed.
+`internal/eval/paired` now provides an offline replay core with injected runner
+and grader interfaces, randomized execution order, separate temporary
+workspaces, bounded contexts, and atomic redacted label output. Injected
+runners and graders must honor those contexts. Its fake-runner tests are harness
+evidence, not Jev-quality evidence. It cannot verify that a
+private model name truly belongs to an opaque candidate key: that mapping and
+the route-to-task join require separate provenance checks. The CLI still does
+not export a private route-ID-to-task mapping or ship a production replay
+runner. No real TypeSafe account, paid call, or paired live run has been
+completed.

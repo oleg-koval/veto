@@ -58,6 +58,15 @@ func (r *Runtime) EffectiveTools() []string { return nil }
 
 func (r *Runtime) EffectiveToolsKnown() bool { return false }
 
+// ValidateExecutionOptions rejects a custom output limit that neither the
+// OpenCode CLI nor server transport can enforce.
+func (*Runtime) ValidateExecutionOptions(options execution.ExecutionOptions) error {
+	if options.MaxOutputTokens > 0 && options.MaxOutputTokens != execution.DefaultExecutionMaxTokens {
+		return fmt.Errorf("opencode does not support custom --max-output-tokens; use the default %d", execution.DefaultExecutionMaxTokens)
+	}
+	return nil
+}
+
 func (r *Runtime) Run(ctx context.Context, prompt string) execution.Result {
 	return r.execute(ctx, purposeAdmission, prompt, execution.ExecutionOptions{}, io.Discard, nil)
 }
@@ -79,6 +88,12 @@ func (r *Runtime) ExecuteWithEvents(
 	return r.execute(ctx, purposeExecution, prompt, options, w, emit)
 }
 
+// execute runs an admission probe or full task through the configured CLI or
+// server, streaming text to w and events to the optional emit callback, and
+// returns output and telemetry. It rejects unsupported output budgets only for full execution;
+// invalid bindings, unsupported modes, and transport, context, writer, or cleanup
+// failures are returned in Result.Error, potentially with partial output.
+// It performs process or network I/O and may invoke tools during execution.
 func (r *Runtime) execute(
 	ctx context.Context,
 	purpose sessionPurpose,
@@ -87,6 +102,11 @@ func (r *Runtime) execute(
 	w io.Writer,
 	emit func(execution.RuntimeEvent),
 ) execution.Result {
+	if purpose == purposeExecution {
+		if err := r.ValidateExecutionOptions(options); err != nil {
+			return execution.Result{Error: err}
+		}
+	}
 	if !validIdentifier(r.model.Provider) || !validIdentifier(r.model.ID) {
 		return execution.Result{Error: errors.New("invalid OpenCode provider/model binding")}
 	}

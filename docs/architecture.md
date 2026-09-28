@@ -235,6 +235,13 @@ probability; Jev uses its candidate-success estimate. Paired success gates
 require labels for at least 95% of authority-labeled routes, and every
 divergent shadow-selected candidate on an authority-labeled route needs its
 own known outcome.
+The experimental `internal/eval/paired` core accepts an explicit private
+route-to-task trial supplied in memory, runs divergent selections through an
+injected runner in separate temporary workspaces, grades against the same
+criteria, and returns validated redacted label events atomically. It has no
+production runner, provider access, automatic task capture, or evidence writer.
+The caller remains responsible for authorization, egress isolation, and
+verifying the private candidate-key mapping before appending labels.
 See [ADR-007](decisions/ADR-007-jev-shadow-evaluation.md) and
 [the evidence contract](jev-shadow-data.md).
 
@@ -505,6 +512,12 @@ Each step has `task` (objective), `kind`, `risk`, optional `depends_on` (forward
 ## `veto run` — route + execute (`cmd/veto/run.go`)
 
 `veto run` is a thin wrapper around the routing pipeline that adds an execution step. After `Manager.Route` returns a winner, `cmdRun` looks up the executor for that model via the provider registry and invokes its separate full-task execution contract with `executor.ExecutionOptions{MaxOutputTokens: ...}`. The default is `executor.DefaultExecutionMaxTokens` (8192), configurable with `--max-output-tokens`; the admission probe's 512-token budget is never reused for task output.
+
+The application passes an explicit full-task output budget into routing.
+Before admission, the manager excludes runtimes whose optional execution
+preflight rejects that budget; Codex CLI and OpenCode reject nondefault output limits.
+Route-only calls have no execution budget requirement, and adapters without a
+preflight validator keep their previous eligibility.
 
 **Streaming:** `cmdRun` first checks for `executor.EventTaskExecutor`, which
 returns full result telemetry while streaming text and structured runtime

@@ -50,6 +50,15 @@ func (*CodexCLIExecutor) EffectiveTools() []string {
 	return []string{"bash", "read", "write", "edit"}
 }
 
+// ValidateExecutionOptions rejects the custom output limit Codex CLI cannot
+// enforce, before its admission probe can be selected for full execution.
+func (*CodexCLIExecutor) ValidateExecutionOptions(options ExecutionOptions) error {
+	if options.MaxOutputTokens > 0 && options.MaxOutputTokens != DefaultExecutionMaxTokens {
+		return fmt.Errorf("codex cli does not support custom --max-output-tokens; use the default %d", DefaultExecutionMaxTokens)
+	}
+	return nil
+}
+
 func (e *CodexCLIExecutor) Run(ctx context.Context, prompt string) Result {
 	dir, err := os.MkdirTemp("", "veto-codex-admission-")
 	if err != nil {
@@ -112,6 +121,12 @@ func (*CodexCLIExecutor) executionArgs(prompt string) []string {
 
 // ExecuteWithEvents consumes Codex's JSONL stream so long-running agent work
 // remains observable without exposing command arguments or command output.
+// It launches Codex with write access to the caller's workspace, writes agent
+// messages to w (nil discards them), and sends tool events to emit when non-nil.
+// On success, Result contains the last nonempty agent message and reported usage.
+// Result.Error reports unsupported options, process or context failures, invalid
+// or oversized event streams, writer errors, reported failures, or empty output;
+// context cancellation is converted to a timeout error rather than wrapped.
 func (e *CodexCLIExecutor) ExecuteWithEvents(
 	ctx context.Context,
 	prompt string,
@@ -119,9 +134,9 @@ func (e *CodexCLIExecutor) ExecuteWithEvents(
 	w io.Writer,
 	emit func(RuntimeEvent),
 ) Result {
-	if options.MaxOutputTokens > 0 && options.MaxOutputTokens != DefaultExecutionMaxTokens {
+	if err := e.ValidateExecutionOptions(options); err != nil {
 		return Result{
-			Error:     fmt.Errorf("codex cli does not support custom --max-output-tokens; use the default %d", DefaultExecutionMaxTokens),
+			Error:     err,
 			CostKnown: e.costKnown,
 		}
 	}

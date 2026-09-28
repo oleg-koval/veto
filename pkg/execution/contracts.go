@@ -20,6 +20,13 @@ type ExecutionOptions struct {
 	MaxOutputTokens int
 }
 
+// ExecutionOptionValidator lets a runtime reject unsupported options before
+// routing spends an admission call. RuntimeAdapter does not require it so
+// existing transports retain their behavior.
+type ExecutionOptionValidator interface {
+	ValidateExecutionOptions(ExecutionOptions) error
+}
+
 // EffectiveMaxOutputTokens returns the bounded output budget for this request.
 func (o ExecutionOptions) EffectiveMaxOutputTokens() int {
 	if o.MaxOutputTokens <= 0 {

@@ -438,9 +438,9 @@ func taskFromRequest(request controlplane.ActionRequest, objective string) (rout
 			return router.TaskSpec{}, fmt.Errorf("invalid max-output-tokens %q", raw)
 		}
 	}
-	// max-output-tokens is an execution-only budget (see executionOptions); it is
-	// validated here but deliberately kept out of TaskSpec so it cannot influence
-	// routing/admission decisions.
+	// Parse the execution-only budget separately (see executionOptions). The
+	// execution runner later copies it into TaskSpec for compatibility preflight;
+	// route-only requests do not acquire this requirement.
 	return router.TaskSpec{ID: request.Arguments["task-id"], Kind: kind, Objective: objective, Risk: risk, MaxCostUSD: maxCost, RequiredTools: splitRequestList(request.Arguments["required-tools"]), RequiresExecutableTools: request.Arguments["requires-executable-tools"] == "true" || router.RequiresExecutableRuntime(objective), SuccessCriteria: splitRequestList(request.Arguments["criteria"]), RuntimeFilter: request.Arguments["runtime"], ProviderFilter: request.Arguments["provider"], Source: "tui"}, nil
 }
 
