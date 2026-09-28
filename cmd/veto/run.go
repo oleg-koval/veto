@@ -114,6 +114,9 @@ func cmdRun(args []string) {
 	// resolve skills in parallel with no blocking — local match is instant;
 	// generation (rare miss path) runs before routing since it needs a model call anyway.
 	skillNames, skillBodies := resolveSkills(ctx, reg, mgr, spec)
+	// Replay manifests do not preserve injected skill bodies, so these runs
+	// cannot produce trustworthy paired-capture inputs.
+	spec.ExcludeFromPrivateCapture = spec.ExcludeFromPrivateCapture || len(skillBodies) > 0
 	render.PrintSkills(skillNames)
 
 	mgr.OnEvent = func(e router.ProgressEvent) {
@@ -465,6 +468,9 @@ func routeAndCaptureWithOptions(ctx context.Context, reg *providerRegistry, mgr 
 }
 
 func routeAndCaptureWithOptionsDecision(ctx context.Context, reg *providerRegistry, mgr *router.Manager, render *Renderer, spec router.TaskSpec, skills []string, options execution.ExecutionOptions) (string, string, router.AdmissionDecision, error) {
+	// Paired replay currently preserves the task but not injected skill bodies;
+	// exclude these runs so replay never represents a different prompt.
+	spec.ExcludeFromPrivateCapture = spec.ExcludeFromPrivateCapture || len(skills) > 0
 	prev := mgr.OnEvent
 	mgr.OnEvent = func(e router.ProgressEvent) {
 		render.OnEvent(e)

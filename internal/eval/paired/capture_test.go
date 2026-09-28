@@ -69,6 +69,8 @@ func TestFileCaptureRecorderSkipsIneligibleTasks(t *testing.T) {
 	variants[0].Source = "system"
 	variants[1].SuccessCriteria = nil
 	variants[2].ExecutionMaxOutputTokens = 0
+	variants = append(variants, task)
+	variants[3].ExcludeFromPrivateCapture = true
 	for _, variant := range variants {
 		require.NoError(t, recorder.RecordPrivateRouteCapture(witness, variant))
 	}

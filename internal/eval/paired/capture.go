@@ -53,7 +53,7 @@ func (r *FileCaptureRecorder) RecordPrivateRouteCapture(witness router.PrivateRo
 	if r == nil {
 		return errors.New("paired capture: recorder is unavailable")
 	}
-	if task.Source != "user" || strings.TrimSpace(task.Objective) == "" || len(task.SuccessCriteria) == 0 || task.ExecutionMaxOutputTokens <= 0 {
+	if task.Source != "user" || task.ExcludeFromPrivateCapture || strings.TrimSpace(task.Objective) == "" || len(task.SuccessCriteria) == 0 || task.ExecutionMaxOutputTokens <= 0 {
 		return nil
 	}
 	manifest := Manifest{
