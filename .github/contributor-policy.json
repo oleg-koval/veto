@@ -32,6 +32,12 @@
         "head_prefix": "fleet/sync",
         "same_repository": true,
         "reason": "oleg-koval/fleet syncs shared repo config (Dependabot, repo files) from one central repo"
+      },
+      {
+        "login": "dependabot[bot]",
+        "head_prefix": "dependabot/",
+        "same_repository": true,
+        "reason": "Dependabot version updates; the whitelist entry 'dependabot' never matched the bot login dependabot[bot]"
       }
     ]
   }
